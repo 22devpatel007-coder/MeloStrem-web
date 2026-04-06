@@ -210,7 +210,7 @@ const BulkUpload = () => {
           fd.append('cover', placeholderFile);
         }
 
-        await axiosUpload.post('/api/songs', fd);
+        await axiosUpload.post('/songs', fd);
         newResults.push({ title: entry.title, status: 'success' });
       } catch (err) {
         newResults.push({

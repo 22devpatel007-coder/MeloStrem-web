@@ -1,12 +1,12 @@
 /**
  * client/src/App.jsx
  *
- * BUG 1 FIX: MusicPlayer was removed from the app shell during refactor.
- * It must be rendered here — inside providers, outside route tree —
- * so it persists across all page navigations without unmounting.
+ * FIX: getIdTokenResult(true) forces a fresh token from Firebase on every
+ * auth state change. Without `true`, Firebase returns a cached token that
+ * may not contain the latest custom claims (e.g. admin: true).
  *
- * MusicPlayer returns null when currentSong is null, so rendering it
- * unconditionally here is safe and correct.
+ * This is the permanent fix for admin pages redirecting to home after
+ * setAdminClaim.js has been run — the cached token was missing the claim.
  */
 
 import { BrowserRouter } from 'react-router-dom';
@@ -38,7 +38,10 @@ const App = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const tokenResult = await firebaseUser.getIdTokenResult();
+        // ✅ FIX: pass `true` to force a fresh token from Firebase.
+        // Without this, Firebase returns a cached token that may not
+        // contain custom claims set after the last sign-in (e.g. admin: true).
+        const tokenResult = await firebaseUser.getIdTokenResult(true);
         setUser(firebaseUser);
         setAdmin(!!tokenResult.claims.admin);
       } else {

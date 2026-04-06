@@ -121,20 +121,23 @@ const AdminDashboard = () => {
               desc="Add a single track"
               icon={<UploadIcon />}
             />
+            {/* ✅ FIX: was /admin/upload-playlist → correct route is /admin/playlist-zip */}
             <ActionLink
-              to="/admin/upload-playlist"
+              to="/admin/playlist-zip"
               label="Upload Playlist"
               desc="ZIP → library playlist"
               icon={<PlaylistIcon />}
             />
+            {/* ✅ FIX: was /admin/bulk-upload → correct route is /admin/bulk */}
             <ActionLink
-              to="/admin/bulk-upload"
+              to="/admin/bulk"
               label="Bulk Upload"
               desc="Multiple songs at once"
               icon={<UploadIcon />}
             />
+            {/* ✅ FIX: was /admin/songs → correct route is /admin/music */}
             <ActionLink
-              to="/admin/songs"
+              to="/admin/music"
               label="Manage Songs"
               desc="View & delete tracks"
               icon={<MusicIcon />}
@@ -462,28 +465,14 @@ const ActionLink = ({ to, label, desc, icon, primary }) => (
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const MusicIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M9 18V5l12-2v13" />
     <circle cx="6" cy="18" r="3" />
     <circle cx="18" cy="16" r="3" />
   </svg>
 );
 const UsersIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
     <circle cx="9" cy="7" r="4" />
     <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -491,53 +480,25 @@ const UsersIcon = () => (
   </svg>
 );
 const PlayIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <polygon points="5 3 19 12 5 21 5 3" />
   </svg>
 );
 const TagIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
     <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
 );
 const UploadIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <polyline points="16 16 12 12 8 16" />
     <line x1="12" y1="12" x2="12" y2="21" />
     <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
   </svg>
 );
 const PlaylistIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <line x1="8" y1="6" x2="21" y2="6" />
     <line x1="8" y1="12" x2="21" y2="12" />
     <line x1="8" y1="18" x2="21" y2="18" />
