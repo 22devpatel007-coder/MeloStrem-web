@@ -187,8 +187,8 @@ const UploadPlaylistZip = () => {
           const placeholderFile = await createPlaceholderCoverFile(baseName);
           fd.append('cover', placeholderFile);
         }
-
-        const res = await axiosUpload.post('/admin/playlists/upload-song', fd);
+        // console.log(`Uploading song: ${entry.title} by ${entry.artist}`);
+        const res = await axiosUpload.post('/playlists/upload-song', fd);
         const payload = res.data || {};
         const songId = payload.songId || payload.song?.id;
         const coverUrl = payload.song?.coverUrl;
@@ -220,7 +220,7 @@ const UploadPlaylistZip = () => {
       : '';
 
     try {
-      const playlistRes = await axiosUpload.post('/admin/playlists', {
+      const playlistRes = await axiosUpload.post('/playlists', {
         name: playlistName.trim(),
         description: playlistDescription.trim(),
         songIds: uploadedSongIds,

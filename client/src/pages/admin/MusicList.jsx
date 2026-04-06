@@ -31,7 +31,7 @@ const MusicList = () => {
   const fetchSongs = async () => {
     try {
       // limit=200 — admin needs the full list to manage songs
-      const res = await axiosInstance.get("/api/songs?limit=200");
+      const res = await axiosInstance.get("/songs?limit=200");
       setSongs(extractSongs(res.data));
     } catch (err) {
       console.error("Failed to fetch songs:", err);
@@ -43,7 +43,7 @@ const MusicList = () => {
   const handleDelete = async (id) => {
     setDeletingId(id);
     try {
-      await axiosInstance.delete(`/api/songs/${id}`);
+      await axiosInstance.delete(`/songs/${id}`);
       setSongs((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
       console.error("Delete failed:", err);
@@ -60,7 +60,7 @@ const MusicList = () => {
       prev.map((s) => (s.id === song.id ? { ...s, featured: !s.featured } : s)),
     );
     try {
-      await axiosInstance.patch(`/api/songs/${song.id}`, {
+      await axiosInstance.patch(`/songs/${song.id}`, {
         featured: !song.featured,
       });
     } catch (err) {
@@ -92,7 +92,7 @@ const MusicList = () => {
             <h1 style={styles.heading}>Manage Songs</h1>
             <p style={styles.subheading}>{songs.length} tracks in library</p>
           </div>
-          <Link to="/admin/bulk-upload" style={styles.bulkBtn}>
+          <Link to="/admin/bulk" style={styles.bulkBtn}>
             + Bulk Upload
           </Link>
         </div>

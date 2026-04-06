@@ -75,7 +75,7 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
         fd.append('duration', durationSecs);
         fd.append('cover',    coverFile);
 
-        const res = await api.patch(`/api/songs/${song.id}`, fd, {
+        const res = await api.patch(`/songs/${song.id}`, fd, {
           timeout: 300000,
           onUploadProgress: (ev) =>
             setProgress(Math.round((ev.loaded * 100) / ev.total)),
@@ -83,7 +83,7 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
         onUpdated(res.data);
       } else {
         // JSON-only — no file upload needed
-        const res = await api.patch(`/api/songs/${song.id}`, {
+        const res = await api.patch(`/songs/${song.id}`, {
           title:    form.title.trim(),
           artist:   form.artist.trim(),
           genre:    form.genre.trim(),
