@@ -1,48 +1,44 @@
 /**
  * client/src/components/player/MusicPlayer.jsx
  *
- * BUG 5 FIX: CSS custom property --pct on <input> doesn't work reliably
- *   in Firefox and Safari for ::webkit-slider-runnable-track and
- *   ::-moz-range-progress pseudo-elements. The browser does not always
- *   inherit custom properties down into these pseudo-elements.
+ * SHUFFLE OVERHAUL:
+ *   - shuffleMode replaces isShuffle boolean ('none' | 'classic' | 'smart')
+ *   - cycleShuffleMode cycles: none → classic (Vinyl Roll) → smart → none
+ *   - 3 distinct icons + badges per shuffle state
+ *   - Queue drawer extracted to <QueueDrawer /> with drag-and-drop reorder
  *
- *   Old broken approach:
- *     style={{ "--pct": `${pct}%` }}
- *     background: linear-gradient(to right, #22c55e var(--pct), #3d3d3d var(--pct))
+ * BUG 5 FIX (preserved):
+ *   CSS --pct on <input type=range> set via ref.style.setProperty() —
+ *   NOT via React style prop — so Firefox and Safari pseudo-elements
+ *   (::webkit-slider-runnable-track, ::-moz-range-progress) can read it.
  *
- *   Fix: Use a ref + direct DOM style mutation to set the CSS custom property
- *   on the input element itself. This is a direct DOM write — no React re-render,
- *   and the property is set on the exact element whose pseudo-elements need it.
- *   Works in Chrome, Firefox, and Safari.
- *
- * All other fixes from playerStore.js and queueStore.js apply here too:
+ * BUG 2/3/4 FIX (preserved):
  *   - playSong() no longer receives queue as argument
- *   - resumeSong() is now async — this component's togglePlay() is unchanged
- *     because MusicPlayer calls the store actions, not audio directly.
+ *   - resumeSong() is async — togglePlay() here is unchanged
  */
 
 import { useState, useEffect, useRef, memo, useCallback } from "react";
 import { usePlayerStore, audio } from "../../store/playerStore";
 import { useQueueStore } from "../../store/queueStore";
+import { QueueDrawer } from "./QueueDrawer";
 
 const MusicPlayer = memo(() => {
   const {
     currentSong,
     isPlaying,
     repeatMode,
-    isShuffle,
+    shuffleMode, // 'none' | 'classic' | 'smart'
     pauseSong,
     resumeSong,
     playNext,
     playPrev,
     setRepeatMode,
-    toggleShuffle,
+    cycleShuffleMode, // replaces toggleShuffle
   } = usePlayerStore();
-
-  const { queue: songs, removeFromQueue } = useQueueStore();
 
   const [showQueue, setShowQueue] = useState(false);
   const toggleQueue = useCallback(() => setShowQueue((v) => !v), []);
+
   const togglePlay = useCallback(
     () => (isPlaying ? pauseSong() : resumeSong()),
     [isPlaying, pauseSong, resumeSong],
@@ -53,36 +49,26 @@ const MusicPlayer = memo(() => {
     setRepeatMode(modes[(modes.indexOf(repeatMode) + 1) % 3]);
   }, [repeatMode, setRepeatMode]);
 
-  const shuffleMode = isShuffle ? "classic" : "none";
-  const cycleShuffleMode = useCallback(() => toggleShuffle(), [toggleShuffle]);
-
   // ── Progress — LOCAL state only, never in Zustand ─────────────────────────
-  // timeupdate fires up to 60x/sec. Putting this in Zustand would cause
-  // every store subscriber to re-render on every tick. Keep it local.
+  // timeupdate fires up to 60x/sec — keeping this local avoids mass re-renders
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(1);
   const [mini, setMini] = useState(false);
   const [seeking, setSeeking] = useState(false);
 
-  // BUG 5 FIX: Refs to the range inputs so we can set --pct directly on the
-  // DOM node. This is a direct DOM write — zero React re-renders.
+  // BUG 5 FIX: Direct DOM refs — zero React re-renders for track fill
   const seekRef = useRef(null);
   const volumeRef = useRef(null);
 
-  // Update --pct on the seek bar whenever progress or duration changes
   useEffect(() => {
     const pct = duration ? (progress / duration) * 100 : 0;
-    if (seekRef.current) {
-      seekRef.current.style.setProperty("--pct", `${pct}%`);
-    }
+    if (seekRef.current) seekRef.current.style.setProperty("--pct", `${pct}%`);
   }, [progress, duration]);
 
-  // Update --pct on the volume bar whenever volume changes
   useEffect(() => {
-    if (volumeRef.current) {
+    if (volumeRef.current)
       volumeRef.current.style.setProperty("--pct", `${volume * 100}%`);
-    }
   }, [volume]);
 
   useEffect(() => {
@@ -107,7 +93,6 @@ const MusicPlayer = memo(() => {
     audio.currentTime = Number(e.target.value);
     setSeeking(false);
   }, []);
-
   const handleVolume = useCallback((e) => {
     const v = Number(e.target.value);
     audio.volume = v;
@@ -124,7 +109,29 @@ const MusicPlayer = memo(() => {
 
   if (!currentSong) return null;
 
-  // ── Mini pill ──────────────────────────────────────────────────────────────
+  // ── Shuffle button config per mode ────────────────────────────────────────
+  const shuffleConfig = {
+    none: {
+      label: "Shuffle off — click for Vinyl Roll",
+      color: "",
+      badge: null,
+      cls: "",
+    },
+    classic: {
+      label: "Vinyl Roll shuffle — click for Smart shuffle",
+      color: "#fbbf24",
+      badge: "Classic",
+      cls: "active-amber",
+    },
+    smart: {
+      label: "Smart shuffle — click to turn off",
+      color: "#a78bfa",
+      badge: "Smart",
+      cls: "active-purple",
+    },
+  }[shuffleMode] ?? { label: "", color: "", badge: null, cls: "" };
+
+  // ── Mini pill ─────────────────────────────────────────────────────────────
   if (mini) {
     return (
       <div style={styles.miniBar}>
@@ -154,11 +161,6 @@ const MusicPlayer = memo(() => {
     );
   }
 
-  const shuffleLabel =
-    shuffleMode === "classic"
-      ? "Classic Shuffle — random (click to turn off)"
-      : "Shuffle off (click to enable)";
-
   return (
     <>
       <style>{`
@@ -175,9 +177,7 @@ const MusicPlayer = memo(() => {
           height: 72px;
         }
 
-        /* BUG 5 FIX: --pct is set via ref.style.setProperty() in useEffect,
-           NOT via React's style prop. This ensures Firefox and Safari can read
-           the property when evaluating pseudo-element styles. */
+        /* BUG 5 FIX: --pct set via ref.style.setProperty(), NOT React style prop */
         input[type=range].player-range {
           -webkit-appearance: none; appearance: none;
           height: 4px; border-radius: 2px; outline: none; cursor: pointer;
@@ -213,8 +213,10 @@ const MusicPlayer = memo(() => {
           display: flex; align-items: center; justify-content: center;
           transition: color 0.15s; flex-shrink: 0;
         }
-        .ctrl-btn:hover { color: #fff; }
-        .ctrl-btn.active-green { color: #22c55e; }
+        .ctrl-btn:hover         { color: #fff; }
+        .ctrl-btn.active-green  { color: #22c55e; }
+        .ctrl-btn.active-amber  { color: #fbbf24; }
+        .ctrl-btn.active-purple { color: #a78bfa; }
 
         .shuffle-btn-wrap { position: relative; display: flex; align-items: center; gap: 2px; }
         .shuffle-badge {
@@ -223,6 +225,7 @@ const MusicPlayer = memo(() => {
           pointer-events: none; flex-shrink: 0;
         }
         .shuffle-badge.classic { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+        .shuffle-badge.smart   { background: rgba(139,92,246,0.15);  color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
 
         .play-btn {
           width: 38px; height: 38px; background: #22c55e;
@@ -232,7 +235,6 @@ const MusicPlayer = memo(() => {
         }
         .play-btn:hover { background: #16a34a; transform: scale(1.06); }
 
-        /* Default hidden via CSS (not inline style) so @media can override */
         .player-side-btns { display: none; }
         .player-vol       { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
 
@@ -245,137 +247,23 @@ const MusicPlayer = memo(() => {
             display: flex; flex-direction: row; align-items: center;
             height: 64px; padding: 0 12px; gap: 0;
           }
-          .player-song-info  { flex: 1; min-width: 0; }
-          .player-controls   { display: flex !important; align-items: center; gap: 2px; flex-shrink: 0; }
-          .hide-mobile        { display: none !important; }
-          .player-vol         { display: none !important; }
-          .player-side-btns   { display: flex !important; align-items: center; gap: 2px; flex-shrink: 0; margin-left: 4px; }
+          .player-song-info { flex: 1; min-width: 0; }
+          .player-controls  { display: flex !important; align-items: center; gap: 2px; flex-shrink: 0; }
+          .hide-mobile      { display: none !important; }
+          .player-vol       { display: none !important; }
+          .player-side-btns { display: flex !important; align-items: center; gap: 2px; flex-shrink: 0; margin-left: 4px; }
         }
-
-        .queue-drawer {
-          position: fixed; bottom: 80px; right: 16px;
-          width: 300px; max-height: 400px;
-          background: #1a1a1a; border: 1px solid #2d2d2d;
-          border-radius: 14px; overflow: hidden;
-          display: flex; flex-direction: column;
-          z-index: 60; box-shadow: 0 16px 48px rgba(0,0,0,0.6);
-        }
-        @media (max-width: 640px) {
-          .queue-drawer { left: 8px; right: 8px; width: auto; bottom: 72px; }
-        }
-        .queue-header { padding: 14px 16px; border-bottom: 1px solid #2d2d2d; display: flex; justify-content: space-between; align-items: center; }
-        .queue-list   { overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: #2d2d2d transparent; }
-        .queue-item   { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #1f1f1f; transition: background 0.15s; }
-        .queue-item:hover  { background: rgba(255,255,255,0.04); }
-        .queue-item.active { background: rgba(34,197,94,0.08); }
       `}</style>
 
-      {showQueue && (
-        <div className="queue-drawer">
-          <div className="queue-header">
-            <span
-              style={{ color: "#fff", fontSize: "14px", fontWeight: "600" }}
-            >
-              Queue ({songs.length})
-            </span>
-            <button
-              onClick={toggleQueue}
-              style={{
-                background: "none",
-                border: "none",
-                color: "#6b7280",
-                cursor: "pointer",
-                padding: "4px",
-              }}
-            >
-              <XIcon />
-            </button>
-          </div>
-          <div className="queue-list">
-            {songs.length === 0 && (
-              <p
-                style={{
-                  color: "#6b7280",
-                  fontSize: "13px",
-                  textAlign: "center",
-                  padding: "24px",
-                }}
-              >
-                Queue is empty
-              </p>
-            )}
-            {songs.map((s) => (
-              <div
-                key={s.id}
-                className={`queue-item${currentSong?.id === s.id ? " active" : ""}`}
-              >
-                <img
-                  src={s.coverUrl}
-                  alt=""
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 6,
-                    objectFit: "cover",
-                    flexShrink: 0,
-                  }}
-                  onError={(e) => {
-                    e.target.src = "https://placehold.co/36x36/111/555?text=♪";
-                  }}
-                />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p
-                    style={{
-                      color: currentSong?.id === s.id ? "#22c55e" : "#fff",
-                      fontSize: "12px",
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {s.title}
-                  </p>
-                  <p
-                    style={{
-                      color: "#6b7280",
-                      fontSize: "11px",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {s.artist}
-                  </p>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeFromQueue(s.id);
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#4b5563",
-                    cursor: "pointer",
-                    padding: "4px",
-                    display: "flex",
-                  }}
-                  title="Remove"
-                >
-                  <XIcon size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Queue Drawer — standalone component with drag-and-drop reorder */}
+      <QueueDrawer open={showQueue} onClose={() => setShowQueue(false)} />
 
       <div className="player-bar" style={styles.bar}>
+        {/* ── Seek row ───────────────────────────────────────────────────── */}
         <div style={styles.seekRow}>
           <span style={styles.timeLabel}>{fmt(progress)}</span>
           <div className="seek-wrap" style={{ flex: 1 }}>
-            {/* BUG 5 FIX: ref attached, no style={{ "--pct" }} prop here */}
+            {/* BUG 5 FIX: ref attached, no style={{ "--pct" }} prop */}
             <input
               ref={seekRef}
               type="range"
@@ -413,21 +301,28 @@ const MusicPlayer = memo(() => {
 
           {/* ── Transport controls ────────────────────────────────────────── */}
           <div className="player-controls" style={styles.controls}>
+            {/* Shuffle — 3 states: none / classic / smart */}
             <div className="hide-mobile shuffle-btn-wrap">
               <button
-                className={`ctrl-btn${shuffleMode !== "none" ? " active-green" : ""}`}
+                className={`ctrl-btn${shuffleConfig.cls ? ` ${shuffleConfig.cls}` : ""}`}
                 onClick={cycleShuffleMode}
-                title={shuffleLabel}
-                style={shuffleMode === "classic" ? { color: "#fbbf24" } : {}}
+                title={shuffleConfig.label}
+                style={
+                  shuffleConfig.color ? { color: shuffleConfig.color } : {}
+                }
               >
                 {shuffleMode === "classic" ? (
                   <ShuffleClassicIcon />
+                ) : shuffleMode === "smart" ? (
+                  <ShuffleSmartIcon />
                 ) : (
                   <ShuffleIcon />
                 )}
               </button>
-              {shuffleMode === "classic" && (
-                <span className="shuffle-badge classic">Classic</span>
+              {shuffleConfig.badge && (
+                <span className={`shuffle-badge ${shuffleMode}`}>
+                  {shuffleConfig.badge}
+                </span>
               )}
             </div>
 
@@ -453,7 +348,7 @@ const MusicPlayer = memo(() => {
           {/* ── Volume + Queue + Minimize (desktop) ──────────────────────── */}
           <div className="player-vol">
             <VolumeIcon volume={volume} />
-            {/* BUG 5 FIX: ref attached, no style={{ "--pct" }} prop here */}
+            {/* BUG 5 FIX: ref attached, no style={{ "--pct" }} prop */}
             <input
               ref={volumeRef}
               type="range"
@@ -528,6 +423,8 @@ const NextIcon = () => (
     <path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1L8.5 12zM16 6h2v12h-2z" />
   </svg>
 );
+
+// Shuffle off — standard crossing arrows with broken ends
 const ShuffleIcon = () => (
   <svg
     width="16"
@@ -544,6 +441,8 @@ const ShuffleIcon = () => (
     <line x1="4" y1="4" x2="9" y2="9" />
   </svg>
 );
+
+// Classic / Vinyl Roll — bolder crossing, full lines (no broken ends)
 const ShuffleClassicIcon = () => (
   <svg
     width="16"
@@ -559,6 +458,26 @@ const ShuffleClassicIcon = () => (
     <line x1="4" y1="4" x2="21" y2="21" />
   </svg>
 );
+
+// Smart — same as off icon + sparkle dot signals weighted intelligence
+const ShuffleSmartIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
+    <polyline points="16 3 21 3 21 8" />
+    <line x1="4" y1="20" x2="21" y2="3" />
+    <polyline points="21 16 21 21 16 21" />
+    <line x1="15" y1="15" x2="21" y2="21" />
+    <line x1="4" y1="4" x2="9" y2="9" />
+    <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 const RepeatIcon = () => (
   <svg
     width="16"
@@ -629,19 +548,6 @@ const ChevronUpIcon = () => (
     strokeWidth="2"
   >
     <polyline points="18 15 12 9 6 15" />
-  </svg>
-);
-const XIcon = ({ size = 16 }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
 const VolumeIcon = ({ volume }) => (
