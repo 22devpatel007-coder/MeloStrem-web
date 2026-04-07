@@ -1,0 +1,149 @@
+/* =============================================================
+   MeloStream — Design System Color Tokens
+   File: client/src/styles/colors.css
+   
+   RULES:
+   - Never hardcode colors anywhere in the app
+   - Always reference these variables
+   - Change here = changes everywhere
+   ============================================================= */
+
+:root {
+
+  /* -----------------------------------------------------------
+     BACKGROUNDS — Layered dark system (never pure black)
+  ----------------------------------------------------------- */
+  --color-bg:           #0d1117;   /* Page background — deepest layer */
+  --color-surface:      #161b22;   /* Cards, sidebar, modals, player bar */
+  --color-surface-hover:#1c2128;   /* Surface on hover state */
+  --color-overlay:      #21262d;   /* Dropdowns, tooltips, context menus */
+
+  /* -----------------------------------------------------------
+     BORDERS — Subtle but visible separation
+  ----------------------------------------------------------- */
+  --color-border:       #30363d;   /* Default border for cards, inputs, dividers */
+  --color-border-muted: #21262d;   /* Softer border for internal separators */
+  --color-border-emphasis: #8b949e; /* Focused input border, emphasized dividers */
+
+  /* -----------------------------------------------------------
+     TEXT — Clear hierarchy
+  ----------------------------------------------------------- */
+  --color-text-primary: #e6edf3;   /* Main text — headings, song titles */
+  --color-text-secondary:#8b949e;  /* Secondary — artist name, timestamps */
+  --color-text-muted:   #484f58;   /* Disabled, placeholder text */
+  --color-text-inverse: #0d1117;   /* Text on teal/accent backgrounds */
+
+  /* -----------------------------------------------------------
+     ACCENT — Teal brand color (buttons, active states, progress)
+  ----------------------------------------------------------- */
+  --color-accent:       #2dd4bf;   /* Primary accent — teal */
+  --color-accent-hover: #14b8a6;   /* Accent on hover */
+  --color-accent-muted: #0d3330;   /* Accent background tint (liked, active bg) */
+  --color-accent-subtle:#134e4a;   /* Slightly stronger accent tint */
+
+  /* -----------------------------------------------------------
+     SEMANTIC — Feedback colors
+  ----------------------------------------------------------- */
+  --color-danger:       #f85149;   /* Errors, delete, destructive actions */
+  --color-danger-muted: #3d1a19;   /* Danger background tint */
+  --color-success:      #3fb950;   /* Success states, confirmations */
+  --color-success-muted:#122117;   /* Success background tint */
+  --color-warning:      #d29922;   /* Warnings, caution states */
+  --color-warning-muted:#2d2006;   /* Warning background tint */
+
+  /* -----------------------------------------------------------
+     PLAYER — Fixed bottom bar specific
+  ----------------------------------------------------------- */
+  --color-player-bg:    #161b22;   /* Player bar background */
+  --color-player-border:#30363d;   /* Player bar top border */
+  --color-progress-bg:  #30363d;   /* Progress bar track */
+  --color-progress-fill:#2dd4bf;   /* Progress bar fill — accent */
+  --color-progress-thumb:#e6edf3;  /* Progress bar thumb dot */
+
+  /* -----------------------------------------------------------
+     SPACING — 8px base system
+     Use these as reference. In Tailwind: p-1=4px p-2=8px p-4=16px etc.
+  ----------------------------------------------------------- */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* -----------------------------------------------------------
+     TYPOGRAPHY — Inter font scale
+  ----------------------------------------------------------- */
+  --font-family:        'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-xs:       11px;   /* Badges, tiny labels */
+  --font-size-sm:       12px;   /* Captions, muted info */
+  --font-size-base:     14px;   /* Body text, default */
+  --font-size-md:       16px;   /* Slightly emphasized body */
+  --font-size-lg:       18px;   /* Section headings */
+  --font-size-xl:       20px;   /* Sub-page titles */
+  --font-size-2xl:      24px;   /* Page titles */
+  --font-size-3xl:      30px;   /* Hero/display text */
+
+  --font-weight-regular: 400;
+  --font-weight-medium:  500;
+  --font-weight-semibold:600;
+  --font-weight-bold:    700;
+
+  --line-height-tight:  1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed:1.75;
+
+  /* -----------------------------------------------------------
+     BORDER RADIUS — Sharp GitHub style
+  ----------------------------------------------------------- */
+  --radius-sm:  4px;    /* Buttons, inputs, cards — default */
+  --radius-md:  6px;    /* Modals, dropdowns */
+  --radius-lg:  8px;    /* Large panels */
+  --radius-full:9999px; /* Pill badges, avatar circles */
+
+  /* -----------------------------------------------------------
+     SHADOWS — Medium depth card system
+  ----------------------------------------------------------- */
+  --shadow-sm:  0 1px 3px rgba(1, 4, 9, 0.4);
+  --shadow-md:  0 4px 12px rgba(1, 4, 9, 0.5);
+  --shadow-lg:  0 8px 24px rgba(1, 4, 9, 0.6);
+  --shadow-overlay: 0 16px 48px rgba(1, 4, 9, 0.8);  /* Modals */
+
+  /* -----------------------------------------------------------
+     TRANSITIONS — Consistent timing
+  ----------------------------------------------------------- */
+  --transition-fast:    150ms ease;   /* Hover states */
+  --transition-normal:  200ms ease;   /* Modal enter, drawer */
+  --transition-slow:    300ms ease;   /* Page transitions */
+
+  /* -----------------------------------------------------------
+     LAYOUT — Fixed dimensions
+  ----------------------------------------------------------- */
+  --sidebar-width:      240px;
+  --player-height:      64px;
+  --navbar-height:      56px;
+  --content-max-width:  1200px;
+
+}
+
+/* =============================================================
+   UTILITY CLASSES — Direct token usage
+   These are helpers for non-Tailwind inline use cases
+============================================================= */
+
+.bg-base       { background-color: var(--color-bg); }
+.bg-surface    { background-color: var(--color-surface); }
+.bg-overlay    { background-color: var(--color-overlay); }
+
+.text-primary  { color: var(--color-text-primary); }
+.text-secondary{ color: var(--color-text-secondary); }
+.text-muted    { color: var(--color-text-muted); }
+.text-accent   { color: var(--color-accent); }
+
+.border-default{ border-color: var(--color-border); }
+.border-muted  { border-color: var(--color-border-muted); }
+
+.accent-bg     { background-color: var(--color-accent); color: var(--color-text-inverse); }
+.accent-muted-bg{ background-color: var(--color-accent-muted); }

@@ -1,13 +1,8 @@
-const ERROR_CODES = Object.freeze({
-  NO_TOKEN: 'NO_TOKEN',
-  TOKEN_INVALID_FORMAT: 'TOKEN_INVALID_FORMAT',
-  TOKEN_EXPIRED: 'TOKEN_EXPIRED',
-  TOKEN_REVOKED: 'TOKEN_REVOKED',
-  USER_DISABLED: 'USER_DISABLED',
-  TOKEN_MALFORMED: 'TOKEN_MALFORMED',
-  TOKEN_CREDENTIAL_INVALID: 'TOKEN_CREDENTIAL_INVALID',
-  DUPLICATE_SONG: 'DUPLICATE_SONG',
-  SEARCH_ERROR: 'SEARCH_ERROR',
-});
-
-module.exports = ERROR_CODES;
+/**
+ * client/src/constants/errorCodes.js
+ *
+ * ⚠️  DO NOT ADD CODES HERE.
+ * This file is a re-export shim only.
+ * All codes live in: shared/constants/errorCodes.js
+ */
+export { ERROR_CODES, default } from '../../../shared/constants/errorCodes';

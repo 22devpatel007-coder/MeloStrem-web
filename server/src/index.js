@@ -1,61 +1,28 @@
 const express = require('express');
-const cors    = require('cors');
-require('dotenv').config();
+const helmet = require('helmet');
+const cors = require('cors');
 
-const helmet    = require('helmet');
-const rateLimit = require('express-rate-limit');
+const config = require('./config/index');
+const logger = require('./utils/logger');
+const routes = require('./routes/index');
+const errorHandler = require('./middleware/errorHandler');
+const { generalLimiter } = require('./middleware/rateLimiter');
 
-const errorHandler = require('./utils/errorHandler');
 const app = express();
 
-// ─── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet());
-
-// ─── CORS ─────────────────────────────────────────────────────────────────────
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000')
-  .split(',')
-  .map(o => o.trim());
-
 app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin ${origin} not allowed`));
-  },
+  origin: config.clientOrigin,
   credentials: true,
 }));
-
-// ─── Body parsing ─────────────────────────────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
-
-// ─── Global rate limiting ─────────────────────────────────────────────────────
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests, please try again later.' },
-});
-app.use(globalLimiter);
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { error: 'Too many auth attempts, please try again later.' },
-});
-
-// ─── Routes ───────────────────────────────────────────────────────────────────
-app.use('/api/auth',            authLimiter, require('./features/auth/auth.routes'));
-app.use('/api/songs',                        require('./features/songs/songs.routes'));
-app.use('/api/search',                       require('./features/search/search.routes'));
-app.use('/api/users',                        require('./features/users/users.routes'));
-app.use('/api/admin/playlists',              require('./features/playlists/adminPlaylist.routes'));
-
-// Health check
-app.get('/health', (_req, res) => res.json({ status: 'ok', ts: Date.now() }));
-
-// ─── Global error handler — MUST be last ─────────────────────────────────────
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(generalLimiter);
+app.use('/api', routes);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(config.port, () => {
+  logger.info(`MeloStream server running on port ${config.port} [${config.nodeEnv}]`);
+});
+
+module.exports = app;
