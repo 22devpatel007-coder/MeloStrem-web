@@ -2,16 +2,62 @@ const { getSongs, getSongById, createSong, updateSong, deleteSong } = require('.
 const { uploadAudio, uploadCover, deleteAsset } = require('../services/cloudinary.service');
 const { checkDuplicateSong } = require('../utils/duplicateCheck');
 const logger = require('../utils/logger');
-
-// ✅ FIX Bug 16: Previously all catch blocks sent err.message directly to
-// the client — raw Node.js/Firestore error strings that can expose internal
-// file paths, collection names, and service account details.
+// ✅ FIX Bug (getSongsBatch "db is not defined"):
+// Previously the file had THREE conflicting db declarations left from copy-paste:
+//   const { db } = require('../config/firebase');   ← Pattern A
+//   const admin  = require('firebase-admin');        ← Pattern B (unused)
+//   const db     = require('../config/firebase').db; ← Pattern C — re-declaration = SyntaxError
 //
-// Fix: log the real error server-side for debugging, but send only a safe
-// generic message to the client. Specific known errors (404, 409) still
-// get descriptive messages since those are intentional and safe.
+// A duplicate `const db` in the same scope causes a SyntaxError at module
+// load time, so `db` is never assigned. Every call to getSongsBatch then
+// throws "db is not defined" at runtime.
+//
+// Fix: keep exactly ONE import, remove the other two.
+const { db } = require('../config/firebase');
 
 const INTERNAL_ERROR = 'Something went wrong. Please try again.';
+
+// ── POST /songs/batch ──────────────────────────────────────────────────────
+// Fetches full Song objects for an array of IDs in one Firestore round-trip.
+// Used by PlaylistDetail to load playlist songs without paginated library dependency.
+// Body: { ids: string[] }  — max 500 IDs (Firestore getAll limit)
+exports.getSongsBatch = async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ success: false, message: 'ids must be a non-empty array' });
+  }
+
+  const MAX_BATCH = 500;
+  if (ids.length > MAX_BATCH) {
+    return res.status(400).json({
+      success: false,
+      message: `ids batch too large — max ${MAX_BATCH} per request`,
+    });
+  }
+
+  try {
+    const refs  = ids.map((id) => db.collection('songs').doc(String(id).trim()));
+    const snaps = await db.getAll(...refs);
+
+    const songs = snaps
+      .filter((snap) => snap.exists)
+      .map((snap) => {
+        const data = snap.data();
+        return {
+          id:        snap.id,
+          ...data,
+          createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
+          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
+        };
+      });
+
+    return res.json({ success: true, data: songs });
+  } catch (err) {
+    logger.error('getSongsBatch error:', { error: err.message });
+    return res.status(500).json({ success: false, message: 'Failed to fetch songs batch' });
+  }
+};
 
 exports.getAllSongs = async (req, res) => {
   try {
@@ -21,7 +67,6 @@ exports.getAllSongs = async (req, res) => {
     return res.json(result);
   } catch (err) {
     logger.error('getAllSongs error:', { error: err.message });
-    // ✅ Generic message — not err.message
     return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
   }
 };
@@ -151,8 +196,8 @@ exports.updateSong = async (req, res) => {
         folder:    'melostream/covers',
         public_id: `${Date.now()}-${updates.title || existingSong.title}-cover`,
       });
-      updates.coverUrl          = coverResult.secure_url;
-      updates.coverStoragePath  = coverResult.public_id;
+      updates.coverUrl         = coverResult.secure_url;
+      updates.coverStoragePath = coverResult.public_id;
 
       if (existingSong.coverStoragePath) {
         await deleteAsset(existingSong.coverStoragePath, { resource_type: 'image' });
@@ -162,9 +207,9 @@ exports.updateSong = async (req, res) => {
     updates.updatedAt = new Date();
     await updateSong(songId, updates);
 
-    const merged      = { ...existingSong, ...updates };
-    merged.updatedAt  = updates.updatedAt.toISOString();
-    merged.createdAt  = existingSong.createdAt;
+    const merged     = { ...existingSong, ...updates };
+    merged.updatedAt = updates.updatedAt.toISOString();
+    merged.createdAt = existingSong.createdAt;
 
     return res.json(merged);
   } catch (err) {

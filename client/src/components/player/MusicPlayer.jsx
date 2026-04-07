@@ -112,13 +112,13 @@ const MusicPlayer = memo(() => {
   // ── Shuffle button config per mode ────────────────────────────────────────
   const shuffleConfig = {
     none: {
-      label: "Shuffle off — click for Vinyl Roll",
+      label: "Shuffle off — click for classic shuffle",
       color: "",
       badge: null,
       cls: "",
     },
     classic: {
-      label: "Vinyl Roll shuffle — click for Smart shuffle",
+      label: "Classic shuffle — click for Smart shuffle",
       color: "#fbbf24",
       badge: "Classic",
       cls: "active-amber",

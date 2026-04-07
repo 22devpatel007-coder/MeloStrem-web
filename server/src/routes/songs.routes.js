@@ -61,7 +61,8 @@ const duplicateCheckLimiter = rateLimit({
     },
   },
 });
-
+// POST /songs/batch — must be before /:id so Express doesn't treat 'batch' as an ID
+router.post('/batch', songsController.getSongsBatch);
 // ─── Public routes ────────────────────────────────────────────────────────────
 // No auth required. Rate-limited by the global generalLimiter in index.js.
 
@@ -116,5 +117,6 @@ router.delete(
   isAdmin,
   songsController.deleteSong
 );
+
 
 module.exports = router;
