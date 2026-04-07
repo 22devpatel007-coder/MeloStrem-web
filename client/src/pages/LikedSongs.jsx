@@ -1,30 +1,38 @@
-import { useMemo } from "react";
-import { Link } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
-import { useSongs } from "../hooks/useSongs";
 import { useLikedSongs } from "../hooks/useLikedSongs";
 import Navbar from "../components/layout/Navbar";
 import SongList from "../components/songs/SongList";
 import Loader from "../components/ui/Loader";
+import { Link } from "react-router-dom";
+
+// PERMANENT FIX: Removed useSongs dependency entirely.
+// Previously this page cross-referenced liked song IDs against the paginated
+// song library — meaning liked songs were invisible until all pages loaded.
+//
+// Now: useLikedSongs returns full Song[] directly from the backend.
+// This page is fully independent of the song library cursor pagination.
 
 const LikedSongs = () => {
   const { user } = useAuthStore();
+  const { likedSongs, isLoading, isError } = useLikedSongs(user?.uid);
 
-  // ✅ FIX: was reading likedSongs from useAuthStore — that array is never
-  // populated. The real source of truth is useLikedSongs which fetches
-  // liked song IDs from the backend via React Query.
-  const { likedSongs, isLoading: likesLoading } = useLikedSongs(user?.uid);
+  if (isLoading) return <Loader />;
 
-  const { data, isLoading: songsLoading } = useSongs();
-  const songs = useMemo(() => data?.pages?.flatMap((p) => p.songs) || [], [data]);
-
-  // Cross-reference liked IDs with full song objects
-  const liked = useMemo(() => {
-    if (!likedSongs || likedSongs.length === 0) return [];
-    return songs.filter((s) => likedSongs.includes(s.id));
-  }, [songs, likedSongs]);
-
-  if (songsLoading || likesLoading) return <Loader />;
+  if (isError) {
+    return (
+      <div style={styles.page}>
+        <Navbar />
+        <div style={styles.container}>
+          <div style={styles.empty}>
+            <p style={styles.emptyTitle}>Something went wrong</p>
+            <p style={styles.emptySubtitle}>
+              We couldn't load your liked songs. Please try again later.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.page}>
@@ -37,14 +45,14 @@ const LikedSongs = () => {
           <div>
             <h1 style={styles.heading}>Liked Songs</h1>
             <p style={styles.subheading}>
-              {liked.length} {liked.length === 1 ? "song" : "songs"} saved
+              {likedSongs.length} {likedSongs.length === 1 ? "song" : "songs"} saved
             </p>
           </div>
         </div>
 
         <div style={styles.divider} />
 
-        {liked.length === 0 ? (
+        {likedSongs.length === 0 ? (
           <div style={styles.empty}>
             <div style={styles.emptyIconWrap}>
               <HeartOutlineIcon />
@@ -53,17 +61,16 @@ const LikedSongs = () => {
             <p style={styles.emptySubtitle}>
               Like a song to save it here for quick access.
             </p>
-            {/* ✅ FIX: was linking to /home which doesn't exist in the router.
-                The home route is registered as '/' */}
             <Link to="/" style={styles.browseBtn}>
               Browse Library
             </Link>
           </div>
         ) : (
-          <SongList songs={liked} />
+          <SongList songs={likedSongs} />
         )}
       </div>
 
+      {/* Spacer for fixed music player */}
       <div style={{ height: 88 }} />
     </div>
   );

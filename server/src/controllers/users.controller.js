@@ -1,5 +1,6 @@
-// PERMANENT FIX: Uses `db` imported directly from config/firebase.js
-// (firebase.service.js also imports db the same way — no getDb() exists).
+// PERMANENT FIX: getLikedSongs now resolves IDs → full Song objects via
+// Firestore getAll() batch fetch. One round-trip for N documents.
+// Frontend no longer depends on the paginated song library to display liked songs.
 
 const { db } = require('../config/firebase');
 const { getAllUsers } = require('../services/firebase.service');
@@ -18,6 +19,8 @@ exports.getAllUsers = async (req, res) => {
 };
 
 // ── GET /users/:uid/liked-songs ───────────────────────────────────────────────
+// Previously returned: string[]  (IDs only)
+// Now returns:         Song[]    (full objects, ghost IDs silently filtered)
 exports.getLikedSongs = async (req, res) => {
   const { uid } = req.params;
 
@@ -26,22 +29,38 @@ exports.getLikedSongs = async (req, res) => {
   }
 
   try {
-    const doc = await db.collection('users').doc(uid).get();
+    const userDoc = await db.collection('users').doc(uid).get();
 
-    if (!doc.exists) {
+    if (!userDoc.exists) {
       // New account — return empty list, not 404
       return res.json({ success: true, data: [] });
     }
 
-    const likedSongs = doc.data().likedSongs ?? [];
-    res.json({ success: true, data: likedSongs });
+    const likedSongIds = userDoc.data().likedSongs ?? [];
+
+    if (likedSongIds.length === 0) {
+      return res.json({ success: true, data: [] });
+    }
+
+    // Firestore getAll: one round-trip for N documents (max 500 per call — safe
+    // for realistic liked song counts; add chunking if you ever expect >500).
+    const refs = likedSongIds.map((id) => db.collection('songs').doc(id));
+    const snaps = await db.getAll(...refs);
+
+    const songs = snaps
+      .filter((snap) => snap.exists)           // silently drop ghost IDs
+      .map((snap) => ({ id: snap.id, ...snap.data() }));
+
+    return res.json({ success: true, data: songs });
   } catch (err) {
     logger.error('getLikedSongs error:', { uid, error: err.message });
-    res.status(500).json({ success: false, message: 'Failed to fetch liked songs' });
+    return res.status(500).json({ success: false, message: 'Failed to fetch liked songs' });
   }
 };
 
 // ── POST /users/:uid/liked-songs/:songId ──────────────────────────────────────
+// No change needed here — toggle still works with IDs internally.
+// The GET above re-resolves full objects on next fetch/invalidation.
 exports.toggleLikedSong = async (req, res) => {
   const { uid, songId } = req.params;
 
@@ -68,6 +87,7 @@ exports.toggleLikedSong = async (req, res) => {
       return nextList;
     });
 
+    // Return updated ID list — frontend invalidates query and re-fetches full objects
     res.json({ success: true, data: updatedList });
   } catch (err) {
     logger.error('toggleLikedSong error:', { uid, songId, error: err.message });
