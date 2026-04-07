@@ -36,7 +36,7 @@ const PlaylistDetail = () => {
   const { adminPlaylists } = useAdminPlaylists();
   const { playlists }      = useUserPlaylists();
   const { removeSongFromPlaylist, reorderSongs, updatePlaylist } = usePlaylistMutations();
-  const { playSong, currentSong, setPlaybackContext, logPick, currentSong: prevSong } = usePlayerStore();
+  const { currentSong, setPlaybackContext, logPick, currentSong: prevSong } = usePlayerStore();
   const { user } = useAuthStore();
 
   const [editMode, setEditMode]     = useState(false);

@@ -19,7 +19,6 @@
 
 import { useState, useEffect, useRef, memo, useCallback } from "react";
 import { usePlayerStore, audio } from "../../store/playerStore";
-import { useQueueStore } from "../../store/queueStore";
 import { QueueDrawer } from "./QueueDrawer";
 
 const MusicPlayer = memo(() => {

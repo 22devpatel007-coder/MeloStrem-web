@@ -22,7 +22,7 @@
  */
 
 import { create } from 'zustand';
-import usePlayerStore, { registerQueueStore, vinylRoll } from './playerStore';
+import usePlayerStore, { registerQueueStore } from './playerStore';
 
 const useQueueStore = create((set, get) => ({
   queue:        [],
