@@ -1,23 +1,66 @@
-// ─── server/src/index.js ──────────────────────────────────────────────────────
-const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
+'use strict';
 
-const config = require('./config/index');
-const logger = require('./utils/logger');
-const routes = require('./routes/index');
+// ─── server/src/index.js ──────────────────────────────────────────────────────
+//
+// Production-ready entry point for MeloStream API server.
+//
+// Scalability notes:
+//  • Stateless design — safe to run as multiple Render/K8s replicas behind a
+//    load balancer.  All shared state (cache, sessions) lives in Redis/Firestore.
+//  • Trust-proxy is set to 1 (single Render edge hop). Change to the real hop
+//    count if you add Cloudflare in front of Render.
+//  • Graceful shutdown drains in-flight requests before exit, preventing 502s
+//    during rolling deploys.
+//  • All configuration is validated at startup — the process exits before
+//    binding a port if required env vars are missing.
+//  • CORS allowlist is driven entirely by CLIENT_ORIGIN (comma-separated).
+//    No code changes needed to add Vercel preview URLs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const express    = require('express');
+const helmet     = require('helmet');
+const cors       = require('cors');
+const os         = require('os');
+
+const config       = require('./config/index');
+const logger       = require('./utils/logger');
+const routes       = require('./routes/index');
 const errorHandler = require('./middleware/errorHandler');
 const { generalLimiter } = require('./middleware/rateLimiter');
 
-const app = express();
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. STARTUP VALIDATION
+//    Fail fast: cheap checks that catch misconfigured deployments before the
+//    server ever starts binding a port.
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ── CORS ──────────────────────────────────────────────────────────────────────
-// CLIENT_ORIGIN in .env supports a single origin OR a comma-separated list:
+const REQUIRED_ENV = ['PORT'];
+
+// In production every secret must be explicit — no silent fallbacks.
+if (config.nodeEnv === 'production') {
+  REQUIRED_ENV.push('CLIENT_ORIGIN');
+}
+
+const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
+if (missingEnv.length > 0) {
+  // Use console.error here because the logger may itself depend on env vars
+  // that have not yet been validated.
+  console.error(
+    `[Startup] FATAL — missing required environment variable(s): ${missingEnv.join(', ')}. Exiting.`
+  );
+  process.exit(1);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. CORS ALLOWLIST
+//    CLIENT_ORIGIN accepts a single origin OR comma-separated list:
+//      CLIENT_ORIGIN=https://melostream.vercel.app,https://preview-branch.vercel.app
 //
-//   On Render dashboard → Environment → add:
-//   CLIENT_ORIGIN=https://music-web-gamma-eight.vercel.app,http://localhost:3000
-//
-// NEVER leave this as only localhost in production.
+//    Local dev origins are injected automatically in non-production mode.
+//    To add a new allowed origin in production: update the env var on Render —
+//    no code change required.
+// ─────────────────────────────────────────────────────────────────────────────
+
 const rawOrigins = (config.clientOrigin || '')
   .split(',')
   .map((o) => o.trim())
@@ -25,126 +68,220 @@ const rawOrigins = (config.clientOrigin || '')
 
 const allowedOrigins = new Set(rawOrigins);
 
-// Always allow localhost in non-production environments
 if (config.nodeEnv !== 'production') {
-  allowedOrigins.add('http://localhost:3000');
-  allowedOrigins.add('http://127.0.0.1:3000');
+  ['http://localhost:3000', 'http://127.0.0.1:3000'].forEach((o) =>
+    allowedOrigins.add(o)
+  );
 }
 
 if (allowedOrigins.size === 0) {
-  // Safety net: if env var is missing entirely, log a loud warning.
-  // Do NOT default to '*' in production — that removes all CORS protection.
-  logger.error(
-    '[CORS] CRITICAL: CLIENT_ORIGIN is not set. All browser requests will be blocked. ' +
-    'Set CLIENT_ORIGIN in your Render environment variables.'
+  logger.warn(
+    '[CORS] Allowed origins list is empty — all cross-origin browser ' +
+    'requests will be blocked. Set CLIENT_ORIGIN.'
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. CORS OPTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
 const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (server-to-server, Postman, curl, mobile apps)
+  origin(origin, callback) {
+    // Allow requests with no Origin header (server-to-server, Postman, mobile)
     if (!origin) return callback(null, true);
 
-    if (allowedOrigins.has(origin)) {
-      return callback(null, true);
-    }
+    if (allowedOrigins.has(origin)) return callback(null, true);
 
+    // Log blocked origin so you can debug Vercel preview-URL issues fast
     logger.warn(`[CORS] Blocked request from unlisted origin: ${origin}`);
-    // Return a proper HTTP 403 error — not a thrown Error — so the browser
-    // gets a real response instead of a network error that masks the root cause.
-    return callback(
-      Object.assign(new Error(`CORS: Origin '${origin}' is not allowed.`), {
-        status: 403,
-        code: 'CORS_ORIGIN_BLOCKED',
-      })
-    );
+    const err = new Error(`CORS: origin '${origin}' is not allowed.`);
+    err.status = 403;
+    return callback(err);
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials  : true,
+  methods      : ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  // Tell browsers they can cache the preflight result for 10 minutes.
-  // This reduces preflight round-trips and avoids repeated 521 failures
-  // during a cold-start window.
+  // Browsers may cache the preflight response for 10 minutes, reducing OPTIONS
+  // round-trips on repeat requests.
   maxAge: 600,
 };
 
-// ── Global middleware ─────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. EXPRESS APP
+// ─────────────────────────────────────────────────────────────────────────────
+
+const app = express();
+
+// Trust exactly one proxy hop (Render's edge).
+// Ensures express-rate-limit and req.ip see the real client IP, not the proxy.
+// If you add Cloudflare in front: change to 2.
+app.set('trust proxy', 1);
+
+// ── 4a. Security headers ─────────────────────────────────────────────────────
+// Helmet sets ~15 security-related HTTP response headers in one call.
 app.use(helmet());
 
-// OPTIONS preflight MUST be handled BEFORE any other middleware.
-// If it reaches the rate-limiter or auth middleware first, preflight fails.
+// ── 4b. CORS ─────────────────────────────────────────────────────────────────
+// OPTIONS preflight MUST be handled before any auth/rate-limit middleware fires
+// so browsers receive 200 (not 401/429) on preflight requests.
 app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ── 4c. Body parsers ─────────────────────────────────────────────────────────
+// 1 MB hard cap on JSON/URL-encoded payloads.
+// File uploads are handled by Multer inside individual routes (no limit here).
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// ── 4d. Global rate limiter ──────────────────────────────────────────────────
+// Route-level limiters (searchLimiter, etc.) layer on top of this.
 app.use(generalLimiter);
 
-// ── Health check ──────────────────────────────────────────────────────────────
-// Used by:
-//   1. Render's own health check (configure in Render dashboard: path = /health)
-//   2. Your frontend keep-alive ping (see api.js) to prevent cold starts
-//   3. External uptime monitors (UptimeRobot, BetterStack — free tier available)
-//
-// This endpoint intentionally bypasses the generalLimiter so pings never
-// consume rate-limit budget.
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. SYSTEM ROUTES
+//    These are intentionally placed ABOVE /api so they are never blocked by
+//    route-level auth or rate-limit middleware.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 5a. Health / liveness probe ──────────────────────────────────────────────
+// Render and load balancers ping this to confirm the process is alive.
+// Returns 200 as quickly as possible — no DB calls, no auth.
 app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.status(200).json({
+    status   : 'ok',
+    timestamp: new Date().toISOString(),
+    uptime   : Math.floor(process.uptime()),
+    pid      : process.pid,
+  });
 });
 
-// ── API routes ────────────────────────────────────────────────────────────────
+// ── 5b. Readiness probe ──────────────────────────────────────────────────────
+// Optional: Kubernetes / advanced load balancers use /ready to decide whether
+// to send traffic.  Unlike /health this CAN call a cheap dependency check.
+// Stubbed here — extend once you have a reliable connection-check helper.
+app.get('/ready', (_req, res) => {
+  // TODO: add lightweight Firebase Admin SDK ping when connection-check helper
+  // is available (e.g. firebaseAdmin.app().options.projectId check).
+  res.status(200).json({ status: 'ready' });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. API ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.use('/api', routes);
 
-// ── 404 handler for unknown routes ───────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. FALLTHROUGH HANDLERS
+//    These MUST come after all routes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── 7a. 404 — route not matched ───────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({
     success: false,
-    error: { code: 'NOT_FOUND', message: 'The requested resource does not exist.' },
+    code   : 'NOT_FOUND',
+    message: 'The requested resource does not exist.',
   });
 });
 
-// ── Global error handler ──────────────────────────────────────────────────────
+// ── 7b. Global error handler ──────────────────────────────────────────────────
+// errorHandler must be the LAST app.use() call and must have exactly 4 params
+// so Express recognises it as an error-handling middleware.
 app.use(errorHandler);
 
-// ── Start server ──────────────────────────────────────────────────────────────
-const server = app.listen(config.port, () => {
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. SERVER STARTUP
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PORT = config.port;
+
+const server = app.listen(PORT, () => {
   logger.info(
-    `MeloStream server running on port ${config.port} [${config.nodeEnv}]`
+    `[Server] MeloStream listening on port ${PORT} ` +
+    `[${config.nodeEnv}] pid=${process.pid} host=${os.hostname()}`
   );
-  logger.info(`[CORS] Allowed origins: ${[...allowedOrigins].join(', ')}`);
+  logger.info(
+    `[CORS]   Allowed origins (${allowedOrigins.size}): ` +
+    `${[...allowedOrigins].join(', ')}`
+  );
 });
 
-// ── Graceful shutdown ─────────────────────────────────────────────────────────
-// Render sends SIGTERM before forcefully killing the process.
-// This lets in-flight requests finish before the process exits.
-process.on('SIGTERM', () => {
-  logger.info('[Server] SIGTERM received — shutting down gracefully.');
-  server.close(() => {
-    logger.info('[Server] HTTP server closed.');
+// Propagate server-level errors (e.g. EADDRINUSE) to the unhandled-rejection
+// safety net below so they are logged and cause a clean restart.
+server.on('error', (err) => {
+  logger.error('[Server] Fatal server error:', err);
+  gracefulShutdown('SERVER_ERROR');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. GRACEFUL SHUTDOWN
+//    Render (and most PaaS/K8s providers) send SIGTERM before killing the
+//    container.  We stop accepting new connections, drain in-flight requests,
+//    then exit cleanly — preventing 502s during rolling deploys and restarts.
+//
+//    The 15-second force-exit ensures the process never hangs indefinitely
+//    (e.g. if a streaming response never closes).
+// ─────────────────────────────────────────────────────────────────────────────
+
+let isShuttingDown = false;
+
+function gracefulShutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  logger.info(`[Server] ${signal} received — starting graceful shutdown.`);
+
+  server.close((closeErr) => {
+    if (closeErr) {
+      logger.error('[Server] Error while closing HTTP server:', closeErr);
+      process.exit(1);
+    }
+
+    logger.info('[Server] All HTTP connections closed. Exiting cleanly.');
+    // Add cleanup calls here before exit if needed:
+    //   await redisClient.quit();
+    //   await firebaseAdmin.app().delete();
     process.exit(0);
   });
 
-  // Hard kill after 10s if connections are still open (stuck uploads, etc.)
+  // Hard kill-switch: if connections have not drained within 15 s, force-exit.
+  // .unref() prevents this timer from keeping the event loop alive by itself.
   setTimeout(() => {
-    logger.error('[Server] Forced shutdown after 10s timeout.');
+    logger.error('[Server] Graceful shutdown timed out (15 s) — forcing exit.');
     process.exit(1);
-  }, 10_000);
-});
+  }, 15_000).unref();
+}
 
-process.on('SIGINT', () => {
-  logger.info('[Server] SIGINT received — shutting down gracefully.');
-  server.close(() => process.exit(0));
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM')); // PaaS / K8s stop signal
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));  // Ctrl-C in local dev
 
-// Log unhandled promise rejections — never let them silently crash the process
-process.on('unhandledRejection', (reason) => {
-  logger.error('[Server] Unhandled promise rejection:', reason);
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. GLOBAL SAFETY NET
+//     These handlers catch bugs that slipped through route-level try/catch.
+//     In production: log the error details and trigger a clean restart via
+//     gracefulShutdown so the process manager (Render, PM2, K8s) can bring
+//     up a fresh instance.  A process limping in an unknown state is worse
+//     than a brief restart gap.
+// ─────────────────────────────────────────────────────────────────────────────
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('[Process] Unhandled promise rejection:', {
+    reason,
+    promise: promise.toString(),
+  });
+  // In production: restart; in local dev: keep running for fast iteration.
+  if (config.nodeEnv === 'production') {
+    gracefulShutdown('unhandledRejection');
+  }
 });
 
 process.on('uncaughtException', (err) => {
-  logger.error('[Server] Uncaught exception:', err);
-  // Exit so Render restarts the process cleanly
-  process.exit(1);
+  // uncaughtException means the Node event loop is in an undefined state.
+  // Always exit — do not try to recover.
+  logger.error('[Process] Uncaught exception (fatal):', err);
+  gracefulShutdown('uncaughtException');
 });
 
+// Export for integration testing (supertest, etc.)
 module.exports = app;
