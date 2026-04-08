@@ -32,7 +32,7 @@ const OptionsSheet = memo(({ song, isOpen, onClose }) => {
   }, [isOpen]);
 
   // Close AddToPlaylist resets to options list
-  const handleAddToPlaylistClose = () => setShowAddToPlaylist(false);
+  // const handleAddToPlaylistClose = () => setShowAddToPlaylist(false);
 
   if (!visible) return null;
 
