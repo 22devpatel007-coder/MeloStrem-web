@@ -4,13 +4,15 @@
  * UI REDESIGN: Horizontal row layout — Option 2
  * - Zero logic changes. All handlers, hooks, and store interactions preserved exactly.
  * - Layout: [#] [Cover + Play] [Title + Artist] [Album] [Genre] [Duration] [Like] [More]
- * - Album column is ready for future artist/album page links — just swap text for <Link>.
+ * - Phase 6 change: artist span → Link, album span → Link.
+ * - When song.artistId or song.albumId is null, renders plain <span> (no broken links).
  * - Active row: green left border + animated equalizer bars instead of static cover.
  * - Hover: full row highlight, like button visible, three-dot menu visible.
  * - Mobile: album column hidden, genre hidden, duration moved inline.
  */
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { usePlayerStore } from "../../store/playerStore";
 import { useQueueStore } from "../../store/queueStore";
 import { useAuthStore } from "../../store/authStore";
@@ -123,22 +125,39 @@ const SongCard = ({ song, songList, index }) => {
           >
             {song.title}
           </span>
-          {/*
-           * FUTURE: Replace <span> with <Link to={`/artist/${song.artistId}`}>
-           * when artist pages are implemented — no layout change needed.
-           */}
-          <span className="song-row__artist">{song.artist}</span>
+
+          {/* Phase 6: artist span → Link when artistId exists, else plain span */}
+          {song.artistId ? (
+            <Link
+              to={`/artist/${song.artistId}`}
+              className="song-row__artist song-row__artist--link"
+              onClick={(e) => e.stopPropagation()}
+              title={`View ${song.artist}`}
+            >
+              {song.artist}
+            </Link>
+          ) : (
+            <span className="song-row__artist">{song.artist}</span>
+          )}
         </div>
 
         {/* ── Col 4: Album — hidden on mobile ──────────────────────────────── */}
         <div className="song-row__album song-row__album--responsive">
-          {/*
-           * FUTURE: Replace <span> with <Link to={`/album/${song.albumId}`}>
-           * when album pages are implemented — no layout change needed.
-           */}
-          <span className="song-row__album-text">
-            {song.album || <span className="song-row__album-empty">—</span>}
-          </span>
+          {/* Phase 6: album span → Link when albumId exists, else plain span */}
+          {song.albumId ? (
+            <Link
+              to={`/album/${song.albumId}`}
+              className="song-row__album-text song-row__album-text--link"
+              onClick={(e) => e.stopPropagation()}
+              title={`View ${song.album}`}
+            >
+              {song.album}
+            </Link>
+          ) : (
+            <span className="song-row__album-text">
+              {song.album || <span className="song-row__album-empty">—</span>}
+            </span>
+          )}
         </div>
 
         {/* ── Col 5: Genre badge — hidden on mobile ────────────────────────── */}
@@ -378,7 +397,21 @@ const ROW_STYLES = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* FUTURE: cursor: pointer; color: #9ca3af; when artist pages added */
+    text-decoration: none;
+    background: none;
+  }
+
+  /* Phase 6: link styles for artist — only when artistId exists */
+  .song-row__artist--link {
+    cursor: pointer;
+    color: #9ca3af;
+    transition: color 0.15s ease;
+  }
+
+  .song-row__artist--link:hover {
+    color: #e5e7eb;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   /* ── Col 4: Album ─────────────────────────────────────────────────────── */
@@ -393,7 +426,20 @@ const ROW_STYLES = `
     overflow: hidden;
     text-overflow: ellipsis;
     display: block;
-    /* FUTURE: cursor: pointer; color: #9ca3af; when album pages added */
+    text-decoration: none;
+  }
+
+  /* Phase 6: link styles for album — only when albumId exists */
+  .song-row__album-text--link {
+    cursor: pointer;
+    color: #6b7280;
+    transition: color 0.15s ease;
+  }
+
+  .song-row__album-text--link:hover {
+    color: #d1d5db;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   .song-row__album-empty {
