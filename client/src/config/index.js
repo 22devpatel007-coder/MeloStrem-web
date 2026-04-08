@@ -1,9 +1,13 @@
 // ─── client/src/config/index.js ───────────────────────────────────────────────
 //
-// IMPORTANT: API_BASE_URL must NOT end with /api.
+// IMPORTANT: REACT_APP_API_URL must NOT end with /api.
 // The /api prefix is appended by the Axios instance in api.js.
-// Previously this exported "http://localhost:5000/api" which caused
-// requests to go to /api/api/songs — a 404/CORS dead-end.
+//
+// Set in client/.env:
+//   REACT_APP_API_URL=https://your-backend.onrender.com
+//
+// Set in Vercel dashboard → Project → Settings → Environment Variables:
+//   REACT_APP_API_URL=https://your-backend.onrender.com
 
 export const API_BASE_URL =
   process.env.REACT_APP_API_URL || 'http://localhost:5000';
