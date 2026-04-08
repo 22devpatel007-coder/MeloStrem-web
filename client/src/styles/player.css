@@ -1,3 +1,53 @@
+/* client/src/styles/player.css */
+
+/* ── Body padding so content never hides under the fixed player bar ─────────── */
+/* Applied when a song is active. MusicPlayer adds .has-player to <body>.        */
+/* 72px bar + 8px seek row = 80px desktop, 64px mobile                           */
+
+body.has-player {
+  padding-bottom: 80px;
+}
+
+@media (max-width: 639px) {
+  body.has-player {
+    padding-bottom: 64px;
+  }
+}
+
+/* ── Full-screen player desktop modal override ───────────────────────────────── */
+/* These supplement the inline styles in FullScreenPlayer.jsx for desktop.        */
+
+@media (min-width: 1024px) {
+  .fs-sheet {
+    border-radius: 20px !important;
+    max-width: 440px !important;
+    width: 440px !important;
+    max-height: 90vh !important;
+    position: fixed !important;
+    bottom: auto !important;
+    top: 50% !important;
+    left: 50% !important;
+  }
+}
+
+/* ── Prevent body scroll when full-screen player is open ─────────────────────── */
+body.player-expanded {
+  overflow: hidden;
+}
+
+/* ── Safe area inset support (iPhone notch / home bar) ───────────────────────── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  body.has-player {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+  @media (max-width: 639px) {
+    body.has-player {
+      padding-bottom: calc(64px + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* ── Music player sticky ─────────────────────────────────────────────────────── */
 .music-player {
   position: sticky;
   bottom: 0;
