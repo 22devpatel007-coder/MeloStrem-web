@@ -69,7 +69,7 @@ const rawOrigins = (config.clientOrigin || '')
 const allowedOrigins = new Set(rawOrigins);
 
 if (config.nodeEnv !== 'production') {
-  ['http://localhost:3000', 'http://127.0.0.1:3000'].forEach((o) =>
+  ['http://localhost:3000', 'http://10.114.74.109:3000'].forEach((o) =>
     allowedOrigins.add(o)
   );
 }

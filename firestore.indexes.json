@@ -32,6 +32,22 @@
         { "fieldPath": "titleLower",  "order": "ASCENDING" },
         { "fieldPath": "artistLower", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "artistId",  "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "albumId",      "order": "ASCENDING" },
+        { "fieldPath": "trackNumber",  "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

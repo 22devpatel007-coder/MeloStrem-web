@@ -1,18 +1,11 @@
 const { getSongs, getSongById, createSong, updateSong, deleteSong } = require('../services/firebase.service');
 const { uploadAudio, uploadCover, deleteAsset } = require('../services/cloudinary.service');
 const { checkDuplicateSong } = require('../utils/duplicateCheck');
+const { findOrCreateArtist } = require('../services/artist.service');
+const { findOrCreateAlbum } = require('../services/album.service');
 const logger = require('../utils/logger');
-// ✅ FIX Bug (getSongsBatch "db is not defined"):
-// Previously the file had THREE conflicting db declarations left from copy-paste:
-//   const { db } = require('../config/firebase');   ← Pattern A
-//   const admin  = require('firebase-admin');        ← Pattern B (unused)
-//   const db     = require('../config/firebase').db; ← Pattern C — re-declaration = SyntaxError
-//
-// A duplicate `const db` in the same scope causes a SyntaxError at module
-// load time, so `db` is never assigned. Every call to getSongsBatch then
-// throws "db is not defined" at runtime.
-//
-// Fix: keep exactly ONE import, remove the other two.
+
+// Single canonical db import — see comment in original file for why only one import.
 const { db } = require('../config/firebase');
 
 const INTERNAL_ERROR = 'Something went wrong. Please try again.';
@@ -101,7 +94,7 @@ exports.checkDuplicate = async (req, res) => {
 
 exports.uploadSong = async (req, res) => {
   try {
-    const { title, artist, genre, duration } = req.body;
+    const { title, artist, genre, duration, albumName, trackNumber } = req.body;
 
     if (!title || !artist || !genre) {
       return res.status(400).json({ error: 'title, artist and genre are required', code: 'VALIDATION_ERROR' });
@@ -133,6 +126,25 @@ exports.uploadSong = async (req, res) => {
       }),
     ]);
 
+    // ── Artist / Album linking (best-effort — never blocks upload) ────────────
+    // findOrCreateArtist and findOrCreateAlbum both return null on failure
+    // without throwing. If either returns null, the song is still saved with
+    // the plain text artist/album fields intact — no data is lost.
+    const artistResult = await findOrCreateArtist(artist);
+
+    let albumResult = null;
+    if (artistResult && albumName && String(albumName).trim()) {
+      albumResult = await findOrCreateAlbum({
+        albumName:  String(albumName).trim(),
+        artistId:   artistResult.artistId,
+        artistName: artistResult.artistName,
+        coverUrl:   coverResult.secure_url,
+        genre:      genre || '',
+        year:       0, // future: parse from form field if added
+      });
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     const songData = {
       title,
       artist,
@@ -149,6 +161,13 @@ exports.uploadSong = async (req, res) => {
       uploadedBy:       req.user.uid,
       createdAt:        new Date(),
       updatedAt:        new Date(),
+      // New fields — additive only, never break existing consumers
+      // null when artist/album service failed (e.g. Firestore down); consumers
+      // must treat null as "no link" and fall back to plain text display.
+      artistId:         artistResult ? artistResult.artistId   : null,
+      albumId:          albumResult  ? albumResult.albumId     : null,
+      album:            albumName    ? String(albumName).trim() : '',
+      trackNumber:      trackNumber  ? Number(trackNumber) || null : null,
     };
 
     const newSong = await createSong(songData);
@@ -169,7 +188,7 @@ exports.updateSong = async (req, res) => {
     if (!existingSong) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
 
     const updates = {};
-    const { title, artist, genre, duration, featured } = req.body;
+    const { title, artist, genre, duration, featured, albumName, trackNumber } = req.body;
 
     if (title !== undefined || artist !== undefined) {
       const newTitle  = title  !== undefined ? String(title).trim()  : existingSong.title;
@@ -189,6 +208,70 @@ exports.updateSong = async (req, res) => {
     if (genre    !== undefined)   updates.genre    = String(genre).trim();
     if (duration !== undefined)   updates.duration = Number(duration) || 0;
     if (featured !== undefined)   updates.featured = Boolean(featured);
+
+    // ── Artist / Album re-linking on edit (best-effort) ───────────────────────
+    // Re-run find-or-create whenever artist name or album name changes.
+    // The effective artist name after this update (may not have changed).
+    const effectiveArtist = updates.artist || existingSong.artist;
+
+    // Artist re-link: only when artist field is being updated to a new value.
+    if (artist !== undefined && updates.artist !== existingSong.artist) {
+      const artistResult = await findOrCreateArtist(updates.artist);
+      if (artistResult) {
+        updates.artistId = artistResult.artistId;
+      }
+    }
+
+    // Album re-link: whenever albumName is explicitly provided in the edit payload.
+    if (albumName !== undefined) {
+      const trimmedAlbum = String(albumName).trim();
+      if (trimmedAlbum) {
+        // Use the updated artistId if we just computed one, otherwise fall back
+        // to the song's existing artistId (which may be null for pre-migration songs).
+        const artistIdForAlbum = updates.artistId || existingSong.artistId;
+
+        if (artistIdForAlbum) {
+          const albumResult = await findOrCreateAlbum({
+            albumName:  trimmedAlbum,
+            artistId:   artistIdForAlbum,
+            artistName: effectiveArtist,
+            coverUrl:   existingSong.coverUrl || '',
+            genre:      updates.genre || existingSong.genre || '',
+            year:       0,
+          });
+          if (albumResult) {
+            updates.albumId = albumResult.albumId;
+          }
+        } else {
+          // artistId still null (pre-migration song being partially updated):
+          // compute artist first so album can link correctly.
+          const artistResult = await findOrCreateArtist(effectiveArtist);
+          if (artistResult) {
+            updates.artistId = artistResult.artistId;
+            const albumResult = await findOrCreateAlbum({
+              albumName:  trimmedAlbum,
+              artistId:   artistResult.artistId,
+              artistName: artistResult.artistName,
+              coverUrl:   existingSong.coverUrl || '',
+              genre:      updates.genre || existingSong.genre || '',
+              year:       0,
+            });
+            if (albumResult) updates.albumId = albumResult.albumId;
+          }
+        }
+
+        updates.album = trimmedAlbum;
+      } else {
+        // Empty string sent — clear album link
+        updates.album   = '';
+        updates.albumId = null;
+      }
+    }
+
+    if (trackNumber !== undefined) {
+      updates.trackNumber = trackNumber ? Number(trackNumber) || null : null;
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     const coverFile = req.files?.['cover']?.[0];
     if (coverFile) {
