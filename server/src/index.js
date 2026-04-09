@@ -21,6 +21,8 @@ const express    = require('express');
 const helmet     = require('helmet');
 const cors       = require('cors');
 const os         = require('os');
+const https      = require('https');
+const http       = require('http');
 
 const config       = require('./config/index');
 const logger       = require('./utils/logger');
@@ -43,8 +45,6 @@ if (config.nodeEnv === 'production') {
 
 const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
 if (missingEnv.length > 0) {
-  // Use console.error here because the logger may itself depend on env vars
-  // that have not yet been validated.
   console.error(
     `[Startup] FATAL — missing required environment variable(s): ${missingEnv.join(', ')}. Exiting.`
   );
@@ -56,15 +56,18 @@ if (missingEnv.length > 0) {
 //    CLIENT_ORIGIN accepts a single origin OR comma-separated list:
 //      CLIENT_ORIGIN=https://melostream.vercel.app,https://preview-branch.vercel.app
 //
+//    config.clientOrigin may be a string (old config) or an array (new config).
+//    This block handles both safely so no crash occurs during migration.
+//
 //    Local dev origins are injected automatically in non-production mode.
 //    To add a new allowed origin in production: update the env var on Render —
 //    no code change required.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const rawOrigins = (config.clientOrigin || '')
-  .split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
+// ✅ Fix: handle clientOrigin as either array (new config) or string (old config)
+const rawOrigins = Array.isArray(config.clientOrigin)
+  ? config.clientOrigin
+  : (config.clientOrigin || '').split(',').map((o) => o.trim()).filter(Boolean);
 
 const allowedOrigins = new Set(rawOrigins);
 
@@ -118,7 +121,6 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ── 4a. Security headers ─────────────────────────────────────────────────────
-// Helmet sets ~15 security-related HTTP response headers in one call.
 app.use(helmet());
 
 // ── 4b. CORS ─────────────────────────────────────────────────────────────────
@@ -128,24 +130,19 @@ app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
 // ── 4c. Body parsers ─────────────────────────────────────────────────────────
-// 1 MB hard cap on JSON/URL-encoded payloads.
-// File uploads are handled by Multer inside individual routes (no limit here).
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // ── 4d. Global rate limiter ──────────────────────────────────────────────────
-// Route-level limiters (searchLimiter, etc.) layer on top of this.
 app.use(generalLimiter);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. SYSTEM ROUTES
-//    These are intentionally placed ABOVE /api so they are never blocked by
-//    route-level auth or rate-limit middleware.
+//    Placed ABOVE /api so they are never blocked by route-level auth or
+//    rate-limit middleware.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── 5a. Health / liveness probe ──────────────────────────────────────────────
-// Render and load balancers ping this to confirm the process is alive.
-// Returns 200 as quickly as possible — no DB calls, no auth.
 app.get('/health', (_req, res) => {
   res.status(200).json({
     status   : 'ok',
@@ -156,12 +153,7 @@ app.get('/health', (_req, res) => {
 });
 
 // ── 5b. Readiness probe ──────────────────────────────────────────────────────
-// Optional: Kubernetes / advanced load balancers use /ready to decide whether
-// to send traffic.  Unlike /health this CAN call a cheap dependency check.
-// Stubbed here — extend once you have a reliable connection-check helper.
 app.get('/ready', (_req, res) => {
-  // TODO: add lightweight Firebase Admin SDK ping when connection-check helper
-  // is available (e.g. firebaseAdmin.app().options.projectId check).
   res.status(200).json({ status: 'ready' });
 });
 
@@ -173,10 +165,8 @@ app.use('/api', routes);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 7. FALLTHROUGH HANDLERS
-//    These MUST come after all routes.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── 7a. 404 — route not matched ───────────────────────────────────────────────
 app.use((_req, res) => {
   res.status(404).json({
     success: false,
@@ -185,9 +175,6 @@ app.use((_req, res) => {
   });
 });
 
-// ── 7b. Global error handler ──────────────────────────────────────────────────
-// errorHandler must be the LAST app.use() call and must have exactly 4 params
-// so Express recognises it as an error-handling middleware.
 app.use(errorHandler);
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -207,8 +194,6 @@ const server = app.listen(PORT, () => {
   );
 });
 
-// Propagate server-level errors (e.g. EADDRINUSE) to the unhandled-rejection
-// safety net below so they are logged and cause a clean restart.
 server.on('error', (err) => {
   logger.error('[Server] Fatal server error:', err);
   gracefulShutdown('SERVER_ERROR');
@@ -216,12 +201,6 @@ server.on('error', (err) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 9. GRACEFUL SHUTDOWN
-//    Render (and most PaaS/K8s providers) send SIGTERM before killing the
-//    container.  We stop accepting new connections, drain in-flight requests,
-//    then exit cleanly — preventing 502s during rolling deploys and restarts.
-//
-//    The 15-second force-exit ensures the process never hangs indefinitely
-//    (e.g. if a streaming response never closes).
 // ─────────────────────────────────────────────────────────────────────────────
 
 let isShuttingDown = false;
@@ -239,30 +218,60 @@ function gracefulShutdown(signal) {
     }
 
     logger.info('[Server] All HTTP connections closed. Exiting cleanly.');
-    // Add cleanup calls here before exit if needed:
-    //   await redisClient.quit();
-    //   await firebaseAdmin.app().delete();
     process.exit(0);
   });
 
-  // Hard kill-switch: if connections have not drained within 15 s, force-exit.
-  // .unref() prevents this timer from keeping the event loop alive by itself.
   setTimeout(() => {
     logger.error('[Server] Graceful shutdown timed out (15 s) — forcing exit.');
     process.exit(1);
   }, 15_000).unref();
 }
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM')); // PaaS / K8s stop signal
-process.on('SIGINT',  () => gracefulShutdown('SIGINT'));  // Ctrl-C in local dev
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 10. GLOBAL SAFETY NET
-//     These handlers catch bugs that slipped through route-level try/catch.
-//     In production: log the error details and trigger a clean restart via
-//     gracefulShutdown so the process manager (Render, PM2, K8s) can bring
-//     up a fresh instance.  A process limping in an unknown state is worse
-//     than a brief restart gap.
+// 10. KEEP-ALIVE SELF PING
+//     Render free tier spins down after 15 min of inactivity.
+//     Pings /health every 14 minutes to keep the server warm.
+//     Only runs in production — silent no-op in local dev.
+//     Uses BACKEND_URL (your own var) with RENDER_EXTERNAL_URL as fallback.
+//     To migrate to a new server: just update BACKEND_URL — no code changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+if (config.nodeEnv === 'production') {
+  const backendUrl = config.backendUrl;
+
+  if (backendUrl) {
+    const pingServer = () => {
+      const url    = `${backendUrl}/health`;
+      const client = url.startsWith('https') ? https : http;
+
+      const req = client.get(url, (res) => {
+        if (res.statusCode !== 200) {
+          logger.warn(`[keep-alive] Ping returned status ${res.statusCode}`);
+        }
+      });
+
+      req.on('error', (err) => {
+        // Non-fatal — next ping retries in 14 minutes
+        logger.warn(`[keep-alive] Ping failed: ${err.message}`);
+      });
+
+      req.end();
+    };
+
+    const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutes
+    setInterval(pingServer, PING_INTERVAL_MS);
+
+    logger.info(`[keep-alive] Self-ping enabled → ${backendUrl}/health every 14 min`);
+  } else {
+    logger.warn('[keep-alive] BACKEND_URL not set — self-ping disabled.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. GLOBAL SAFETY NET
 // ─────────────────────────────────────────────────────────────────────────────
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -270,15 +279,12 @@ process.on('unhandledRejection', (reason, promise) => {
     reason,
     promise: promise.toString(),
   });
-  // In production: restart; in local dev: keep running for fast iteration.
   if (config.nodeEnv === 'production') {
     gracefulShutdown('unhandledRejection');
   }
 });
 
 process.on('uncaughtException', (err) => {
-  // uncaughtException means the Node event loop is in an undefined state.
-  // Always exit — do not try to recover.
   logger.error('[Process] Uncaught exception (fatal):', err);
   gracefulShutdown('uncaughtException');
 });

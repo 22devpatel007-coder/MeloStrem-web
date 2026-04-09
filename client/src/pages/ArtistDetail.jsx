@@ -24,28 +24,10 @@
 import { useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useArtist } from "../hooks/useArtist";
-import { useQuery } from "@tanstack/react-query";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
-import { QUERY_KEYS } from "../constants/queryKeys";
-import api from "../services/api";
 import Navbar from "../components/layout/Navbar";
 import Loader from "../components/ui/Loader";
-
-// Fetch all albums for this artist (non-paginated — used only here)
-const fetchArtistAlbums = async (artistId) => {
-  const res = await api.get(`/artists/${artistId}/songs`); // albums fetched separately below
-  return res?.data ?? res;
-};
-
-const fetchAlbumsByArtist = async (artistId) => {
-  // Albums don't have a dedicated list endpoint yet — query Firestore-side
-  // via a lightweight albums search. For now we fetch from the albums collection
-  // by artistId using the existing GET /api/albums route pattern.
-  // This will be wired up when album list endpoint is added; for Phase 5 we
-  // derive album cards from the songs data already loaded in useArtist.
-  return [];
-};
 
 const ArtistDetail = () => {
   const { id } = useParams();
@@ -270,7 +252,7 @@ const ArtistDetail = () => {
               )}
 
               {isFetchingNextPage && (
-                <p style={styles.loadingMore}>Loading more songs...</p>
+                <p style={styles.loadingMore}>Loading more…</p>
               )}
             </>
           )}
@@ -290,13 +272,13 @@ const ArtistDetail = () => {
                   <img
                     src={
                       alb.coverUrl ||
-                      "https://placehold.co/160x160/1a1a1a/555?text=♪"
+                      "https://placehold.co/150x150/1a1a1a/555?text=♪"
                     }
                     alt={alb.albumName}
                     style={styles.albumCover}
                     onError={(e) => {
                       e.target.src =
-                        "https://placehold.co/160x160/1a1a1a/555?text=♪";
+                        "https://placehold.co/150x150/1a1a1a/555?text=♪";
                     }}
                   />
                   <p style={styles.albumName}>{alb.albumName}</p>
@@ -475,7 +457,6 @@ const styles = {
   albumLink: {
     color: "#9ca3af",
     textDecoration: "none",
-    ":hover": { color: "#22c55e" },
   },
   genreBadge: {
     background: "rgba(34,197,94,0.1)",
@@ -504,7 +485,6 @@ const styles = {
     cursor: "pointer",
     padding: "12px 12px",
     fontFamily: "inherit",
-    ":hover": { color: "#fff" },
   },
   loadingMore: { color: "#6b7280", fontSize: 13, padding: "8px 12px" },
 
@@ -529,7 +509,6 @@ const styles = {
     background: "#1a1a1a",
     boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
     transition: "transform 0.2s",
-    ":hover": { transform: "scale(1.03)" },
   },
   albumName: {
     color: "#fff",

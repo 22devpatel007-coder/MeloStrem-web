@@ -16,8 +16,6 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { collection, query, where, orderBy, getDocs } from "firebase/firestore";
-import { db } from "../firebase";
 import SongList from "../components/songs/SongList";
 import Loader from "../components/ui/Loader";
 import { usePlayerStore } from "../store/playerStore";
@@ -52,14 +50,6 @@ function removeFromHistory(id) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const fmtDuration = (secs) => {
-  if (!secs && secs !== 0) return null;
-  const n = Number(secs);
-  if (isNaN(n) || n <= 0) return null;
-  const m = Math.floor(n / 60);
-  const s = Math.floor(n % 60).toString().padStart(2, "0");
-  return `${m}:${s}`;
-};
 
 const AVATAR_COLORS = [
   { bg: "#E1F5EE", color: "#085041" },
@@ -131,7 +121,7 @@ const Home = () => {
   const blurTimerRef = useRef(null);
   const sentinelRef  = useRef(null);
 
-  const { recentlyPlayed, currentSong, isPlaying, setPlaybackContext, logPick } = usePlayerStore();
+  const { currentSong, setPlaybackContext, logPick } = usePlayerStore();
   const { user } = useAuthStore();
 
   const showHistory = searchFocused && searchText.trim() === "" && history.length > 0;
