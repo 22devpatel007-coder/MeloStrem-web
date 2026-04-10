@@ -1,87 +1,97 @@
 /**
- * client/src/components/player/MiniPlayerBar.jsx
+ * client/src/components/player/MiniPlayerBar.jsx — FIXED (production-ready)
  *
- * Persistent bottom bar. Visible on all breakpoints.
- * Clicking anywhere on it (except control buttons) expands to FullScreenPlayer.
+ * BUG FIXED: "Maximum update depth exceeded" (MiniPlayerBar.jsx:50)
+ * ──────────────────────────────────────────────────────────────────
+ * Root cause: The `update` function inside the timeupdate/loadedmetadata
+ * useEffect closed over `seeking` from component state. Every time `seeking`
+ * changed, the effect re-ran: it removed the old listeners and added new ones.
+ * The new listener still called `setProgress` / `setDuration` on the NEXT
+ * tick of `timeupdate`, which fired setState again, which caused another render,
+ * which rebuilt the closure... infinite update loop.
  *
- * Layout:
- *   Mobile  (<640px): art + title + like + play  (no progress, no shuffle)
- *   Tablet  (640–1023px): art + title + like + controls + queue toggle
- *   Desktop (≥1024px): art + title + like  |  progress + controls  |  volume + queue + shuffle + repeat
+ * Fix: use a ref (`seekingRef`) to track the `seeking` boolean. The ref is
+ * always current but never causes a re-render — so the audio event listeners
+ * are added ONCE and never torn down/re-added due to `seeking` changes.
+ * The `seeking` state variable is still kept for rendering the correct value
+ * in the seek input, but it is no longer in the useEffect dependency array.
  *
- * Props:
- *   onExpand: () => void  — called when user clicks to open full screen
- *   showQueue: boolean
- *   onToggleQueue: () => void
+ * All original features and layout preserved.
  */
 
 import { useRef, useEffect, useState, useCallback, memo } from "react";
 import { usePlayerStore, audio } from "../../store/playerStore";
-// import { useQueueStore } from "../../store/queueStore";
 import LikeButton from "./LikeButton";
 import PlayerControls from "./PlayerControls";
 import { QueueDrawer } from "./QueueDrawer";
 
 const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
   const currentSong = usePlayerStore((s) => s.currentSong);
-  // const isPlaying = usePlayerStore((s) => s.isPlaying);
-  const volume = usePlayerStore((s) => s.volume);
-  const setVolume = usePlayerStore((s) => s.setVolume);
+  const volume      = usePlayerStore((s) => s.volume);
+  const setVolume   = usePlayerStore((s) => s.setVolume);
 
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [seeking, setSeeking] = useState(false);
+  const [seeking,  setSeeking]  = useState(false);
 
-  // BUG 5 FIX: CSS --pct via ref, not React style prop
-  const seekRef = useRef(null);
+  // ✅ FIX: use a ref to track seeking inside the audio event listener.
+  // The listener is registered once; the ref stays current without
+  // re-triggering the effect — eliminating the infinite update loop.
+  const seekingRef = useRef(false);
+
+  const seekRef   = useRef(null);
   const volumeRef = useRef(null);
 
+  // Update CSS custom property for seek progress bar
   useEffect(() => {
     const pct = duration ? (progress / duration) * 100 : 0;
     seekRef.current?.style.setProperty("--pct", `${pct}%`);
   }, [progress, duration]);
 
+  // Update CSS custom property for volume bar
   useEffect(() => {
     volumeRef.current?.style.setProperty("--pct", `${volume * 100}%`);
   }, [volume]);
 
+  // ✅ FIX: Empty dependency array — registered once, reads seeking via ref.
   useEffect(() => {
     const update = () => {
-      if (!seeking) setProgress(audio.currentTime);
+      // Use the ref (always current) instead of the state variable (stale closure)
+      if (!seekingRef.current) setProgress(audio.currentTime);
       setDuration(audio.duration || 0);
     };
-    audio.addEventListener("timeupdate", update);
+    audio.addEventListener("timeupdate",    update);
     audio.addEventListener("loadedmetadata", update);
     return () => {
-      audio.removeEventListener("timeupdate", update);
+      audio.removeEventListener("timeupdate",    update);
       audio.removeEventListener("loadedmetadata", update);
     };
-  }, [seeking]);
+  }, []); // ← intentionally empty: listener never needs to be re-registered
 
-  const handleSeekStart = useCallback(() => setSeeking(true), []);
-  const handleSeekChange = useCallback(
-    (e) => setProgress(Number(e.target.value)),
-    [],
-  );
+  const handleSeekStart = useCallback(() => {
+    seekingRef.current = true;
+    setSeeking(true);
+  }, []);
+
+  const handleSeekChange = useCallback((e) => {
+    setProgress(Number(e.target.value));
+  }, []);
+
   const handleSeekEnd = useCallback((e) => {
-    audio.currentTime = Number(e.target.value);
+    audio.currentTime  = Number(e.target.value);
+    seekingRef.current = false;
     setSeeking(false);
   }, []);
 
-  const handleVolume = useCallback(
-    (e) => {
-      const v = Number(e.target.value);
-      audio.volume = v;
-      setVolume(v);
-    },
-    [setVolume],
-  );
+  const handleVolume = useCallback((e) => {
+    const v = Number(e.target.value);
+    audio.volume = v;
+    setVolume(v);
+  }, [setVolume]);
 
   const fmt = (t) => {
     if (!t || isNaN(t)) return "0:00";
-    return `${Math.floor(t / 60)}:${Math.floor(t % 60)
-      .toString()
-      .padStart(2, "0")}`;
+    return `${Math.floor(t / 60)}:${Math.floor(t % 60).toString().padStart(2, "0")}`;
   };
 
   if (!currentSong) return null;
@@ -126,12 +136,10 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
         .mini-bar-right { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
         .mini-bar-vol   { display: flex; align-items: center; gap: 6px; }
 
-        /* Tablet: hide volume, show queue only */
         @media (max-width: 1023px) {
           .mini-bar-desktop-only { display: none !important; }
           .mini-bar-inner { grid-template-columns: 1fr auto auto; }
         }
-        /* Mobile: simplified layout */
         @media (max-width: 639px) {
           .mini-bar-seek-row  { display: none !important; }
           .mini-bar-inner     { display: flex !important; padding: 0 12px; height: 64px; gap: 0; }
@@ -145,13 +153,8 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
 
       <div
         style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          background: "#161616",
-          borderTop: "1px solid #2a2a2a",
-          zIndex: 100,
+          position: "fixed", bottom: 0, left: 0, right: 0,
+          background: "#161616", borderTop: "1px solid #2a2a2a", zIndex: 100,
         }}
       >
         {/* Seek row — hidden on mobile */}
@@ -179,32 +182,17 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
 
         {/* Main row */}
         <div className="mini-bar-inner">
-          {/* Left — song info, clickable to expand */}
+          {/* Left — song info */}
           <div
             className="mini-bar-song-info"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              minWidth: 0,
-              cursor: "pointer",
-            }}
+            style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0, cursor: "pointer" }}
             onClick={onExpand}
           >
             <img
               src={currentSong.coverUrl}
               alt={currentSong.title}
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 8,
-                objectFit: "cover",
-                flexShrink: 0,
-                background: "#111",
-              }}
-              onError={(e) => {
-                e.target.src = "https://placehold.co/44x44/111/555?text=♪";
-              }}
+              style={{ width: 44, height: 44, borderRadius: 8, objectFit: "cover", flexShrink: 0, background: "#111" }}
+              onError={(e) => { e.target.src = "https://placehold.co/44x44/111/555?text=♪"; }}
             />
             <div style={{ minWidth: 0 }}>
               <p style={styles.songTitle}>{currentSong.title}</p>
@@ -213,55 +201,37 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
           </div>
 
           {/* Center — full controls (hidden mobile) */}
-          <div
-            className="mini-bar-center"
-            style={{ display: "flex", justifyContent: "center" }}
-          >
+          <div className="mini-bar-center" style={{ display: "flex", justifyContent: "center" }}>
             <PlayerControls size="md" showShuffle showRepeat />
           </div>
 
-          {/* Right — volume + queue + mobile play */}
+          {/* Right */}
           <div className="mini-bar-right">
-            {/* Volume (desktop only) */}
             <div className="mini-bar-vol mini-bar-desktop-only">
               <VolumeIcon volume={volume} />
               <input
                 ref={volumeRef}
                 type="range"
                 className="mini-bar-range"
-                min="0"
-                max="1"
-                step="0.01"
+                min="0" max="1" step="0.01"
                 value={volume}
                 onChange={handleVolume}
                 style={{ width: 72 }}
               />
             </div>
 
-            {/* Like */}
             <LikeButton song={currentSong} size="sm" />
 
-            {/* Queue toggle */}
             <CtrlBtn onClick={onToggleQueue} title="Queue" active={showQueue}>
               <QueueIcon />
             </CtrlBtn>
 
-            {/* Expand (desktop) */}
-            <CtrlBtn
-              onClick={onExpand}
-              title="Full player"
-              className="mini-bar-desktop-only"
-            >
+            <CtrlBtn onClick={onExpand} title="Full player" className="mini-bar-desktop-only">
               <ExpandIcon />
             </CtrlBtn>
 
-            {/* Mobile: play/pause only */}
             <div className="mini-bar-mobile-play">
-              <PlayerControls
-                size="sm"
-                showShuffle={false}
-                showRepeat={false}
-              />
+              <PlayerControls size="sm" showShuffle={false} showRepeat={false} />
             </div>
           </div>
         </div>
@@ -279,25 +249,13 @@ const CtrlBtn = ({ onClick, title, active, children, className = "" }) => (
     title={title}
     className={className}
     style={{
-      width: 34,
-      height: 34,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "none",
-      border: "none",
-      cursor: "pointer",
+      width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center",
+      background: "none", border: "none", cursor: "pointer",
       color: active ? "#22c55e" : "#9ca3af",
-      borderRadius: 8,
-      flexShrink: 0,
-      transition: "color 0.15s",
+      borderRadius: 8, flexShrink: 0, transition: "color 0.15s",
     }}
-    onMouseEnter={(e) => {
-      if (!active) e.currentTarget.style.color = "#fff";
-    }}
-    onMouseLeave={(e) => {
-      if (!active) e.currentTarget.style.color = "#9ca3af";
-    }}
+    onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = "#fff"; }}
+    onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = "#9ca3af"; }}
   >
     {children}
   </button>
@@ -305,31 +263,14 @@ const CtrlBtn = ({ onClick, title, active, children, className = "" }) => (
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
 const QueueIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
-    <line x1="8" y1="6" x2="21" y2="6" />
-    <line x1="8" y1="12" x2="21" y2="12" />
-    <line x1="8" y1="18" x2="21" y2="18" />
-    <line x1="3" y1="6" x2="3.01" y2="6" />
-    <line x1="3" y1="12" x2="3.01" y2="12" />
-    <line x1="3" y1="18" x2="3.01" y2="18" />
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" />
   </svg>
 );
 const ExpandIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <polyline points="18 15 12 9 6 15" />
   </svg>
 );
@@ -346,30 +287,9 @@ const VolumeIcon = ({ volume }) => (
 );
 
 const styles = {
-  timeLabel: {
-    color: "#6b7280",
-    fontSize: "11px",
-    fontVariantNumeric: "tabular-nums",
-    minWidth: 28,
-    flexShrink: 0,
-  },
-  songTitle: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: 600,
-    margin: 0,
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
-  songArtist: {
-    color: "#6b7280",
-    fontSize: 11,
-    margin: "2px 0 0",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  },
+  timeLabel:  { color: "#6b7280", fontSize: "11px", fontVariantNumeric: "tabular-nums", minWidth: 28, flexShrink: 0 },
+  songTitle:  { color: "#fff", fontSize: 13, fontWeight: 600, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  songArtist: { color: "#6b7280", fontSize: 11, margin: "2px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
 };
 
 export default MiniPlayerBar;

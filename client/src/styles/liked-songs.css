@@ -1,0 +1,868 @@
+/* =============================================================
+   LIKED SONGS PAGE — liked-songs.css
+   Add this line to client/src/styles/index.css:
+     @import './liked-songs.css';
+
+   All rules are scoped with ls-* prefix.
+   Breakpoints: 480px / 640px / 900px / 1100px
+============================================================= */
+
+/* ── Page shell ─────────────────────────────────────────────── */
+.ls-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--color-bg);
+  font-family: var(--font-family);
+}
+
+.ls-page--centered {
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  min-height: 60vh;
+}
+
+/* ============================================================
+   HERO — FIXED
+   Key fixes:
+   1. ls-hero__bg-base covers 100% always (no grid gaps)
+   2. Tile mosaic is an overlay with opacity, not the base layer
+   3. Multi-layer gradient ensures perfect legibility
+   4. Height is fixed so content is always bottom-anchored
+============================================================ */
+.ls-hero {
+  position: relative;
+  width: 100%;
+  height: 300px;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+@media (min-width: 640px)  { .ls-hero { height: 340px; } }
+@media (min-width: 1100px) { .ls-hero { height: 380px; } }
+
+/* Background container */
+.ls-hero__bg {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* PRIMARY base image — always fills the entire hero area, no gaps */
+.ls-hero__bg-base {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 30%;
+  /* Slightly desaturated so overlay colors pop */
+  filter: saturate(1.15) brightness(0.75);
+  transform: scale(1.02); /* tiny scale hides edge artifacts */
+  transition: transform 8s ease;
+}
+
+/* Skeleton placeholder when no image yet */
+.ls-hero--skeleton .ls-hero__bg-base {
+  background: var(--color-surface);
+}
+
+/* Tile mosaic — decorative overlay, only shown when 2+ covers */
+.ls-hero__bg-tiles {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.ls-hero__bg-tile {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(2px);
+}
+
+/* Fallback gradient when no covers at all */
+.ls-hero__bg-fallback {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, #4c1d95 0%, #831843 50%, #1c1917 100%);
+}
+
+/* Overlay layers — stacked for rich legibility */
+/* Layer 1: subtle purple-rose tint */
+.ls-hero__ov--tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg,
+    rgba(88, 28, 135, 0.52) 0%,
+    rgba(157, 23, 77, 0.38) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Layer 2: strong bottom-to-top dark fade (for text legibility) */
+.ls-hero__ov--bottom {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.92) 0%,
+    rgba(0, 0, 0, 0.55) 40%,
+    rgba(0, 0, 0, 0.15) 70%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Layer 3: left-side fade so left content is always on dark bg */
+.ls-hero__ov--left {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.6) 0%,
+    rgba(0, 0, 0, 0.2) 50%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Hero content — stacked column, anchored to bottom-left */
+.ls-hero__content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 24px 28px;
+  width: 100%;
+  max-width: 700px;
+}
+
+@media (min-width: 640px)  { .ls-hero__content { padding: 0 36px 32px; } }
+@media (min-width: 1100px) { .ls-hero__content { padding: 0 48px 36px; } }
+
+/* Heart icon */
+.ls-hero__icon {
+  width: 52px;
+  height: 52px;
+  background: linear-gradient(135deg, #e11d48, #9333ea);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(225, 29, 72, 0.45);
+  flex-shrink: 0;
+}
+
+/* Text */
+.ls-hero__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  margin-bottom: -6px;
+}
+
+.ls-hero__title {
+  font-size: clamp(26px, 4.5vw, 46px);
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Stats row */
+.ls-stats-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ls-stat__value {
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.ls-stat__unit {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 3px;
+}
+
+.ls-stat__sep {
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 14px;
+  margin: 0 2px;
+}
+
+/* Action buttons */
+.ls-hero__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ls-btn-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 26px;
+  background: #22c55e;
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.ls-btn-play:hover:not(:disabled) {
+  transform: scale(1.05);
+  box-shadow: 0 6px 22px rgba(34, 197, 94, 0.45);
+}
+
+.ls-btn-play:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ls-btn-smart {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 22px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.ls-btn-smart:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.38);
+  transform: scale(1.03);
+}
+
+.ls-btn-smart:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Hero entrance animation */
+.ls-hero-enter {
+  animation: lsFadeDown 0.5s ease both;
+}
+
+@keyframes lsFadeDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   BODY
+============================================================ */
+.ls-body {
+  flex: 1;
+  animation: lsFadeUp 0.4s ease 0.12s both;
+}
+
+@keyframes lsFadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   FILTERS BAR — sticky below hero
+============================================================ */
+.ls-filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--color-border);
+  /* Sticky so filters stay visible while scrolling the song list */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-bg);
+  /* Blur fallback for browsers that support it */
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  background: rgba(var(--color-bg-rgb, 10, 10, 10), 0.92);
+}
+
+@media (min-width: 640px)  { .ls-filters { padding: 14px 36px 12px; } }
+@media (min-width: 1100px) { .ls-filters { padding: 14px 48px 12px; } }
+
+/* Genre chips */
+.ls-chips {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ls-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.ls-chip:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-emphasis);
+}
+
+.ls-chip--active {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-emphasis);
+  font-weight: 600;
+}
+
+.ls-chip__count {
+  font-size: 10px;
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+/* Sort + Group controls */
+.ls-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ls-sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-muted);
+}
+
+.ls-sort-select {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 8px;
+  cursor: pointer;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.15s;
+}
+
+.ls-sort-select:hover,
+.ls-sort-select:focus {
+  border-color: var(--color-border-emphasis);
+  color: var(--color-text-primary);
+}
+
+.ls-sort-select option {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+.ls-group-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ls-group-btn:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-emphasis);
+}
+
+.ls-group-btn--active {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  border-color: var(--color-accent-subtle);
+}
+
+@media (max-width: 400px) {
+  .ls-group-btn__label { display: none; }
+}
+
+/* ============================================================
+   TABLE — FIXED
+   Key fixes:
+   1. thead is NOT sticky (was causing row 1 to hide behind it)
+   2. Proper column widths so layout is stable
+   3. ls-new-badge repositioned to bottom-right of cover
+============================================================ */
+.ls-table-wrap {
+  width: 100%;
+  overflow-x: hidden;
+}
+
+.ls-genre-group { padding-bottom: 4px; }
+
+.ls-genre-group__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 24px 10px;
+}
+
+.ls-genre-group__count {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 640px)  { .ls-genre-group__header { padding: 20px 36px 10px; } }
+@media (min-width: 1100px) { .ls-genre-group__header { padding: 20px 48px 10px; } }
+
+.ls-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+/* Table header — NOT sticky (avoids row 1 overlap bug) */
+.ls-thead-row {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ls-th {
+  padding: 10px 12px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  text-align: left;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ls-th--num {
+  width: 52px;
+  text-align: center;
+  padding-left: 24px;
+}
+
+.ls-th--right {
+  text-align: right;
+  padding-right: 24px;
+}
+
+/* Responsive column visibility */
+.ls-th--hide-sm, .ls-td--hide-sm,
+.ls-th--hide-md, .ls-td--hide-md {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .ls-th--hide-sm, .ls-td--hide-sm { display: table-cell; }
+}
+
+@media (min-width: 900px) {
+  .ls-th--hide-md, .ls-td--hide-md { display: table-cell; }
+}
+
+/* Rows */
+.ls-row {
+  border-bottom: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  /* Staggered entrance — delay set inline via style */
+  animation: lsRowIn 0.3s ease both;
+}
+
+@keyframes lsRowIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ls-row:hover { background: var(--color-surface-hover); }
+.ls-row--playing { background: rgba(34, 197, 94, 0.06); }
+.ls-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+/* Cells */
+.ls-td {
+  padding: 9px 12px;
+  vertical-align: middle;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.ls-td--num {
+  width: 52px;
+  text-align: center;
+  padding-left: 24px;
+}
+
+.ls-td--right {
+  padding-right: 24px;
+}
+
+.ls-td--title { min-width: 0; }
+
+.ls-row-num {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Play button in cell */
+.ls-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #000;
+  border: none;
+  cursor: pointer;
+  margin: 0 auto;
+  transition: transform 0.12s, box-shadow 0.12s;
+  flex-shrink: 0;
+}
+
+.ls-play-btn:hover {
+  transform: scale(1.12);
+  box-shadow: 0 4px 14px rgba(34, 197, 94, 0.5);
+}
+
+/* Song info */
+.ls-song-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Cover art */
+.ls-cover-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ls-cover {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}
+
+.ls-cover--fallback {
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+}
+
+/*
+ * NEW badge — FIXED position:
+ * Moved to bottom-right corner of the cover so it never
+ * overlaps the row number or title columns.
+ */
+.ls-new-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  background: #22c55e;
+  color: #000;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.5;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* Song title + artist */
+.ls-song-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ls-song-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.ls-song-title--playing { color: #22c55e; }
+
+.ls-song-artist {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+
+.ls-artist-link {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color 0.12s;
+}
+
+.ls-artist-link:hover {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+}
+
+.ls-album-link {
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.12s;
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ls-album-link:hover {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+}
+
+.ls-muted {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+/* Genre chip */
+.ls-genre-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+/* Time + unlike */
+.ls-td-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ls-unlike-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, transform 0.12s;
+  flex-shrink: 0;
+}
+
+.ls-unlike-btn--visible { opacity: 1; }
+.ls-unlike-btn--liked   { color: #f43f5e; opacity: 1; }
+
+.ls-unlike-btn:hover {
+  color: #f43f5e;
+  transform: scale(1.18);
+}
+
+.ls-duration {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  min-width: 30px;
+  text-align: right;
+}
+
+/* ============================================================
+   EMPTY STATES
+============================================================ */
+
+/* No songs match filter */
+.ls-empty-filter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 60px 24px;
+  text-align: center;
+  animation: lsFadeUp 0.3s ease both;
+}
+
+.ls-empty-filter__icon { font-size: 28px; }
+.ls-empty-filter__text { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.ls-empty-filter__sub  { font-size: 12px; color: var(--color-text-muted); }
+
+/* No liked songs at all */
+.ls-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  max-width: 300px;
+  animation: lsFadeUp 0.4s ease both;
+}
+
+.ls-empty__heart-ring {
+  width: 72px;
+  height: 72px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+  animation: lsHeartPulse 2.8s ease-in-out infinite;
+}
+
+@keyframes lsHeartPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0); }
+  50%       { box-shadow: 0 0 0 10px rgba(244, 63, 94, 0.07); }
+}
+
+.ls-empty__title { font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
+.ls-empty__sub   { font-size: 13px; color: var(--color-text-muted); line-height: 1.5; }
+
+.ls-btn-browse {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 8px;
+  padding: 10px 24px;
+  background: #22c55e;
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 999px;
+  text-decoration: none;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.ls-btn-browse:hover {
+  transform: scale(1.04);
+  box-shadow: 0 6px 20px rgba(34, 197, 94, 0.35);
+  color: #000;
+}
+
+/* ============================================================
+   ERROR STATE
+============================================================ */
+.ls-error-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 44px 32px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  max-width: 320px;
+  text-align: center;
+  animation: lsFadeUp 0.4s ease both;
+}
+
+.ls-error-card__icon  { font-size: 30px; }
+.ls-error-card__title { font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
+.ls-error-card__sub   { font-size: 12px; color: var(--color-text-muted); }
+
+.ls-btn-retry {
+  margin-top: 6px;
+  padding: 9px 22px;
+  background: var(--color-surface-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ls-btn-retry:hover {
+  background: var(--color-border);
+}
+
+/* ============================================================
+   MOBILE
+============================================================ */
+@media (max-width: 480px) {
+  .ls-hero { height: 260px; }
+  .ls-hero__content { padding: 0 16px 22px; gap: 10px; }
+  .ls-hero__title { font-size: 24px; }
+  .ls-hero__icon { width: 44px; height: 44px; border-radius: 12px; }
+  .ls-btn-play, .ls-btn-smart { padding: 9px 18px; font-size: 12px; }
+
+  .ls-filters { padding: 12px 16px 10px; }
+  .ls-genre-group__header { padding: 14px 16px 8px; }
+
+  .ls-th--num, .ls-td--num { padding-left: 16px; width: 40px; }
+  .ls-th--right, .ls-td--right { padding-right: 16px; }
+  .ls-td { padding: 8px 10px; }
+}
