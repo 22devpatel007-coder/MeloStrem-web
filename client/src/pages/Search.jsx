@@ -166,33 +166,33 @@ const SORT_OPTIONS = [
 ];
 
 // ─── Highlight helper ─────────────────────────────────────────────────────────
-function escapeRegex(str) {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+// function escapeRegex(str) {
+//   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// }
 
-function HighlightedResult({ text, query, style }) {
-  if (!query || !text) return <span style={style}>{text}</span>;
+// function HighlightedResult({ text, query, style }) {
+//   if (!query || !text) return <span style={style}>{text}</span>;
 
-  let pattern;
-  try {
-    pattern = new RegExp(`(${escapeRegex(query)})`, 'i');
-  } catch {
-    return <span style={style}>{text}</span>;
-  }
+//   let pattern;
+//   try {
+//     pattern = new RegExp(`(${escapeRegex(query)})`, 'i');
+//   } catch {
+//     return <span style={style}>{text}</span>;
+//   }
 
-  const parts = text.split(pattern);
-  return (
-    <span style={style}>
-      {parts.map((part, i) =>
-        pattern.test(part) ? (
-          <strong key={i} style={{ color: '#22c55e', fontWeight: 700 }}>{part}</strong>
-        ) : (
-          <span key={i}>{part}</span>
-        )
-      )}
-    </span>
-  );
-}
+//   const parts = text.split(pattern);
+//   return (
+//     <span style={style}>
+//       {parts.map((part, i) =>
+//         pattern.test(part) ? (
+//           <strong key={i} style={{ color: '#22c55e', fontWeight: 700 }}>{part}</strong>
+//         ) : (
+//           <span key={i}>{part}</span>
+//         )
+//       )}
+//     </span>
+//   );
+// }
 
 // ─── Skeleton shimmer row ─────────────────────────────────────────────────────
 const SkeletonRow = () => (
@@ -210,8 +210,8 @@ const Search = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const query = searchParams.get('q') || '';
 
-  const { data, isLoading, isError } = useSearch(query);
-  const songs = data?.songs ?? [];
+const { data, isLoading, isError } = useSearch(query);
+const songs = useMemo(() => data?.songs ?? [], [data?.songs]);
 
   // useSongs — page 1 only (already cached). Used for fuzzy fallback AND artist browse.
   // No extra API call — this data is already in React Query cache from Home page.
