@@ -1,7 +1,11 @@
+/**
+ * client/src/pages/admin/MusicList.jsx
+ * PERMANENT FIX: Navbar import and usage removed.
+ */
+
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import axiosInstance, { extractSongs } from "../../services/api";
-import Navbar from "../../components/layout/Navbar";
 import Loader from "../../components/ui/Loader";
 import EditSongModal from "../../components/admin/EditSongModal";
 
@@ -30,7 +34,6 @@ const MusicList = () => {
 
   const fetchSongs = async () => {
     try {
-      // limit=200 — admin needs the full list to manage songs
       const res = await axiosInstance.get("/songs?limit=200");
       setSongs(extractSongs(res.data));
     } catch (err) {
@@ -39,7 +42,6 @@ const MusicList = () => {
     setLoading(false);
   };
 
-  /* ── Delete ──────────────────────────────────────────────────────────────── */
   const handleDelete = async (id) => {
     setDeletingId(id);
     try {
@@ -52,7 +54,6 @@ const MusicList = () => {
     setConfirmId(null);
   };
 
-  /* ── Featured toggle ─────────────────────────────────────────────────────── */
   const handleToggleFeatured = async (song) => {
     if (featuringId) return;
     setFeaturingId(song.id);
@@ -74,7 +75,6 @@ const MusicList = () => {
     setFeaturingId(null);
   };
 
-  /* ── Edit callback ───────────────────────────────────────────────────────── */
   const handleUpdated = (updatedSong) => {
     setSongs((prev) =>
       prev.map((s) => (s.id === updatedSong.id ? { ...s, ...updatedSong } : s)),
@@ -84,164 +84,153 @@ const MusicList = () => {
   if (loading) return <Loader />;
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-      <div style={styles.container}>
-        <div style={styles.pageHeader}>
-          <div>
-            <h1 style={styles.heading}>Manage Songs</h1>
-            <p style={styles.subheading}>{songs.length} tracks in library</p>
-          </div>
-          <Link to="/admin/bulk" style={styles.bulkBtn}>
-            + Bulk Upload
-          </Link>
+    <div style={styles.container}>
+      <div style={styles.pageHeader}>
+        <div>
+          <h1 style={styles.heading}>Manage Songs</h1>
+          <p style={styles.subheading}>{songs.length} tracks in library</p>
         </div>
+        <Link to="/admin/bulk" style={styles.bulkBtn}>
+          + Bulk Upload
+        </Link>
+      </div>
 
-        {songs.length === 0 ? (
-          <div style={styles.empty}>
-            <div style={styles.emptyIcon}>♪</div>
-            <p style={styles.emptyTitle}>No songs yet</p>
-            <p style={styles.emptyDesc}>
-              Upload your first track from the admin dashboard.
-            </p>
+      {songs.length === 0 ? (
+        <div style={styles.empty}>
+          <div style={styles.emptyIcon}>♪</div>
+          <p style={styles.emptyTitle}>No songs yet</p>
+          <p style={styles.emptyDesc}>
+            Upload your first track from the admin dashboard.
+          </p>
+        </div>
+      ) : (
+        <div style={styles.table}>
+          <div style={styles.tableHeader}>
+            <span style={{ ...styles.col, flex: 2 }}>Song</span>
+            <span style={{ ...styles.col, flex: 1 }}>Artist</span>
+            <span style={{ ...styles.col, flex: 1 }}>Genre</span>
+            <span
+              style={{
+                ...styles.col,
+                width: 56,
+                flex: "none",
+                textAlign: "center",
+              }}
+            >
+              Dur.
+            </span>
+            <span
+              style={{
+                ...styles.col,
+                width: 70,
+                flex: "none",
+                textAlign: "center",
+              }}
+            >
+              ⭐
+            </span>
+            <span style={{ ...styles.col, width: 160, flex: "none" }}>
+              Actions
+            </span>
           </div>
-        ) : (
-          <div style={styles.table}>
-            <div style={styles.tableHeader}>
-              <span style={{ ...styles.col, flex: 2 }}>Song</span>
-              <span style={{ ...styles.col, flex: 1 }}>Artist</span>
-              <span style={{ ...styles.col, flex: 1 }}>Genre</span>
+
+          {songs.map((song) => (
+            <div key={song.id} style={styles.tableRow}>
+              <div style={{ ...styles.cellFlex, flex: 2, minWidth: 0 }}>
+                <img
+                  src={song.coverUrl}
+                  alt={song.title}
+                  style={styles.cover}
+                  onError={(e) => {
+                    e.target.src = "https://placehold.co/40x40/111/555?text=♪";
+                  }}
+                />
+                <span style={styles.songTitle}>{song.title}</span>
+              </div>
+              <span style={{ ...styles.cellText, flex: 1, color: "#9ca3af" }}>
+                {song.artist}
+              </span>
+              <div style={{ flex: 1 }}>
+                <span style={styles.badge}>{song.genre}</span>
+              </div>
               <span
                 style={{
-                  ...styles.col,
                   width: 56,
                   flex: "none",
+                  color: "#6b7280",
+                  fontSize: 12,
                   textAlign: "center",
                 }}
               >
-                Dur.
+                {fmtDuration(song.duration)}
               </span>
-              <span
+              <div
                 style={{
-                  ...styles.col,
                   width: 70,
                   flex: "none",
-                  textAlign: "center",
+                  display: "flex",
+                  justifyContent: "center",
                 }}
               >
-                ⭐
-              </span>
-              <span style={{ ...styles.col, width: 160, flex: "none" }}>
-                Actions
-              </span>
-            </div>
-
-            {songs.map((song) => (
-              <div key={song.id} style={styles.tableRow}>
-                <div style={{ ...styles.cellFlex, flex: 2, minWidth: 0 }}>
-                  <img
-                    src={song.coverUrl}
-                    alt={song.title}
-                    style={styles.cover}
-                    onError={(e) => {
-                      e.target.src =
-                        "https://placehold.co/40x40/111/555?text=♪";
-                    }}
-                  />
-                  <span style={styles.songTitle}>{song.title}</span>
-                </div>
-
-                <span style={{ ...styles.cellText, flex: 1, color: "#9ca3af" }}>
-                  {song.artist}
-                </span>
-
-                <div style={{ flex: 1 }}>
-                  <span style={styles.badge}>{song.genre}</span>
-                </div>
-
-                <span
+                <button
+                  onClick={() => handleToggleFeatured(song)}
+                  disabled={!!featuringId}
                   style={{
-                    width: 56,
-                    flex: "none",
-                    color: "#6b7280",
-                    fontSize: 12,
-                    textAlign: "center",
+                    ...styles.starBtn,
+                    color: song.featured ? "#f59e0b" : "#4b5563",
+                    opacity: featuringId === song.id ? 0.5 : 1,
                   }}
                 >
-                  {fmtDuration(song.duration)}
-                </span>
-
-                <div
-                  style={{
-                    width: 70,
-                    flex: "none",
-                    display: "flex",
-                    justifyContent: "center",
-                  }}
-                >
-                  <button
-                    onClick={() => handleToggleFeatured(song)}
-                    disabled={!!featuringId}
-                    title={song.featured ? "Unfeature" : "Feature on homepage"}
-                    style={{
-                      ...styles.starBtn,
-                      color: song.featured ? "#f59e0b" : "#4b5563",
-                      opacity: featuringId === song.id ? 0.5 : 1,
-                    }}
-                  >
-                    <StarIcon filled={song.featured} />
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    width: 160,
-                    flex: "none",
-                    display: "flex",
-                    gap: 6,
-                    alignItems: "center",
-                  }}
-                >
-                  <button
-                    onClick={() => setEditSong(song)}
-                    style={styles.btnEdit}
-                  >
-                    Edit
-                  </button>
-
-                  {confirmId === song.id ? (
-                    <>
-                      <button
-                        onClick={() => handleDelete(song.id)}
-                        disabled={deletingId === song.id}
-                        style={{
-                          ...styles.btnDanger,
-                          opacity: deletingId === song.id ? 0.6 : 1,
-                        }}
-                      >
-                        {deletingId === song.id ? "…" : "Confirm"}
-                      </button>
-                      <button
-                        onClick={() => setConfirmId(null)}
-                        style={styles.btnCancel}
-                      >
-                        ✕
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmId(song.id)}
-                      style={styles.btnDelete}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
+                  <StarIcon filled={song.featured} />
+                </button>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <div
+                style={{
+                  width: 160,
+                  flex: "none",
+                  display: "flex",
+                  gap: 6,
+                  alignItems: "center",
+                }}
+              >
+                <button
+                  onClick={() => setEditSong(song)}
+                  style={styles.btnEdit}
+                >
+                  Edit
+                </button>
+                {confirmId === song.id ? (
+                  <>
+                    <button
+                      onClick={() => handleDelete(song.id)}
+                      disabled={deletingId === song.id}
+                      style={{
+                        ...styles.btnDanger,
+                        opacity: deletingId === song.id ? 0.6 : 1,
+                      }}
+                    >
+                      {deletingId === song.id ? "…" : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      style={styles.btnCancel}
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(song.id)}
+                    style={styles.btnDelete}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {editSong && (
         <EditSongModal
@@ -271,15 +260,11 @@ const StarIcon = ({ filled }) => (
 );
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-  },
   container: {
     maxWidth: "1100px",
     margin: "0 auto",
     padding: "32px 20px 80px",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   pageHeader: {
     display: "flex",

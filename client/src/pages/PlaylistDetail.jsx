@@ -1,25 +1,8 @@
 /**
  * client/src/pages/PlaylistDetail.jsx
- *
- * PLAYBACK CONTEXT CHANGES:
- *
- * 1. useSongs() dependency REMOVED.
- *    Previously: relied on the global paginated library to resolve songIds → Song objects.
- *    Problem: if a song hadn't been paginated yet, it never appeared.
- *    Fix: fetch playlist songs directly via getPlaylistSongs(playlist.songIds)
- *         which calls GET /api/songs/batch — one round-trip, guaranteed full objects.
- *
- * 2. setPlaybackContext wired for Play and Shuffle buttons.
- *    - Play All → context type 'playlist', starts at index 0
- *    - Shuffle  → context type 'playlist', vinylRoll applied inside playerStore
- *    - Individual song click → context type 'playlist', starts at that song's index
- *
- * 3. handleShufflePlay no longer does a local Math.random() sort.
- *    playerStore.setPlaybackContext handles shuffle via cycleShuffleMode internals.
- *    Shuffle button activates Classic mode then sets context.
- *
- * 4. logPick called on individual song clicks for affinity data.
- *    uid obtained from authStore.
+ * PERMANENT FIX: Navbar import and usage removed entirely.
+ * PageWrapper (via routes/index.jsx) owns sidebar + layout.
+ * Page renders only its own content — no outer page/minHeight wrapper.
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -32,7 +15,6 @@ import {
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import { getPlaylistSongs } from "../services/playlists.service";
-import Navbar from "../components/layout/Navbar";
 import Loader from "../components/ui/Loader";
 
 const PlaylistDetail = () => {
@@ -67,21 +49,16 @@ const PlaylistDetail = () => {
     if (playlist) setEditName(playlist.name);
   }, [playlist]);
 
-  // Fetch full Song objects for this playlist's songIds directly —
-  // not through the paginated library. Guarantees all songs appear immediately.
   useEffect(() => {
     if (!playlist?.songIds?.length) {
       setSongs([]);
       setSongsLoading(false);
       return;
     }
-
     setSongsLoading(true);
     setSongsError(null);
-
     getPlaylistSongs(playlist.songIds)
       .then((fetched) => {
-        // Preserve playlist order
         const ordered = playlist.songIds
           .map((sid) => fetched.find((s) => s.id === sid))
           .filter(Boolean);
@@ -96,7 +73,6 @@ const PlaylistDetail = () => {
       .finally(() => setSongsLoading(false));
   }, [playlist?.songIds?.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-order songs when playlist.songIds changes (e.g. after removeSongFromPlaylist)
   const orderedSongs = useMemo(() => {
     if (!playlist?.songIds) return [];
     return playlist.songIds
@@ -106,8 +82,6 @@ const PlaylistDetail = () => {
 
   const isReadOnly = playlist?.isAdmin === true;
 
-  // ── Playback handlers ──────────────────────────────────────────────────────
-
   const handlePlayAll = useCallback(() => {
     if (!orderedSongs.length) return;
     setPlaybackContext("playlist", id, orderedSongs, 0);
@@ -115,23 +89,17 @@ const PlaylistDetail = () => {
 
   const handleShufflePlay = useCallback(() => {
     if (!orderedSongs.length) return;
-    // setPlaybackContext seeds the queue; cycleShuffleMode activates Classic
-    // We activate Classic mode first, then set context so resetShuffleSession
-    // picks up the new pool and rolls it.
-    usePlayerStore.getState().cycleShuffleMode(); // none → classic (or classic → smart)
+    usePlayerStore.getState().cycleShuffleMode();
     setPlaybackContext("playlist", id, orderedSongs, 0);
   }, [orderedSongs, id, setPlaybackContext]);
 
   const handlePlaySong = useCallback(
     (song, index) => {
-      // Log pick for affinity data (uses current playing song as previous)
       logPick(song, prevSong, user?.uid);
       setPlaybackContext("playlist", id, orderedSongs, index);
     },
     [orderedSongs, id, setPlaybackContext, logPick, prevSong, user?.uid],
   );
-
-  // ── Edit handlers ──────────────────────────────────────────────────────────
 
   const handleMoveUp = async (index) => {
     if (index === 0 || isReadOnly) return;
@@ -153,204 +121,189 @@ const PlaylistDetail = () => {
     setEditMode(false);
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  const handleRetry = () => {
+    setSongsError(null);
+    setSongsLoading(true);
+    getPlaylistSongs(playlist.songIds)
+      .then((fetched) => {
+        const ordered = playlist.songIds
+          .map((sid) => fetched.find((s) => s.id === sid))
+          .filter(Boolean);
+        setSongs(ordered);
+      })
+      .catch((err) => setSongsError(err.message))
+      .finally(() => setSongsLoading(false));
+  };
 
   if (!playlist || songsLoading) return <Loader />;
 
   if (songsError) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.errorWrap}>
-          <p style={styles.errorTitle}>Could not load songs</p>
-          <p style={styles.errorSub}>{songsError}</p>
-          <button
-            style={styles.retryBtn}
-            onClick={() => {
-              setSongsError(null);
-              setSongsLoading(true);
-              getPlaylistSongs(playlist.songIds)
-                .then((fetched) => {
-                  const ordered = playlist.songIds
-                    .map((sid) => fetched.find((s) => s.id === sid))
-                    .filter(Boolean);
-                  setSongs(ordered);
-                })
-                .catch((err) => setSongsError(err.message))
-                .finally(() => setSongsLoading(false));
-            }}
-          >
-            Retry
-          </button>
-        </div>
+      <div style={styles.errorWrap}>
+        <p style={styles.errorTitle}>Could not load songs</p>
+        <p style={styles.errorSub}>{songsError}</p>
+        <button style={styles.retryBtn} onClick={handleRetry}>
+          Retry
+        </button>
       </div>
     );
   }
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <div style={styles.coverWrap}>
-            {playlist.coverUrl ? (
-              <img
-                src={playlist.coverUrl}
-                alt={playlist.name}
-                style={styles.cover}
-                onError={(e) => {
-                  e.target.src =
-                    "https://placehold.co/160x160/1a1a1a/555?text=♪";
-                }}
-              />
-            ) : (
-              <div style={styles.coverPlaceholder}>♪</div>
-            )}
-          </div>
-
-          <div style={styles.meta}>
-            <div style={styles.typeRow}>
-              <span style={styles.type}>Playlist</span>
-              {isReadOnly && <span style={styles.libraryBadge}>Library</span>}
-            </div>
-
-            {!isReadOnly && editMode ? (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  style={styles.editInput}
-                  autoFocus
-                />
-                <button onClick={handleSaveEdit} style={styles.saveBtn}>
-                  Save
-                </button>
-                <button
-                  onClick={() => setEditMode(false)}
-                  style={styles.cancelBtn}
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <h1
-                style={styles.name}
-                onDoubleClick={() => !isReadOnly && setEditMode(true)}
-                title={isReadOnly ? "" : "Double-click to rename"}
-              >
-                {playlist.name}
-              </h1>
-            )}
-
-            {playlist.description && (
-              <p style={styles.desc}>{playlist.description}</p>
-            )}
-            <p style={styles.count}>{orderedSongs.length} songs</p>
-
-            {orderedSongs.length > 0 && (
-              <div style={styles.controls}>
-                <button style={styles.playBtn} onClick={handlePlayAll}>
-                  ▶ Play
-                </button>
-                <button style={styles.shuffleBtn} onClick={handleShufflePlay}>
-                  ⇌ Shuffle
-                </button>
-              </div>
-            )}
-          </div>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <div style={styles.coverWrap}>
+          {playlist.coverUrl ? (
+            <img
+              src={playlist.coverUrl}
+              alt={playlist.name}
+              style={styles.cover}
+              onError={(e) => {
+                e.target.src = "https://placehold.co/160x160/1a1a1a/555?text=♪";
+              }}
+            />
+          ) : (
+            <div style={styles.coverPlaceholder}>♪</div>
+          )}
         </div>
 
-        <div style={styles.divider} />
-
-        {orderedSongs.length === 0 ? (
-          <p style={styles.empty}>No songs in this playlist yet.</p>
-        ) : (
-          <div>
-            {orderedSongs.map((song, index) => {
-              const isActive = currentSong?.id === song.id;
-              return (
-                <div
-                  key={song.id}
-                  style={{
-                    ...styles.songRow,
-                    background: isActive
-                      ? "rgba(34,197,94,0.06)"
-                      : "transparent",
-                  }}
-                >
-                  <span style={styles.rowNum}>
-                    {isActive ? "♪" : index + 1}
-                  </span>
-                  <img
-                    src={song.coverUrl}
-                    alt={song.title}
-                    style={styles.songCover}
-                    onClick={() => handlePlaySong(song, index)}
-                    onError={(e) => {
-                      e.target.src =
-                        "https://placehold.co/40x40/111/555?text=♪";
-                    }}
-                  />
-                  <div
-                    style={styles.songInfo}
-                    onClick={() => handlePlaySong(song, index)}
-                  >
-                    <p
-                      style={{
-                        ...styles.songTitle,
-                        color: isActive ? "#22c55e" : "#fff",
-                      }}
-                    >
-                      {song.title}
-                    </p>
-                    <p style={styles.songArtist}>{song.artist}</p>
-                  </div>
-                  <span style={styles.songGenre}>{song.genre}</span>
-
-                  {!isReadOnly && (
-                    <>
-                      <div style={styles.reorderBtns}>
-                        <button
-                          onClick={() => handleMoveUp(index)}
-                          style={styles.arrowBtn}
-                          disabled={index === 0}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          onClick={() => handleMoveDown(index)}
-                          style={styles.arrowBtn}
-                          disabled={index === orderedSongs.length - 1}
-                        >
-                          ↓
-                        </button>
-                      </div>
-                      <button
-                        onClick={() => removeSongFromPlaylist(id, song.id)}
-                        style={styles.removeBtn}
-                      >
-                        ✕
-                      </button>
-                    </>
-                  )}
-                </div>
-              );
-            })}
+        <div style={styles.meta}>
+          <div style={styles.typeRow}>
+            <span style={styles.type}>Playlist</span>
+            {isReadOnly && <span style={styles.libraryBadge}>Library</span>}
           </div>
-        )}
+
+          {!isReadOnly && editMode ? (
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                style={styles.editInput}
+                autoFocus
+              />
+              <button onClick={handleSaveEdit} style={styles.saveBtn}>
+                Save
+              </button>
+              <button
+                onClick={() => setEditMode(false)}
+                style={styles.cancelBtn}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <h1
+              style={styles.name}
+              onDoubleClick={() => !isReadOnly && setEditMode(true)}
+              title={isReadOnly ? "" : "Double-click to rename"}
+            >
+              {playlist.name}
+            </h1>
+          )}
+
+          {playlist.description && (
+            <p style={styles.desc}>{playlist.description}</p>
+          )}
+          <p style={styles.count}>{orderedSongs.length} songs</p>
+
+          {orderedSongs.length > 0 && (
+            <div style={styles.controls}>
+              <button style={styles.playBtn} onClick={handlePlayAll}>
+                ▶ Play
+              </button>
+              <button style={styles.shuffleBtn} onClick={handleShufflePlay}>
+                ⇌ Shuffle
+              </button>
+            </div>
+          )}
+        </div>
       </div>
-      <div style={{ height: 88 }} />
+
+      <div style={styles.divider} />
+
+      {orderedSongs.length === 0 ? (
+        <p style={styles.empty}>No songs in this playlist yet.</p>
+      ) : (
+        <div>
+          {orderedSongs.map((song, index) => {
+            const isActive = currentSong?.id === song.id;
+            return (
+              <div
+                key={song.id}
+                style={{
+                  ...styles.songRow,
+                  background: isActive ? "rgba(34,197,94,0.06)" : "transparent",
+                }}
+              >
+                <span style={styles.rowNum}>{isActive ? "♪" : index + 1}</span>
+                <img
+                  src={
+                    song.coverUrl || "https://placehold.co/40x40/111/555?text=♪"
+                  }
+                  alt={song.title}
+                  style={styles.songCover}
+                  onClick={() => handlePlaySong(song, index)}
+                  onError={(e) => {
+                    e.target.src = "https://placehold.co/40x40/111/555?text=♪";
+                  }}
+                />
+                <div
+                  style={styles.songInfo}
+                  onClick={() => handlePlaySong(song, index)}
+                >
+                  <p
+                    style={{
+                      ...styles.songTitle,
+                      color: isActive ? "#22c55e" : "#fff",
+                    }}
+                  >
+                    {song.title}
+                  </p>
+                  <p style={styles.songArtist}>{song.artist}</p>
+                </div>
+                <span style={styles.songGenre}>{song.genre}</span>
+                {!isReadOnly && (
+                  <>
+                    <div style={styles.reorderBtns}>
+                      <button
+                        onClick={() => handleMoveUp(index)}
+                        style={styles.arrowBtn}
+                        disabled={index === 0}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        onClick={() => handleMoveDown(index)}
+                        style={styles.arrowBtn}
+                        disabled={index === orderedSongs.length - 1}
+                      >
+                        ↓
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => removeSongFromPlaylist(id, song.id)}
+                      style={styles.removeBtn}
+                    >
+                      ✕
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
+  container: {
+    maxWidth: "1000px",
+    margin: "0 auto",
+    padding: "36px 20px 0",
     fontFamily: "'Inter', sans-serif",
   },
-  container: { maxWidth: "1000px", margin: "0 auto", padding: "36px 20px 0" },
   header: {
     display: "flex",
     gap: 32,
@@ -402,7 +355,6 @@ const styles = {
     padding: "2px 8px",
     fontSize: 10,
     fontWeight: 700,
-    letterSpacing: "0.3px",
   },
   name: {
     color: "#fff",

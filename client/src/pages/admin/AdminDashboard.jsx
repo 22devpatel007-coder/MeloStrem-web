@@ -1,7 +1,12 @@
+/**
+ * client/src/pages/admin/AdminDashboard.jsx
+ * PERMANENT FIX: Navbar import and usage removed entirely.
+ * PageWrapper owns layout. Page renders only its own content.
+ */
+
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import axiosInstance, { extractSongs, extractUsers } from "../../services/api";
-import Navbar from "../../components/layout/Navbar";
 import {
   BarChart,
   Bar,
@@ -74,205 +79,197 @@ const AdminDashboard = () => {
   const usersByMonth = buildMonthlyData(users, "createdAt", "users");
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-      <div style={styles.container}>
-        <div style={styles.pageHeader}>
-          <h1 style={styles.heading}>Dashboard</h1>
-          <p style={styles.subheading}>Overview of your MeloStream platform</p>
-        </div>
+    <div style={styles.container}>
+      <div style={styles.pageHeader}>
+        <h1 style={styles.heading}>Dashboard</h1>
+        <p style={styles.subheading}>Overview of your MeloStream platform</p>
+      </div>
 
-        <div style={styles.statsRow}>
-          <StatCard
-            label="Total Songs"
-            value={loading ? "…" : stats.songs}
+      <div style={styles.statsRow}>
+        <StatCard
+          label="Total Songs"
+          value={loading ? "…" : stats.songs}
+          icon={<MusicIcon />}
+          color="#22c55e"
+        />
+        <StatCard
+          label="Registered Users"
+          value={loading ? "…" : stats.users}
+          icon={<UsersIcon />}
+          color="#3b82f6"
+        />
+        <StatCard
+          label="Total Plays"
+          value={
+            loading ? "…" : songs.reduce((a, s) => a + (s.playCount || 0), 0)
+          }
+          icon={<PlayIcon />}
+          color="#f59e0b"
+        />
+        <StatCard
+          label="Genres"
+          value={loading ? "…" : Object.keys(genreMap).length}
+          icon={<TagIcon />}
+          color="#8b5cf6"
+        />
+      </div>
+
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Quick Actions</h2>
+        <div style={styles.actionsRow}>
+          <ActionLink
+            to="/admin/upload"
+            primary
+            label="Upload Song"
+            desc="Add a single track"
+            icon={<UploadIcon />}
+          />
+          <ActionLink
+            to="/admin/playlist-zip"
+            label="Upload Playlist"
+            desc="ZIP → library playlist"
+            icon={<PlaylistIcon />}
+          />
+          <ActionLink
+            to="/admin/bulk"
+            label="Bulk Upload"
+            desc="Multiple songs at once"
+            icon={<UploadIcon />}
+          />
+          <ActionLink
+            to="/admin/music"
+            label="Manage Songs"
+            desc="View & delete tracks"
             icon={<MusicIcon />}
-            color="#22c55e"
           />
-          <StatCard
-            label="Registered Users"
-            value={loading ? "…" : stats.users}
+          <ActionLink
+            to="/admin/users"
+            label="View Users"
+            desc="All registered accounts"
             icon={<UsersIcon />}
-            color="#3b82f6"
-          />
-          <StatCard
-            label="Total Plays"
-            value={
-              loading ? "…" : songs.reduce((a, s) => a + (s.playCount || 0), 0)
-            }
-            icon={<PlayIcon />}
-            color="#f59e0b"
-          />
-          <StatCard
-            label="Genres"
-            value={loading ? "…" : Object.keys(genreMap).length}
-            icon={<TagIcon />}
-            color="#8b5cf6"
           />
         </div>
+      </div>
 
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Quick Actions</h2>
-          <div style={styles.actionsRow}>
-            <ActionLink
-              to="/admin/upload"
-              primary
-              label="Upload Song"
-              desc="Add a single track"
-              icon={<UploadIcon />}
-            />
-            {/* ✅ FIX: was /admin/upload-playlist → correct route is /admin/playlist-zip */}
-            <ActionLink
-              to="/admin/playlist-zip"
-              label="Upload Playlist"
-              desc="ZIP → library playlist"
-              icon={<PlaylistIcon />}
-            />
-            {/* ✅ FIX: was /admin/bulk-upload → correct route is /admin/bulk */}
-            <ActionLink
-              to="/admin/bulk"
-              label="Bulk Upload"
-              desc="Multiple songs at once"
-              icon={<UploadIcon />}
-            />
-            {/* ✅ FIX: was /admin/songs → correct route is /admin/music */}
-            <ActionLink
-              to="/admin/music"
-              label="Manage Songs"
-              desc="View & delete tracks"
-              icon={<MusicIcon />}
-            />
-            <ActionLink
-              to="/admin/users"
-              label="View Users"
-              desc="All registered accounts"
-              icon={<UsersIcon />}
-            />
-          </div>
-        </div>
-
-        {!loading && (
-          <>
-            <div style={styles.chartsGrid}>
-              <div style={styles.chartCard}>
-                <h3 style={styles.chartTitle}>Top Songs by Plays</h3>
-                {topSongs.length === 0 ? (
-                  <EmptyChart />
-                ) : (
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart
-                      data={topSongs}
-                      margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
-                    >
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: "#6b7280", fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <YAxis
-                        tick={{ fill: "#6b7280", fontSize: 11 }}
-                        axisLine={false}
-                        tickLine={false}
-                      />
-                      <Tooltip
-                        contentStyle={tooltipStyle}
-                        cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                      />
-                      <Bar
-                        dataKey="plays"
-                        fill="#22c55e"
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-
-              <div style={styles.chartCard}>
-                <h3 style={styles.chartTitle}>Genre Breakdown</h3>
-                {genreData.length === 0 ? (
-                  <EmptyChart />
-                ) : (
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 16 }}
+      {!loading && (
+        <>
+          <div style={styles.chartsGrid}>
+            <div style={styles.chartCard}>
+              <h3 style={styles.chartTitle}>Top Songs by Plays</h3>
+              {topSongs.length === 0 ? (
+                <EmptyChart />
+              ) : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart
+                    data={topSongs}
+                    margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
                   >
-                    <ResponsiveContainer width="50%" height={200}>
-                      <PieChart>
-                        <Pie
-                          data={genreData}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={50}
-                          outerRadius={80}
-                          dataKey="value"
-                          paddingAngle={3}
-                        >
-                          {genreData.map((_, i) => (
-                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={tooltipStyle} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div style={{ flex: 1 }}>
-                      {genreData.map((g, i) => (
-                        <div
-                          key={g.name}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            marginBottom: 8,
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: 2,
-                              background: COLORS[i % COLORS.length],
-                              flexShrink: 0,
-                            }}
-                          />
-                          <span
-                            style={{
-                              color: "#9ca3af",
-                              fontSize: 12,
-                              flex: 1,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                            }}
-                          >
-                            {g.name}
-                          </span>
-                          <span
-                            style={{
-                              color: "#fff",
-                              fontSize: 12,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {g.value}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fill: "#6b7280", fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      tick={{ fill: "#6b7280", fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                    />
+                    <Bar dataKey="plays" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
 
-            <div style={styles.chartsGrid}>
-              <div style={styles.chartCard}>
-                <h3 style={styles.chartTitle}>Uploads / Month</h3>
+            <div style={styles.chartCard}>
+              <h3 style={styles.chartTitle}>Genre Breakdown</h3>
+              {genreData.length === 0 ? (
+                <EmptyChart />
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <ResponsiveContainer width="50%" height={200}>
+                    <PieChart>
+                      <Pie
+                        data={genreData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={50}
+                        outerRadius={80}
+                        dataKey="value"
+                        paddingAngle={3}
+                      >
+                        {genreData.map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={tooltipStyle} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ flex: 1 }}>
+                    {genreData.map((g, i) => (
+                      <div
+                        key={g.name}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          marginBottom: 8,
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 2,
+                            background: COLORS[i % COLORS.length],
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span
+                          style={{
+                            color: "#9ca3af",
+                            fontSize: 12,
+                            flex: 1,
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {g.name}
+                        </span>
+                        <span
+                          style={{
+                            color: "#fff",
+                            fontSize: 12,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {g.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={styles.chartsGrid}>
+            <div style={styles.chartCard}>
+              <h3 style={styles.chartTitle}>Uploads by Month</h3>
+              {uploadsByMonth.length === 0 ? (
+                <EmptyChart />
+              ) : (
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart
                     data={uploadsByMonth}
                     margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
                   >
-                    <CartesianGrid stroke="#2d2d2d" strokeDasharray="4 4" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d2d2d" />
                     <XAxis
                       dataKey="month"
                       tick={{ fill: "#6b7280", fontSize: 11 }}
@@ -290,20 +287,24 @@ const AdminDashboard = () => {
                       dataKey="uploads"
                       stroke="#22c55e"
                       strokeWidth={2}
-                      dot={{ fill: "#22c55e", r: 4 }}
+                      dot={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
-              </div>
+              )}
+            </div>
 
-              <div style={styles.chartCard}>
-                <h3 style={styles.chartTitle}>New Users / Month</h3>
+            <div style={styles.chartCard}>
+              <h3 style={styles.chartTitle}>New Users by Month</h3>
+              {usersByMonth.length === 0 ? (
+                <EmptyChart />
+              ) : (
                 <ResponsiveContainer width="100%" height={180}>
                   <LineChart
                     data={usersByMonth}
                     margin={{ top: 4, right: 8, left: -20, bottom: 0 }}
                   >
-                    <CartesianGrid stroke="#2d2d2d" strokeDasharray="4 4" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2d2d2d" />
                     <XAxis
                       dataKey="month"
                       tick={{ fill: "#6b7280", fontSize: 11 }}
@@ -321,83 +322,69 @@ const AdminDashboard = () => {
                       dataKey="users"
                       stroke="#3b82f6"
                       strokeWidth={2}
-                      dot={{ fill: "#3b82f6", r: 4 }}
+                      dot={false}
                     />
                   </LineChart>
                 </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+
+          {songs.length > 0 && (
+            <div>
+              <h2 style={{ ...styles.sectionTitle, marginBottom: 12 }}>
+                Recent Uploads
+              </h2>
+              <div style={styles.recentList}>
+                {[...songs]
+                  .reverse()
+                  .slice(0, 8)
+                  .map((song) => (
+                    <div key={song.id} style={styles.recentItem}>
+                      <img
+                        src={
+                          song.coverUrl ||
+                          "https://placehold.co/40x40/111/555?text=♪"
+                        }
+                        alt={song.title}
+                        style={styles.recentCover}
+                        onError={(e) => {
+                          e.target.src =
+                            "https://placehold.co/40x40/111/555?text=♪";
+                        }}
+                      />
+                      <div style={styles.recentInfo}>
+                        <p style={styles.recentTitle}>{song.title}</p>
+                        <p style={styles.recentArtist}>{song.artist}</p>
+                      </div>
+                      <span style={styles.recentGenre}>{song.genre}</span>
+                    </div>
+                  ))}
               </div>
             </div>
-          </>
-        )}
-
-        <div style={styles.section}>
-          <h2 style={styles.sectionTitle}>Recent Uploads</h2>
-          {songs.length === 0 ? (
-            <p style={styles.empty}>No songs uploaded yet.</p>
-          ) : (
-            <div style={styles.recentList}>
-              {songs.slice(0, 6).map((song) => (
-                <div key={song.id} style={styles.recentItem}>
-                  <img
-                    src={song.coverUrl}
-                    alt={song.title}
-                    style={styles.recentCover}
-                    onError={(e) => {
-                      e.target.src =
-                        "https://placehold.co/48x48/111/555?text=♪";
-                    }}
-                  />
-                  <div style={styles.recentInfo}>
-                    <p style={styles.recentTitle}>{song.title}</p>
-                    <p style={styles.recentArtist}>{song.artist}</p>
-                  </div>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      marginLeft: "auto",
-                    }}
-                  >
-                    <span style={{ color: "#6b7280", fontSize: 12 }}>
-                      {song.playCount || 0} plays
-                    </span>
-                    <span style={styles.recentGenre}>{song.genre}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
           )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function buildMonthlyData(items, dateField, key) {
-  const months = [];
-  const now = new Date();
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({
-      month: d.toLocaleString("default", { month: "short" }),
-      year: d.getFullYear(),
-      m: d.getMonth(),
-      [key]: 0,
-    });
-  }
+
+function buildMonthlyData(items, dateField, valueKey) {
+  const map = {};
   items.forEach((item) => {
     const raw = item[dateField];
     if (!raw) return;
     const d = new Date(raw);
     if (isNaN(d.getTime())) return;
-    const entry = months.find(
-      (m) => m.m === d.getMonth() && m.year === d.getFullYear(),
-    );
-    if (entry) entry[key]++;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    map[key] = (map[key] || 0) + 1;
   });
-  return months;
+  return Object.entries(map)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-12)
+    .map(([month, count]) => ({ month: month.slice(5), [valueKey]: count }));
 }
 
 const tooltipStyle = {
@@ -407,6 +394,7 @@ const tooltipStyle = {
   color: "#fff",
   fontSize: 12,
 };
+
 const EmptyChart = () => (
   <p
     style={{
@@ -420,7 +408,6 @@ const EmptyChart = () => (
   </p>
 );
 
-// ── Sub-components ────────────────────────────────────────────────────────────
 const StatCard = ({ label, value, icon, color }) => (
   <div style={styles.statCard}>
     <div style={{ ...styles.statIconWrap, background: `${color}18` }}>
@@ -463,16 +450,29 @@ const ActionLink = ({ to, label, desc, icon, primary }) => (
   </Link>
 );
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
 const MusicIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M9 18V5l12-2v13" />
     <circle cx="6" cy="18" r="3" />
     <circle cx="18" cy="16" r="3" />
   </svg>
 );
 const UsersIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
     <circle cx="9" cy="7" r="4" />
     <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -480,25 +480,53 @@ const UsersIcon = () => (
   </svg>
 );
 const PlayIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <polygon points="5 3 19 12 5 21 5 3" />
   </svg>
 );
 const TagIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
     <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
 );
 const UploadIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <polyline points="16 16 12 12 8 16" />
     <line x1="12" y1="12" x2="12" y2="21" />
     <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
   </svg>
 );
 const PlaylistIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <line x1="8" y1="6" x2="21" y2="6" />
     <line x1="8" y1="12" x2="21" y2="12" />
     <line x1="8" y1="18" x2="21" y2="18" />
@@ -509,15 +537,11 @@ const PlaylistIcon = () => (
 );
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-  },
   container: {
     maxWidth: "1000px",
     margin: "0 auto",
     padding: "32px 20px 80px",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   pageHeader: { marginBottom: "28px" },
   heading: {
@@ -670,7 +694,6 @@ const styles = {
     fontWeight: "500",
     flexShrink: 0,
   },
-  empty: { color: "#6b7280", fontSize: "14px" },
 };
 
 export default AdminDashboard;

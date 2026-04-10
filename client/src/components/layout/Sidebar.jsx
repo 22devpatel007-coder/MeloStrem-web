@@ -1,28 +1,15 @@
 /**
  * client/src/components/layout/Sidebar.jsx
  *
- * Left-side navigation sidebar for MeloStream.
+ * PERMANENT FIX: Navbar removed from all pages.
+ * Sidebar now owns ALL navigation + user identity + logout.
  *
- * Responsibilities:
- *  - Brand logo
- *  - Primary nav links (Library, Search, Liked Songs, Playlists)
- *  - Playlist list with color dots
- *  - Admin link (admin users only)
- *  - Mobile: hidden by default, slides in as a drawer via `isOpen` prop
- *  - Desktop (md+): always visible, fixed width 260px
- *
- * Props:
- *  - isOpen  {boolean}  — controls mobile drawer open state
- *  - onClose {function} — called when backdrop or close button is tapped on mobile
- *
- * Design rules:
- *  - Uses NavLink from react-router-dom for automatic active class
- *  - Null-safe: renders empty playlist list if usePlaylists returns nothing
- *  - No ad-hoc fetch logic; consumes usePlaylists hook only
- *  - Playlist color dot falls back to a neutral gray if color is undefined
+ * - User email shown at bottom
+ * - Logout button pinned to bottom
+ * - Navbar.jsx is no longer used anywhere and can be deleted
  */
 
-import { NavLink } from 'react-router-dom';
+import { useNavigate, NavLink } from 'react-router-dom';
 import {
   HomeIcon,
   MagnifyingGlassIcon,
@@ -31,6 +18,7 @@ import {
   Cog6ToothIcon,
   MusicalNoteIcon,
   XMarkIcon,
+  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
 import useAuthStore from '../../store/authStore';
 import { usePlaylists } from '../../hooks/usePlaylists';
@@ -38,18 +26,14 @@ import { usePlaylists } from '../../hooks/usePlaylists';
 // ─── Nav item config ──────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { to: '/',         label: 'Library',     Icon: HomeIcon },
-  { to: '/search',   label: 'Search',      Icon: MagnifyingGlassIcon },
-  { to: '/liked',    label: 'Liked Songs', Icon: HeartIcon },
-  { to: '/playlists',label: 'Playlists',   Icon: QueueListIcon },
+  { to: '/',          label: 'Library',     Icon: HomeIcon },
+  { to: '/search',    label: 'Search',      Icon: MagnifyingGlassIcon },
+  { to: '/liked',     label: 'Liked Songs', Icon: HeartIcon },
+  { to: '/playlists', label: 'Playlists',   Icon: QueueListIcon },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Returns Tailwind classes for a NavLink depending on active state.
- * Kept as a function so NavLink can call it with `{ isActive }`.
- */
 const navLinkClass = ({ isActive }) =>
   [
     'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150',
@@ -61,11 +45,17 @@ const navLinkClass = ({ isActive }) =>
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const Sidebar = ({ isOpen = false, onClose }) => {
-  const { user, isAdmin } = useAuthStore();
+  const { user, isAdmin, logout } = useAuthStore();
+  const navigate = useNavigate();
   const { playlists = [] } = usePlaylists(user?.uid) ?? {};
 
-  // Safe playlist array — never call .map on uncertain value
   const safePlaylist = Array.isArray(playlists) ? playlists : [];
+
+  const handleLogout = async () => {
+    onClose?.();
+    await logout();
+    navigate('/login');
+  };
 
   return (
     <>
@@ -81,13 +71,10 @@ const Sidebar = ({ isOpen = false, onClose }) => {
       {/* ── Sidebar panel ── */}
       <aside
         className={[
-          // Base layout
           'fixed top-0 left-0 h-full z-40 flex flex-col',
           'w-[260px] bg-[#111111] border-r border-[#2a2a2a]',
-          // Mobile: slide in/out
           'transition-transform duration-300 ease-in-out',
           isOpen ? 'translate-x-0' : '-translate-x-full',
-          // Desktop: always visible, part of normal flow
           'md:relative md:translate-x-0 md:flex md:shrink-0',
         ].join(' ')}
         aria-label="Main navigation"
@@ -134,7 +121,6 @@ const Sidebar = ({ isOpen = false, onClose }) => {
               </li>
             ))}
 
-            {/* Admin link — only for admin users */}
             {isAdmin && (
               <li>
                 <NavLink
@@ -153,7 +139,7 @@ const Sidebar = ({ isOpen = false, onClose }) => {
         {/* ── Divider ── */}
         <div className="mx-5 border-t border-[#2a2a2a] shrink-0" />
 
-        {/* ── Playlists section ── */}
+        {/* ── Playlists section (scrollable) ── */}
         <div className="flex-1 overflow-y-auto px-3 py-4 min-h-0">
           <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-widest text-gray-500 select-none">
             Playlists
@@ -177,7 +163,6 @@ const Sidebar = ({ isOpen = false, onClose }) => {
                     }
                     onClick={onClose}
                   >
-                    {/* Color dot — falls back to gray if color undefined */}
                     <span
                       className="w-[14px] h-[14px] rounded-sm shrink-0"
                       style={{ backgroundColor: playlist.color ?? '#555555' }}
@@ -189,6 +174,33 @@ const Sidebar = ({ isOpen = false, onClose }) => {
               ))}
             </ul>
           )}
+        </div>
+
+        {/* ── Divider ── */}
+        <div className="mx-5 border-t border-[#2a2a2a] shrink-0" />
+
+        {/* ── User + Logout (pinned to bottom) ── */}
+        <div className="px-3 py-4 shrink-0">
+          {user?.email && (
+            <div className="px-3 mb-2 flex items-center gap-2 min-w-0">
+              {/* Avatar initial */}
+              <span className="w-7 h-7 rounded-full bg-[#2a2a2a] flex items-center justify-center text-xs font-bold text-gray-300 shrink-0">
+                {user.email[0].toUpperCase()}
+              </span>
+              <span className="text-xs text-gray-500 truncate min-w-0">
+                {user.email}
+              </span>
+            </div>
+          )}
+
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-red-400 hover:bg-[#1e1e1e] transition-colors duration-150"
+            aria-label="Log out"
+          >
+            <ArrowRightOnRectangleIcon className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
+            Logout
+          </button>
         </div>
       </aside>
     </>

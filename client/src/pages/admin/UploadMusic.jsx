@@ -1,3 +1,8 @@
+/**
+ * client/src/pages/admin/UploadMusic.jsx
+ * PERMANENT FIX: Navbar import and usage removed.
+ */
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { axiosUpload } from "../../services/api";
@@ -5,9 +10,7 @@ import {
   checkDuplicateSong,
   formatDuplicateMessage,
 } from "../../utils/duplicateCheck";
-import Navbar from "../../components/layout/Navbar";
 
-/** Convert "3:34" → 214, "214" → 214, anything else → 0 */
 const parseDurationToSeconds = (raw) => {
   const str = String(raw || "").trim();
   if (!str) return 0;
@@ -42,25 +45,21 @@ const UploadMusic = () => {
     e.preventDefault();
     setError("");
     setSuccess("");
-
     if (!songFile) return setError("Please select an MP3 file.");
     if (!coverFile) return setError("Please select a cover image.");
 
-    // ── Pre-upload duplicate check ────────────────────────────────────────────
     setChecking(true);
     const dupResult = await checkDuplicateSong(
       form.title.trim(),
       form.artist.trim(),
     );
     setChecking(false);
-
     if (dupResult.duplicate) {
       setError(formatDuplicateMessage(dupResult.existing));
       return;
     }
 
     const durationSecs = parseDurationToSeconds(form.duration);
-
     setLoading(true);
     try {
       const fd = new FormData();
@@ -81,9 +80,8 @@ const UploadMusic = () => {
       setForm({ title: "", artist: "", genre: "", duration: "" });
       setSongFile(null);
       setCoverFile(null);
-      setTimeout(() => navigate("/admin/songs"), 1500);
+      setTimeout(() => navigate("/admin/music"), 1500);
     } catch (err) {
-      // Handle server-side duplicate (race condition)
       if (err.response?.data?.code === "DUPLICATE_SONG") {
         setError(formatDuplicateMessage(err.response.data.existing));
       } else {
@@ -100,101 +98,97 @@ const UploadMusic = () => {
   const isBusy = loading || checking;
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-      <div style={styles.container}>
-        <div style={styles.pageHeader}>
-          <h1 style={styles.heading}>Upload Song</h1>
-          <p style={styles.subheading}>Add a new track to your library</p>
-        </div>
+    <div style={styles.container}>
+      <div style={styles.pageHeader}>
+        <h1 style={styles.heading}>Upload Song</h1>
+        <p style={styles.subheading}>Add a new track to your library</p>
+      </div>
 
-        <div style={styles.card}>
-          {error && <div style={styles.errorBox}>{error}</div>}
-          {success && <div style={styles.successBox}>{success}</div>}
+      <div style={styles.card}>
+        {error && <div style={styles.errorBox}>{error}</div>}
+        {success && <div style={styles.successBox}>{success}</div>}
 
-          <form onSubmit={handleSubmit} style={styles.form}>
-            <div style={styles.row}>
-              <Field
-                label="Song Title"
-                name="title"
-                placeholder="e.g. Blinding Lights"
-                value={form.title}
-                onChange={handleChange}
-                required
-              />
-              <Field
-                label="Artist Name"
-                name="artist"
-                placeholder="e.g. The Weeknd"
-                value={form.artist}
-                onChange={handleChange}
-                required
-              />
-            </div>
-            <div style={styles.row}>
-              <Field
-                label="Genre"
-                name="genre"
-                placeholder="Pop, Rock, Hip-Hop…"
-                value={form.genre}
-                onChange={handleChange}
-                required
-              />
-              <Field
-                label="Duration (mm:ss or seconds)"
-                name="duration"
-                placeholder="e.g. 3:34 or 214"
-                value={form.duration}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <FileField
-              label="MP3 File"
-              hint="Max 50 MB · .mp3 only"
-              accept=".mp3,audio/mpeg"
-              file={songFile}
-              onChange={(e) => setSongFile(e.target.files[0])}
+        <form onSubmit={handleSubmit} style={styles.form}>
+          <div style={styles.row}>
+            <Field
+              label="Song Title"
+              name="title"
+              placeholder="e.g. Blinding Lights"
+              value={form.title}
+              onChange={handleChange}
+              required
             />
-            <FileField
-              label="Cover Image"
-              hint="JPG, PNG, WEBP"
-              accept="image/*"
-              file={coverFile}
-              onChange={(e) => setCoverFile(e.target.files[0])}
+            <Field
+              label="Artist Name"
+              name="artist"
+              placeholder="e.g. The Weeknd"
+              value={form.artist}
+              onChange={handleChange}
+              required
             />
+          </div>
+          <div style={styles.row}>
+            <Field
+              label="Genre"
+              name="genre"
+              placeholder="Pop, Rock, Hip-Hop…"
+              value={form.genre}
+              onChange={handleChange}
+              required
+            />
+            <Field
+              label="Duration (mm:ss or seconds)"
+              name="duration"
+              placeholder="e.g. 3:34 or 214"
+              value={form.duration}
+              onChange={handleChange}
+              required
+            />
+          </div>
 
-            {progress > 0 && (
-              <div style={styles.progressWrap}>
-                <div style={styles.progressBar}>
-                  <div
-                    style={{ ...styles.progressFill, width: `${progress}%` }}
-                  />
-                </div>
-                <span style={styles.progressLabel}>{progress}%</span>
+          <FileField
+            label="MP3 File"
+            hint="Max 50 MB · .mp3 only"
+            accept=".mp3,audio/mpeg"
+            file={songFile}
+            onChange={(e) => setSongFile(e.target.files[0])}
+          />
+          <FileField
+            label="Cover Image"
+            hint="JPG, PNG, WEBP"
+            accept="image/*"
+            file={coverFile}
+            onChange={(e) => setCoverFile(e.target.files[0])}
+          />
+
+          {progress > 0 && (
+            <div style={styles.progressWrap}>
+              <div style={styles.progressBar}>
+                <div
+                  style={{ ...styles.progressFill, width: `${progress}%` }}
+                />
               </div>
-            )}
+              <span style={styles.progressLabel}>{progress}%</span>
+            </div>
+          )}
 
-            <button
-              type="submit"
-              disabled={isBusy}
-              style={{ ...styles.submitBtn, opacity: isBusy ? 0.6 : 1 }}
-            >
-              {checking
-                ? "Checking for duplicates…"
-                : loading
-                  ? `Uploading… ${progress}%`
-                  : "Upload Song"}
-            </button>
-          </form>
-        </div>
+          <button
+            type="submit"
+            disabled={isBusy}
+            style={{ ...styles.submitBtn, opacity: isBusy ? 0.6 : 1 }}
+          >
+            {checking
+              ? "Checking for duplicates…"
+              : loading
+                ? `Uploading… ${progress}%`
+                : "Upload Song"}
+          </button>
+        </form>
       </div>
     </div>
   );
 };
 
-/* ── Sub-components ────────────────────────────────────────────────────────── */
 const Field = ({ label, name, placeholder, value, onChange, required }) => {
   const [focused, setFocused] = useState(false);
   return (
@@ -240,12 +234,12 @@ const FileField = ({ label, hint, accept, file, onChange }) => (
 );
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
+  container: {
+    maxWidth: "680px",
+    margin: "0 auto",
+    padding: "32px 20px 80px",
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
-  container: { maxWidth: "680px", margin: "0 auto", padding: "32px 20px 80px" },
   pageHeader: { marginBottom: 24 },
   heading: {
     color: "#fff",
