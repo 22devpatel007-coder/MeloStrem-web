@@ -1,24 +1,7 @@
 /**
  * client/src/pages/ArtistDetail.jsx
- *
- * Artist detail page — /artist/:id
- *
- * Layout:
- *   Hero  — artist image, name, verified badge, song/album counts
- *   Top Songs — first 10 songs, plays inline via playerStore (context: 'artist')
- *   Discography — album cards grid, each links to /album/:albumId
- *   Load More — appears when artist has more than 10 songs
- *
- * Playback context:
- *   Song clicks set context type 'library' scoped to the artist's song list
- *   (no dedicated 'artist' context type exists — 'library' is the correct
- *    fallback per playerStore design; playlist/liked/dynamic are the other
- *    explicit contexts).
- *
- * Null safety:
- *   - song.artistId null → artist name renders as plain text (not a link)
- *   - album.coverUrl ''  → placeholder image shown
- *   - 404 from API      → friendly not-found state, no crash
+ * PERMANENT FIX: Navbar import and usage removed entirely.
+ * PageWrapper owns layout. Page renders only its own content.
  */
 
 import { useState, useCallback } from "react";
@@ -26,7 +9,6 @@ import { useParams, Link } from "react-router-dom";
 import { useArtist } from "../hooks/useArtist";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
-import Navbar from "../components/layout/Navbar";
 import Loader from "../components/ui/Loader";
 
 const ArtistDetail = () => {
@@ -42,11 +24,8 @@ const ArtistDetail = () => {
   } = useArtist(id);
   const { setPlaybackContext, logPick, currentSong } = usePlayerStore();
   const { user } = useAuthStore();
-
   const [showAll, setShowAll] = useState(false);
 
-  // Derive unique album stubs from songs data (avoids a separate albums endpoint
-  // for Phase 5 — full album list endpoint can be added in a future phase).
   const albumMap = new Map();
   songs.forEach((song) => {
     if (song.albumId && !albumMap.has(song.albumId)) {
@@ -59,7 +38,6 @@ const ArtistDetail = () => {
     }
   });
   const albums = Array.from(albumMap.values());
-
   const displayedSongs = showAll ? songs : songs.slice(0, 10);
 
   const handlePlaySong = useCallback(
@@ -75,50 +53,39 @@ const ArtistDetail = () => {
     setPlaybackContext("library", id, songs, 0);
   }, [songs, id, setPlaybackContext]);
 
-  // ── Loading ──────────────────────────────────────────────────────────────
   if (isLoading) return <Loader />;
 
-  // ── Not found ────────────────────────────────────────────────────────────
   if (!artist && !isLoading) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.notFound}>
-          <p style={styles.notFoundTitle}>Artist not found</p>
-          <p style={styles.notFoundSub}>
-            This artist page doesn't exist or hasn't been created yet.
-          </p>
-          <Link to="/" style={styles.backLink}>
-            ← Back to Library
-          </Link>
-        </div>
+      <div style={styles.notFound}>
+        <p style={styles.notFoundTitle}>Artist not found</p>
+        <p style={styles.notFoundSub}>
+          This artist page doesn't exist or hasn't been created yet.
+        </p>
+        <Link to="/" style={styles.backLink}>
+          ← Back to Library
+        </Link>
       </div>
     );
   }
 
-  // ── Error ────────────────────────────────────────────────────────────────
   if (error && !artist) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.notFound}>
-          <p style={styles.notFoundTitle}>Could not load artist</p>
-          <p style={styles.notFoundSub}>
-            Something went wrong. Please try again.
-          </p>
-          <Link to="/" style={styles.backLink}>
-            ← Back to Library
-          </Link>
-        </div>
+      <div style={styles.notFound}>
+        <p style={styles.notFoundTitle}>Could not load artist</p>
+        <p style={styles.notFoundSub}>
+          Something went wrong. Please try again.
+        </p>
+        <Link to="/" style={styles.backLink}>
+          ← Back to Library
+        </Link>
       </div>
     );
   }
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-
-      {/* ── Hero ──────────────────────────────────────────────────────────── */}
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      {/* ── Hero ── */}
       <div style={styles.hero}>
         <div style={styles.heroInner}>
           {artist.imageUrl ? (
@@ -133,7 +100,6 @@ const ArtistDetail = () => {
           ) : (
             <div style={styles.heroImgPlaceholder}>♪</div>
           )}
-
           <div style={styles.heroMeta}>
             <div style={styles.heroType}>
               <span style={styles.typeLabel}>ARTIST</span>
@@ -165,10 +131,9 @@ const ArtistDetail = () => {
       </div>
 
       <div style={styles.container}>
-        {/* ── Top Songs ───────────────────────────────────────────────────── */}
+        {/* ── Songs ── */}
         <section style={styles.section}>
           <h2 style={styles.sectionTitle}>Songs</h2>
-
           {songs.length === 0 ? (
             <p style={styles.empty}>No songs found for this artist.</p>
           ) : (
@@ -236,7 +201,6 @@ const ArtistDetail = () => {
                 );
               })}
 
-              {/* Show more / less toggle */}
               {songs.length > 10 && (
                 <button
                   style={styles.showMoreBtn}
@@ -250,7 +214,6 @@ const ArtistDetail = () => {
                     : `Show all ${artist.songCount ?? songs.length} songs`}
                 </button>
               )}
-
               {isFetchingNextPage && (
                 <p style={styles.loadingMore}>Loading more…</p>
               )}
@@ -258,7 +221,7 @@ const ArtistDetail = () => {
           )}
         </section>
 
-        {/* ── Discography ─────────────────────────────────────────────────── */}
+        {/* ── Discography ── */}
         {albums.length > 0 && (
           <section style={styles.section}>
             <h2 style={styles.sectionTitle}>Discography</h2>
@@ -294,8 +257,6 @@ const ArtistDetail = () => {
   );
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function formatDuration(seconds) {
   if (!seconds || isNaN(seconds)) return "--:--";
   const m = Math.floor(seconds / 60);
@@ -303,16 +264,7 @@ function formatDuration(seconds) {
   return `${m}:${s}`;
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
-    fontFamily: "'Inter', sans-serif",
-  },
-
-  // Hero
   hero: {
     background: "linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)",
     paddingBottom: 32,
@@ -400,8 +352,6 @@ const styles = {
     cursor: "pointer",
     fontFamily: "inherit",
   },
-
-  // Container
   container: { maxWidth: 1000, margin: "0 auto", padding: "0 20px" },
   section: { marginTop: 40 },
   sectionTitle: {
@@ -411,8 +361,6 @@ const styles = {
     marginBottom: 16,
     letterSpacing: "-0.3px",
   },
-
-  // Song rows
   songRow: {
     display: "flex",
     alignItems: "center",
@@ -454,10 +402,7 @@ const styles = {
     margin: 0,
   },
   songMetaText: { color: "#6b7280" },
-  albumLink: {
-    color: "#9ca3af",
-    textDecoration: "none",
-  },
+  albumLink: { color: "#9ca3af", textDecoration: "none" },
   genreBadge: {
     background: "rgba(34,197,94,0.1)",
     color: "#22c55e",
@@ -475,7 +420,6 @@ const styles = {
     minWidth: 36,
     textAlign: "right",
   },
-
   showMoreBtn: {
     background: "none",
     border: "none",
@@ -487,8 +431,6 @@ const styles = {
     fontFamily: "inherit",
   },
   loadingMore: { color: "#6b7280", fontSize: 13, padding: "8px 12px" },
-
-  // Album grid
   albumGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
@@ -520,8 +462,6 @@ const styles = {
     textOverflow: "ellipsis",
   },
   albumGenre: { color: "#6b7280", fontSize: 11, margin: 0 },
-
-  // Not found / error
   notFound: {
     display: "flex",
     flexDirection: "column",
@@ -540,7 +480,6 @@ const styles = {
     textDecoration: "none",
     marginTop: 8,
   },
-
   empty: { color: "#6b7280", fontSize: 14, padding: "24px 0" },
 };
 

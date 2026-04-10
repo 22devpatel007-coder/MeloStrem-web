@@ -1,22 +1,7 @@
 /**
  * client/src/pages/AlbumDetail.jsx
- *
- * Album detail page — /album/:id
- *
- * Layout:
- *   Hero  — album cover (large), title, artist name (links to /artist/:artistId),
- *           year, genre, total duration
- *   Track list — SongList-style rows ordered by trackNumber asc
- *   More from this artist — up to 4 other album cards derived from songs data
- *
- * Playback:
- *   Song clicks set context 'library' scoped to the album's full track list.
- *   Play All button starts from track 1.
- *
- * Null safety:
- *   - album.artistId null → artist name renders as plain text (not a link)
- *   - song.trackNumber null → song still renders (sorted last by server)
- *   - 404 from API → friendly not-found state, no crash
+ * PERMANENT FIX: Navbar import and usage removed entirely.
+ * PageWrapper owns layout. Page renders only its own content.
  */
 
 import { useCallback } from "react";
@@ -24,7 +9,6 @@ import { useParams, Link } from "react-router-dom";
 import { useAlbum } from "../hooks/useAlbum";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
-import Navbar from "../components/layout/Navbar";
 import Loader from "../components/ui/Loader";
 
 const AlbumDetail = () => {
@@ -46,56 +30,44 @@ const AlbumDetail = () => {
     setPlaybackContext("library", id, songs, 0);
   }, [songs, id, setPlaybackContext]);
 
-  // Total duration from all tracks
   const totalSeconds = songs.reduce(
     (acc, s) => acc + (Number(s.duration) || 0),
     0,
   );
 
-  // ── Loading ──────────────────────────────────────────────────────────────
   if (isLoading) return <Loader />;
 
-  // ── Not found ────────────────────────────────────────────────────────────
   if (!album && !isLoading) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.notFound}>
-          <p style={styles.notFoundTitle}>Album not found</p>
-          <p style={styles.notFoundSub}>
-            This album page doesn't exist or hasn't been created yet.
-          </p>
-          <Link to="/" style={styles.backLink}>
-            ← Back to Library
-          </Link>
-        </div>
+      <div style={styles.notFound}>
+        <p style={styles.notFoundTitle}>Album not found</p>
+        <p style={styles.notFoundSub}>
+          This album page doesn't exist or hasn't been created yet.
+        </p>
+        <Link to="/" style={styles.backLink}>
+          ← Back to Library
+        </Link>
       </div>
     );
   }
 
-  // ── Error ────────────────────────────────────────────────────────────────
   if (error && !album) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.notFound}>
-          <p style={styles.notFoundTitle}>Could not load album</p>
-          <p style={styles.notFoundSub}>
-            Something went wrong. Please try again.
-          </p>
-          <Link to="/" style={styles.backLink}>
-            ← Back to Library
-          </Link>
-        </div>
+      <div style={styles.notFound}>
+        <p style={styles.notFoundTitle}>Could not load album</p>
+        <p style={styles.notFoundSub}>
+          Something went wrong. Please try again.
+        </p>
+        <Link to="/" style={styles.backLink}>
+          ← Back to Library
+        </Link>
       </div>
     );
   }
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-
-      {/* ── Hero ──────────────────────────────────────────────────────────── */}
+    <div style={{ fontFamily: "'Inter', sans-serif" }}>
+      {/* ── Hero ── */}
       <div style={styles.hero}>
         <div style={styles.heroInner}>
           <img
@@ -108,13 +80,10 @@ const AlbumDetail = () => {
               e.target.src = "https://placehold.co/200x200/1a1a1a/555?text=♪";
             }}
           />
-
           <div style={styles.heroMeta}>
             <span style={styles.typeLabel}>ALBUM</span>
             <h1 style={styles.heroName}>{album.name}</h1>
-
             <div style={styles.heroSub}>
-              {/* Artist name — link if artistId present */}
               {album.artistId ? (
                 <Link
                   to={`/artist/${album.artistId}`}
@@ -127,22 +96,23 @@ const AlbumDetail = () => {
                   {album.artistName || "Unknown Artist"}
                 </span>
               )}
-
-              {album.year > 0 && <span style={styles.subDivider}>·</span>}
               {album.year > 0 && (
-                <span style={styles.subText}>{album.year}</span>
+                <>
+                  <span style={styles.subDivider}>·</span>
+                  <span style={styles.subText}>{album.year}</span>
+                </>
               )}
-              {album.genre && <span style={styles.subDivider}>·</span>}
               {album.genre && (
-                <span style={styles.genreBadge}>{album.genre}</span>
+                <>
+                  <span style={styles.subDivider}>·</span>
+                  <span style={styles.genreBadge}>{album.genre}</span>
+                </>
               )}
             </div>
-
             <p style={styles.heroStats}>
               {songs.length} {songs.length === 1 ? "song" : "songs"}
               {totalSeconds > 0 && ` · ${formatTotalDuration(totalSeconds)}`}
             </p>
-
             {songs.length > 0 && (
               <button style={styles.playBtn} onClick={handlePlayAll}>
                 ▶ Play Album
@@ -153,7 +123,7 @@ const AlbumDetail = () => {
       </div>
 
       <div style={styles.container}>
-        {/* ── Track list ──────────────────────────────────────────────────── */}
+        {/* ── Track list ── */}
         <section style={styles.section}>
           {songs.length === 0 ? (
             <p style={styles.empty}>No tracks found for this album.</p>
@@ -171,11 +141,9 @@ const AlbumDetail = () => {
                   }}
                   onClick={() => handlePlaySong(song, index)}
                 >
-                  {/* Track number or playing indicator */}
                   <span style={styles.trackNum}>
                     {isActive ? "♪" : (song.trackNumber ?? index + 1)}
                   </span>
-
                   <img
                     src={
                       song.coverUrl ||
@@ -188,7 +156,6 @@ const AlbumDetail = () => {
                         "https://placehold.co/40x40/111/555?text=♪";
                     }}
                   />
-
                   <div style={styles.songInfo}>
                     <p
                       style={{
@@ -200,7 +167,6 @@ const AlbumDetail = () => {
                     </p>
                     <p style={styles.songArtist}>{song.artist}</p>
                   </div>
-
                   {song.genre && (
                     <span style={styles.genrePill}>{song.genre}</span>
                   )}
@@ -213,7 +179,7 @@ const AlbumDetail = () => {
           )}
         </section>
 
-        {/* ── More from this artist ────────────────────────────────────────── */}
+        {/* ── More from this artist ── */}
         {album.artistId && (
           <section style={styles.moreSection}>
             <div style={styles.moreTitleRow}>
@@ -240,8 +206,6 @@ const AlbumDetail = () => {
   );
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function formatDuration(seconds) {
   if (!seconds || isNaN(seconds)) return "--:--";
   const m = Math.floor(seconds / 60);
@@ -257,16 +221,7 @@ function formatTotalDuration(seconds) {
   return `${m} min`;
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
-    fontFamily: "'Inter', sans-serif",
-  },
-
-  // Hero
   hero: {
     background: "linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)",
     paddingBottom: 32,
@@ -343,8 +298,6 @@ const styles = {
     alignSelf: "flex-start",
     marginTop: 4,
   },
-
-  // Container
   container: { maxWidth: 1000, margin: "0 auto", padding: "0 20px" },
   section: { marginTop: 24 },
   sectionTitle: {
@@ -355,8 +308,6 @@ const styles = {
     margin: "0 0 16px",
   },
   empty: { color: "#6b7280", fontSize: 14, padding: "24px 0" },
-
-  // Track rows
   songRow: {
     display: "flex",
     alignItems: "center",
@@ -416,8 +367,6 @@ const styles = {
     textAlign: "right",
     fontVariantNumeric: "tabular-nums",
   },
-
-  // More section
   moreSection: { marginTop: 48, paddingBottom: 16 },
   moreTitleRow: {
     display: "flex",
@@ -437,8 +386,6 @@ const styles = {
     fontWeight: 600,
     textDecoration: "none",
   },
-
-  // Not found
   notFound: {
     display: "flex",
     flexDirection: "column",
