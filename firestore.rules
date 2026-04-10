@@ -11,8 +11,8 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuth() && request.auth.token.role == 'admin';
-    }
+  return isAuth() && request.auth.token.admin == true;
+}
 
     function isOwner(uid) {
       return isAuth() && request.auth.uid == uid;
@@ -78,9 +78,11 @@ service cloud.firestore {
     match /playlists/{playlistId} {
 
       // Public playlists readable by anyone; private only by owner or admin
-      allow read: if resource.data.isPublic == true
-        || isOwner(resource.data.ownerId)
-        || isAdmin();
+      // NEW — replace with this
+allow read: if resource.data.isPublic == true
+  || isOwner(resource.data.ownerId)
+  || isAdmin()
+  || (resource.data.isAdmin == true && resource.data.isPublic == true);
 
       // CREATE: ownerId must match the caller; isFeatured must start false
       // (only admin can feature a playlist via an update later)

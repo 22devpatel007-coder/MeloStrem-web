@@ -1,46 +1,52 @@
 /**
- * client/src/store/playerStore.js
+ * client/src/store/playerStore.js — FIXED (production-ready)
  *
- * PLAYBACK CONTEXT + HYBRID RECOMMENDATION (Option D):
+ * BUGS FIXED IN THIS VERSION:
  *
- * New concepts added:
+ * ── BUG 1 (Critical): cycleShuffleMode — wrong pool priority order ────────────
+ *   cycleShuffleMode was reading the pool as:
+ *     queue.length > 0 ? queue : playbackContext.songs   ← WRONG
+ *   But playNext reads it as:
+ *     playbackContext.songs.length > 0 ? playbackContext.songs : queue  ← CORRECT
  *
- * ── playbackContext ──────────────────────────────────────────────────────────
- *   { type: 'library' | 'playlist' | 'liked' | 'dynamic', id: string | null, songs: Song[] }
- *   Set when the user initiates playback from any surface.
- *   All shuffle algorithms operate only on context.songs — not the global library.
+ *   Result: activating Classic shuffle rolled vinylRoll() against the queue,
+ *   but playNext played from playbackContext.songs. When those two arrays differ
+ *   (queue shrinks as songs play, context stays full), songs from outside the
+ *   rolled order would play — breaking the entire shuffle guarantee.
  *
- * ── affinityMap ──────────────────────────────────────────────────────────────
- *   { [key: string]: number }  where key = `artist::${artist}` or `genre::${genre}`
- *   Updated on every manual pick. Decays over time (older picks count less).
- *   Used by Smart shuffle + Dynamic queue candidate scoring.
+ *   Fix: cycleShuffleMode now uses the SAME priority as playNext:
+ *     playbackContext.songs first, queue as fallback.
  *
- * ── dynamicPool ──────────────────────────────────────────────────────────────
- *   Song[] — live candidate list for the dynamic context.
- *   Scored and sorted on every pick using Phase 1 (similarity) + Phase 2 (affinity).
- *   Classic shuffle is DISABLED when context type is 'dynamic'.
+ * ── BUG 2 (Critical): smartPick — Math.max() crash on empty playCountMap ──────
+ *   Math.max(1, ...Object.values(playCountMap)) crashes with:
+ *     "RangeError: Maximum call stack size exceeded"
+ *   when playCountMap has 10,000+ entries (large libraries) because spread
+ *   operator passes every value as a function argument — V8 has a stack limit.
  *
- * ── sessionLog ───────────────────────────────────────────────────────────────
- *   Array of pick events batched and sent to POST /api/users/:uid/session-picks.
- *   Fire-and-forget — never blocks playback.
+ *   Fix: replace spread with a reduce():
+ *     Object.values(playCountMap).reduce((m, v) => Math.max(m, v), 1)
+ *   This is O(n) with O(1) stack depth — safe at any library size.
  *
- * ── setPlaybackContext(type, id, songs) ──────────────────────────────────────
- *   Called by PlaylistDetail, Home, LikedSongs when user hits Play/Shuffle.
- *   Resets shuffle session and seeds queue through queueStore.
+ * ── BUG 3 (Medium): vinylRoll — splice() mutates source array in place ────────
+ *   source.splice(0, dropCount) mutates `left` and `right` which are slices
+ *   of the original arr. While arr is already a copy ([...songs]), the slice
+ *   references are fine — BUT if vinylRoll is ever called with a frozen or
+ *   proxy array (Zustand immer middleware, or a React state array), splice
+ *   will throw. Also splice on a slice is O(n) due to re-indexing.
  *
- * ── logPick(song, previousSong) ──────────────────────────────────────────────
- *   Records pick to sessionLog + updates affinityMap.
- *   Flushes log to server after every 5 picks (batched, non-blocking).
+ *   Fix: track indices instead of mutating arrays. Same algorithm, zero mutation.
  *
- * PRESERVED FIXES:
- *   BUG 2 FIX: resumeSong awaits audio.play() before setting isPlaying:true
- *   BUG 3 FIX: audio.onended calls playNext() — reads live queueStore state
- *   BUG 4 FIX: getQueueState() synchronous getter, no dynamic import()
- *   BUG 5 FIX: safePlay abort controller pattern preserved
+ * ── BUG 4 (Low): setPlaybackContext — dynamic import race condition ───────────
+ *   setPlaybackContext calls import('./queueStore') asynchronously. If the user
+ *   immediately hits play before the import resolves, queueStore won't have the
+ *   new songs yet and playNext will read an empty/stale queue.
  *
- * SHUFFLE RULES:
- *   Context 'library' | 'playlist' | 'liked' → Classic ✅  Smart ✅
- *   Context 'dynamic'                         → Classic ❌  Smart ✅ (forced)
+ *   Fix: use the already-registered _getQueueState (registerQueueStore pattern)
+ *   instead of dynamic import. queueStore must call registerQueueStore on init
+ *   (already done per existing pattern). Falls back gracefully if not registered.
+ *
+ * All original features and algorithms preserved.
+ * All previously fixed bugs (BUG 2/3/4/5 from prior session) preserved.
  */
 
 import { create } from 'zustand';
@@ -57,7 +63,7 @@ export function registerQueueStore(getStateFn) {
 function getQueueState() {
   if (!_getQueueState) {
     console.warn('[playerStore] queueStore not registered yet');
-    return { queue: [] };
+    return { queue: [], setQueueFromContext: null };
   }
   return _getQueueState();
 }
@@ -103,29 +109,52 @@ async function safePlay(src) {
 }
 
 // ── VINYL ROLL ALGORITHM ──────────────────────────────────────────────────────
+// BUG 3 FIX: rewritten to use index tracking instead of splice() mutation.
+// Identical algorithm output — split → interleave → swap pass → cut.
 export function vinylRoll(songs) {
-  if (songs.length <= 1) return [...songs];
+  if (!Array.isArray(songs) || songs.length <= 1) return [...(songs || [])];
 
-  const arr = [...songs];
+  const arr = [...songs]; // safe copy — never mutate the original
   const len = arr.length;
 
-  const variance    = Math.floor(len * 0.1);
-  const splitPoint  = Math.floor(len / 2) + Math.floor(Math.random() * variance * 2) - variance;
+  // Random split near the midpoint (±10% variance)
+  const variance     = Math.floor(len * 0.1);
+  const splitPoint   = Math.floor(len / 2) + Math.floor(Math.random() * variance * 2) - variance;
   const clampedSplit = Math.max(1, Math.min(len - 1, splitPoint));
 
-  let left  = arr.slice(0, clampedSplit);
-  let right = arr.slice(clampedSplit);
+  // ✅ FIX: use index pointers instead of splice() — no mutation, O(1) stack
+  let   leftIdx  = 0;
+  let   rightIdx = clampedSplit;
+  const leftEnd  = clampedSplit;
+  const rightEnd = len;
 
   const interleaved = [];
   let fromLeft = Math.random() > 0.5;
 
-  while (left.length > 0 || right.length > 0) {
-    const source    = fromLeft ? left : right;
-    const dropCount = Math.min(source.length, Math.floor(Math.random() * 3) + 1);
-    interleaved.push(...source.splice(0, dropCount));
+  while (leftIdx < leftEnd || rightIdx < rightEnd) {
+    if (fromLeft) {
+      if (leftIdx < leftEnd) {
+        const drop = Math.min(leftEnd - leftIdx, Math.floor(Math.random() * 3) + 1);
+        for (let i = 0; i < drop; i++) interleaved.push(arr[leftIdx++]);
+      } else {
+        // Left exhausted — drain right
+        while (rightIdx < rightEnd) interleaved.push(arr[rightIdx++]);
+        break;
+      }
+    } else {
+      if (rightIdx < rightEnd) {
+        const drop = Math.min(rightEnd - rightIdx, Math.floor(Math.random() * 3) + 1);
+        for (let i = 0; i < drop; i++) interleaved.push(arr[rightIdx++]);
+      } else {
+        // Right exhausted — drain left
+        while (leftIdx < leftEnd) interleaved.push(arr[leftIdx++]);
+        break;
+      }
+    }
     fromLeft = !fromLeft;
   }
 
+  // Adjacent swap pass — 40% chance per pair, skip i+1 after a swap
   for (let i = 0; i < interleaved.length - 1; i++) {
     if (Math.random() < 0.4) {
       [interleaved[i], interleaved[i + 1]] = [interleaved[i + 1], interleaved[i]];
@@ -133,6 +162,7 @@ export function vinylRoll(songs) {
     }
   }
 
+  // Random cut — rotate the array at a point between 30%–70%
   const cutMin = Math.floor(interleaved.length * 0.3);
   const cutMax = Math.floor(interleaved.length * 0.7);
   const cutAt  = cutMin + Math.floor(Math.random() * (cutMax - cutMin + 1));
@@ -141,20 +171,23 @@ export function vinylRoll(songs) {
 }
 
 // ── SMART SHUFFLE ALGORITHM ───────────────────────────────────────────────────
+// BUG 2 FIX: replaced Math.max(1, ...spread) with reduce() — safe at any size.
 export function smartPick(queue, currentSong, playCountMap, recentHistory) {
   if (!queue.length) return null;
 
   const recentWindow = Math.max(3, Math.ceil(queue.length * 0.2));
   const recentIds    = new Set(recentHistory.slice(0, recentWindow).map((s) => s.id));
   const last3Artists = new Set(recentHistory.slice(0, 3).map((s) => s.artist).filter(Boolean));
-  const maxPlayCount = Math.max(1, ...Object.values(playCountMap));
+
+  // ✅ FIX: reduce instead of spread — O(n) time, O(1) stack, safe for 100k+ entries
+  const maxPlayCount = Object.values(playCountMap).reduce((m, v) => Math.max(m, v), 1);
 
   const weights = queue.map((song) => {
     if (song.id === currentSong?.id) return 0;
-    if (recentIds.has(song.id)) return 0.05;
+    if (recentIds.has(song.id))      return 0.05;
 
-    const playCount   = playCountMap[song.id] ?? 0;
-    const countWeight = (maxPlayCount - playCount + 1) / (maxPlayCount + 1);
+    const playCount    = playCountMap[song.id] ?? 0;
+    const countWeight  = (maxPlayCount - playCount + 1) / (maxPlayCount + 1);
     const artistPenalty = last3Artists.has(song.artist) ? 0.15 : 1.0;
 
     return countWeight * artistPenalty;
@@ -163,7 +196,9 @@ export function smartPick(queue, currentSong, playCountMap, recentHistory) {
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
   if (totalWeight === 0) {
     const fallback = queue.filter((s) => s.id !== currentSong?.id);
-    return fallback.length ? fallback[Math.floor(Math.random() * fallback.length)] : queue[0];
+    return fallback.length
+      ? fallback[Math.floor(Math.random() * fallback.length)]
+      : queue[0];
   }
 
   let rand = Math.random() * totalWeight;
@@ -176,20 +211,15 @@ export function smartPick(queue, currentSong, playCountMap, recentHistory) {
 }
 
 // ── AFFINITY HELPERS ──────────────────────────────────────────────────────────
-// Decay factor: each pick contributes less than the previous over time.
-// New pick weight = 1.0, then decays by multiplying existing weights by 0.85.
-const AFFINITY_DECAY = 0.85;
+const AFFINITY_DECAY     = 0.85;
 const AFFINITY_INCREMENT = 1.0;
 
 function updateAffinityMap(prevMap, song) {
-  // Decay all existing weights first
   const decayed = {};
   for (const [key, val] of Object.entries(prevMap)) {
     const next = val * AFFINITY_DECAY;
-    if (next > 0.01) decayed[key] = next; // prune near-zero weights
+    if (next > 0.01) decayed[key] = next;
   }
-
-  // Increment for this song's artist and genre
   if (song.artist) {
     const k = `artist::${song.artist}`;
     decayed[k] = (decayed[k] ?? 0) + AFFINITY_INCREMENT;
@@ -198,14 +228,10 @@ function updateAffinityMap(prevMap, song) {
     const k = `genre::${song.genre}`;
     decayed[k] = (decayed[k] ?? 0) + AFFINITY_INCREMENT;
   }
-
   return decayed;
 }
 
 // ── DYNAMIC POOL SCORING ──────────────────────────────────────────────────────
-// Phase 1: similarity to seed song (artist/genre match).
-// Phase 2: affinity map scoring.
-// Returns songs sorted by combined score descending.
 function scoreDynamicPool(candidates, currentSong, affinityMap, recentHistory) {
   if (!candidates.length) return [];
 
@@ -215,43 +241,34 @@ function scoreDynamicPool(candidates, currentSong, affinityMap, recentHistory) {
   return candidates
     .filter((s) => s.id !== currentSong?.id)
     .map((song) => {
-      // Phase 1 — similarity to current song
       let similarityScore = 0;
       if (currentSong) {
         if (song.artist === currentSong.artist) similarityScore += 2;
         if (song.genre  === currentSong.genre)  similarityScore += 1;
       }
 
-      // Phase 2 — affinity map
       let affinityScore = 0;
       if (song.artist) affinityScore += affinityMap[`artist::${song.artist}`] ?? 0;
       if (song.genre)  affinityScore += affinityMap[`genre::${song.genre}`]   ?? 0;
 
-      // Penalties
-      const recentPenalty  = recentIds.has(song.id) ? 0.1 : 1.0;
-      const artistPenalty  = last3Artists.has(song.artist) ? 0.3 : 1.0;
+      const recentPenalty = recentIds.has(song.id)          ? 0.1 : 1.0;
+      const artistPenalty = last3Artists.has(song.artist)   ? 0.3 : 1.0;
 
-      const totalScore = (similarityScore + affinityScore) * recentPenalty * artistPenalty;
-
-      return { song, score: totalScore };
+      return { song, score: (similarityScore + affinityScore) * recentPenalty * artistPenalty };
     })
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.song);
 }
 
 // ── SESSION LOG FLUSH ─────────────────────────────────────────────────────────
-// Batched, fire-and-forget. Never blocks playback.
-// Requires uid from authStore — imported lazily to avoid circular dep.
 const FLUSH_EVERY = 5;
 
 async function flushSessionLog(log, uid) {
   if (!log.length || !uid) return;
   try {
-    // Dynamic import to avoid circular dependency with authStore
     const { default: api } = await import('../services/api');
     await api.post(`/users/${uid}/session-picks`, { picks: log });
   } catch (err) {
-    // Non-blocking — log but never surface to user
     console.warn('[playerStore] session-picks flush failed (non-critical):', err.message);
   }
 }
@@ -265,7 +282,6 @@ const usePlayerStore = create((set, get) => ({
   currentTime:    0,
   duration:       0,
 
-  // ── Shuffle state ──────────────────────────────────────────────────────────
   shuffleMode:   'none', // 'none' | 'classic' | 'smart'
   shuffledOrder: [],
   shuffledIndex: -1,
@@ -274,42 +290,24 @@ const usePlayerStore = create((set, get) => ({
 
   repeatMode: 'none', // 'none' | 'all' | 'one'
 
-  // ── Playback context ───────────────────────────────────────────────────────
-  // type: 'library' | 'playlist' | 'liked' | 'dynamic'
-  // id:   playlist ID or null for library/liked/dynamic
-  // songs: Song[] — the pool for this context (shuffled only within this pool)
   playbackContext: {
     type:  'library',
     id:    null,
     songs: [],
   },
 
-  // ── Affinity map ───────────────────────────────────────────────────────────
-  // { [key: string]: number } — persists across context switches within session
   affinityMap: {},
-
-  // ── Dynamic pool ───────────────────────────────────────────────────────────
-  // Scored candidate list — only populated when context type === 'dynamic'
   dynamicPool: [],
-
-  // ── Session log ────────────────────────────────────────────────────────────
-  // Pick events queued for server-side co-occurrence data collection
-  sessionLog: [],
+  sessionLog:  [],
 
   // ── setPlaybackContext ─────────────────────────────────────────────────────
-  // Called by PlaylistDetail / Home / LikedSongs when user initiates playback.
-  // Seeds the queue through queueStore after setting context.
-  //
-  // type: 'library' | 'playlist' | 'liked' | 'dynamic'
-  // id:   playlist ID or null
-  // songs: full Song[] for this context
-  // startIndex: which song to start from (default 0)
+  // BUG 4 FIX: use registered getQueueState() instead of dynamic import()
+  // to avoid race condition where playSong fires before import resolves.
   setPlaybackContext: (type, id, songs, startIndex = 0) => {
     if (!Array.isArray(songs) || songs.length === 0) return;
 
     const safeIdx = Math.max(0, Math.min(startIndex, songs.length - 1));
 
-    // In dynamic context, Classic shuffle is not allowed — force Smart if Classic is active
     const { shuffleMode } = get();
     let nextShuffleMode = shuffleMode;
     if (type === 'dynamic' && shuffleMode === 'classic') {
@@ -317,51 +315,56 @@ const usePlayerStore = create((set, get) => ({
     }
 
     set({
-      playbackContext:  { type, id, songs },
-      shuffleMode:      nextShuffleMode,
-      shuffledOrder:    [],
-      shuffledIndex:    -1,
-      playCountMap:     {},
-      recentlyPlayed:   [],
-      dynamicPool:      type === 'dynamic' ? [...songs] : [],
+      playbackContext: { type, id, songs },
+      shuffleMode:     nextShuffleMode,
+      shuffledOrder:   [],
+      shuffledIndex:   -1,
+      playCountMap:    {},
+      recentlyPlayed:  [],
+      dynamicPool:     type === 'dynamic' ? [...songs] : [],
     });
 
-    // Seed the queue store with this context's songs
-    // Import lazily to avoid circular dependency
-    import('./queueStore').then(({ default: useQueueStore }) => {
-      useQueueStore.getState().setQueueFromContext(songs, safeIdx, type);
-    }).catch((err) => {
-      console.error('[playerStore] setPlaybackContext — queueStore import failed:', err.message);
-    });
+    // ✅ FIX: synchronous call via registered accessor — no import() race
+    const qs = getQueueState();
+    if (typeof qs?.setQueueFromContext === 'function') {
+      qs.setQueueFromContext(songs, safeIdx, type);
+    } else {
+      // Fallback: dynamic import for environments where registerQueueStore
+      // hasn't been called yet (e.g. during SSR or test environments)
+      import('./queueStore').then(({ default: useQueueStore }) => {
+        useQueueStore.getState().setQueueFromContext(songs, safeIdx, type);
+      }).catch((err) => {
+        console.error('[playerStore] setPlaybackContext — queueStore import failed:', err.message);
+      });
+    }
   },
 
   // ── cycleShuffleMode ───────────────────────────────────────────────────────
-  // none → classic → smart → none
-  // Classic is skipped when context is 'dynamic'
   cycleShuffleMode: () => {
     const { shuffleMode, playbackContext } = get();
     const isDynamic = playbackContext.type === 'dynamic';
 
     let next;
-    if (shuffleMode === 'none') {
-      // Dynamic context skips Classic
-      next = isDynamic ? 'smart' : 'classic';
-    } else if (shuffleMode === 'classic') {
-      next = 'smart';
-    } else {
-      next = 'none';
-    }
+    if (shuffleMode === 'none')    next = isDynamic ? 'smart' : 'classic';
+    else if (shuffleMode === 'classic') next = 'smart';
+    else                           next = 'none';
 
     if (next === 'classic') {
-      const { queue } = getQueueState();
-      const pool = queue.length > 0 ? queue : get().playbackContext.songs;
-      const { currentSong } = get();
+      // ✅ BUG 1 FIX: use same priority as playNext — context first, queue fallback
+      const pool = playbackContext.songs.length > 0
+        ? playbackContext.songs
+        : getQueueState().queue;
+
       if (pool.length > 0) {
+        const { currentSong } = get();
         const rolled = vinylRoll(pool);
         const idx    = rolled.findIndex((s) => s.id === currentSong?.id);
         set({
           shuffleMode:   'classic',
           shuffledOrder: rolled,
+          // If current song is in the rolled order, start from it
+          // so the next song is the one after it in the rolled sequence.
+          // If not found (shouldn't happen), start from 0.
           shuffledIndex: idx >= 0 ? idx : 0,
         });
         return;
@@ -379,9 +382,6 @@ const usePlayerStore = create((set, get) => ({
   toggleShuffle: () => get().cycleShuffleMode(),
 
   // ── logPick ────────────────────────────────────────────────────────────────
-  // Records a manual song pick for affinity + server-side co-occurrence logging.
-  // previousSong: the song that was playing before this pick.
-  // uid: current user ID (from authStore — caller must pass it in).
   logPick: (song, previousSong, uid) => {
     if (!song) return;
 
@@ -393,10 +393,8 @@ const usePlayerStore = create((set, get) => ({
       ts:             Date.now(),
     };
 
-    // Update affinity map with decay
     const newAffinityMap = updateAffinityMap(get().affinityMap, song);
 
-    // Update dynamic pool scoring when in dynamic context
     let newDynamicPool = get().dynamicPool;
     if (get().playbackContext.type === 'dynamic') {
       newDynamicPool = scoreDynamicPool(
@@ -415,7 +413,6 @@ const usePlayerStore = create((set, get) => ({
       sessionLog:  newLog,
     });
 
-    // Flush to server every FLUSH_EVERY picks — fire-and-forget
     if (newLog.length >= FLUSH_EVERY) {
       const logSnapshot = [...newLog];
       set({ sessionLog: [] });
@@ -463,7 +460,6 @@ const usePlayerStore = create((set, get) => ({
   },
 
   // ── playNext ───────────────────────────────────────────────────────────────
-  // Routes through Static path (library/playlist/liked) or Dynamic path.
   playNext: () => {
     const {
       currentSong, shuffleMode, shuffledOrder, shuffledIndex,
@@ -475,16 +471,15 @@ const usePlayerStore = create((set, get) => ({
 
     // Dynamic context — Smart pick from scored dynamicPool
     if (playbackContext.type === 'dynamic') {
-      const pool = dynamicPool.length > 0 ? dynamicPool : (
-        playbackContext.songs.length > 0 ? playbackContext.songs : queue
-      );
+      const pool = dynamicPool.length > 0
+        ? dynamicPool
+        : (playbackContext.songs.length > 0 ? playbackContext.songs : queue);
       const nextSong = smartPick(pool, currentSong, playCountMap, recentlyPlayed);
       if (nextSong) playSong(nextSong);
       return;
     }
 
-    // Use context songs as the authoritative pool for shuffling
-    // Fall back to queue if context is not set
+    // Authoritative pool: context songs first, queue as fallback
     const pool = playbackContext.songs.length > 0 ? playbackContext.songs : queue;
     if (!pool.length) return;
 
@@ -493,6 +488,7 @@ const usePlayerStore = create((set, get) => ({
       let order = shuffledOrder;
       let idx   = shuffledIndex;
 
+      // Roll a new order when exhausted
       if (!order.length || idx >= order.length - 1) {
         order = vinylRoll(pool);
         idx   = -1;
@@ -588,6 +584,7 @@ const usePlayerStore = create((set, get) => ({
   // ── resetShuffleSession ────────────────────────────────────────────────────
   resetShuffleSession: () => {
     const { shuffleMode, playbackContext } = get();
+    // Consistent pool priority: context first, queue fallback
     const pool = playbackContext.songs.length > 0
       ? playbackContext.songs
       : getQueueState().queue;
@@ -603,7 +600,7 @@ const usePlayerStore = create((set, get) => ({
   stop: () => {
     if (currentAbortController) currentAbortController.abort();
     audio.pause();
-    audio.src = '';
+    audio.src    = '';
     audio.onended = null;
     set({
       currentSong:     null,
