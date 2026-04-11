@@ -1,25 +1,5 @@
 /**
  * server/src/controllers/users.controller.js
- *
- * ADDED: logSessionPicks
- *   POST /users/:uid/session-picks
- *
- *   Receives batched pick events from the frontend for co-occurrence data
- *   collection (Option B foundation). Each pick records:
- *     - songId: the song that was picked
- *     - previousSongId: the song that was playing before (co-occurrence signal)
- *     - contextType: 'library' | 'playlist' | 'liked' | 'dynamic'
- *     - contextId: playlist ID or null
- *     - ts: client-side timestamp (ms)
- *     - sessionId: generated server-side from uid + date for grouping
- *
- *   Storage: Firestore subcollection users/{uid}/sessionPicks/{docId}
- *   Each doc is a batch of picks (not one doc per pick) to minimize write volume.
- *
- *   Non-blocking design: errors are logged but never surfaced to client.
- *   Frontend fire-and-forget — 200 OK always on valid input.
- *
- * PRESERVED: getLikedSongs, toggleLikedSong, getAllUsers unchanged.
  */
 
 const { db } = require('../config/firebase');
@@ -108,9 +88,6 @@ exports.toggleLikedSong = async (req, res) => {
 };
 
 // ── POST /users/:uid/session-picks ────────────────────────────────────────────
-// Receives batched pick events for co-occurrence data collection.
-// Fire-and-forget from client — always returns 200 on valid input.
-// Errors are logged server-side but never returned to client.
 exports.logSessionPicks = async (req, res) => {
   const { uid } = req.params;
 
@@ -120,12 +97,10 @@ exports.logSessionPicks = async (req, res) => {
 
   const { picks } = req.body;
 
-  // Validate payload shape — must be a non-empty array
   if (!Array.isArray(picks) || picks.length === 0) {
     return res.status(400).json({ success: false, message: 'picks must be a non-empty array' });
   }
 
-  // Cap batch size to prevent abuse — matches frontend FLUSH_EVERY threshold
   const MAX_PICKS_PER_BATCH = 50;
   if (picks.length > MAX_PICKS_PER_BATCH) {
     return res.status(400).json({
@@ -137,7 +112,6 @@ exports.logSessionPicks = async (req, res) => {
   // Respond immediately — Firestore write is non-blocking from client's perspective
   res.json({ success: true });
 
-  // Validate and sanitize each pick entry
   const sanitized = picks
     .filter((p) => p && typeof p.songId === 'string' && p.songId.trim())
     .map((p) => ({
@@ -147,17 +121,12 @@ exports.logSessionPicks = async (req, res) => {
                         ? p.contextType
                         : 'library',
       contextId:      typeof p.contextId === 'string' ? p.contextId.trim() : null,
-      // Use server timestamp for storage — client ts kept for ordering within batch
       clientTs:       typeof p.ts === 'number' ? p.ts : Date.now(),
     }));
 
-  if (!sanitized.length) {
-    // All picks were invalid — already responded 200, just return
-    return;
-  }
+  if (!sanitized.length) return;
 
-  // Session ID: uid + UTC date — groups all picks from a calendar day
-  const today     = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const today     = new Date().toISOString().slice(0, 10);
   const sessionId = `${uid}_${today}`;
 
   try {
@@ -171,7 +140,6 @@ exports.logSessionPicks = async (req, res) => {
         pickedAt: new Date(),
       });
   } catch (err) {
-    // Non-critical — log but do not re-surface (response already sent)
     logger.error('logSessionPicks write error:', { uid, error: err.message });
   }
 };

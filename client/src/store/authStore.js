@@ -1,29 +1,23 @@
 /**
  * client/src/store/authStore.js
  *
- * Fix: logout now removes only user-specific React Query cache keys instead of
- * calling queryClient.clear() which nuked the public songs cache too,
- * forcing a full re-fetch for every user on every login.
+ * SCALABLE FIX — Added 'userPlaylists' to USER_QUERY_KEYS.
  *
- * USER-SPECIFIC QUERY KEYS that are cleared on logout:
- *   - ['likedSongs']
- *   - ['playlists']
- *   - ['users']
- *   - ['playlist', *]   (any individual playlist detail)
+ * useUserPlaylists now caches data under [QUERY_KEYS.USER_PLAYLISTS, uid].
+ * This is user-scoped data and must be cleared on logout so a different
+ * user logging in on the same device never sees the previous user's playlists.
  *
- * PUBLIC QUERY KEYS that are intentionally preserved across sessions:
- *   - ['songs']   (paginated song library — same for everyone)
- *   - ['search']  (search results — same for everyone)
+ * ADMIN_PLAYLISTS ('adminPlaylists') is intentionally NOT in this list —
+ * it is public content (same for all users) and should be preserved across
+ * logout exactly like SONGS and SEARCH, so the next user gets instant
+ * cached library playlists without a network round-trip.
  *
- * If you add a new user-specific query key in queryKeys.js, add it here too.
+ * All other logic is completely unchanged.
  */
 
 import { create } from 'zustand';
 import { logout as authServiceLogout } from '../services/auth.service';
 
-// getQueryClient is a stable getter so authStore never imports queryClient
-// at module-load time (avoids circular dependency with api.js which also
-// imports authStore for token injection).
 let _queryClient = null;
 
 export const registerQueryClient = (qc) => {
@@ -35,39 +29,37 @@ export const registerQueryClient = (qc) => {
 const USER_QUERY_KEYS = [
   ['likedSongs'],
   ['playlists'],
+  ['userPlaylists'],  // ✅ NEW — clears useUserPlaylists cache on logout
   ['users'],
 ];
 
 const clearUserCache = () => {
   if (!_queryClient) return;
 
-  // Remove exact user-specific keys.
   USER_QUERY_KEYS.forEach((key) => {
     _queryClient.removeQueries({ queryKey: key });
   });
 
-  // Remove any individual playlist detail queries  ['playlist', <id>].
+  // Remove any individual playlist detail queries ['playlist', <id>]
   _queryClient.removeQueries({ queryKey: ['playlist'], exact: false });
 };
 
 const useAuthStore = create((set) => ({
-  user: null,
-  isAdmin: false,
-  loading: true,
-  likedSongs: [],           // kept for backward compat; primary source is useLikedSongs hook
+  user:      null,
+  isAdmin:   false,
+  loading:   true,
+  likedSongs: [],
 
-  setUser: (user) => set({ user }),
-  setAdmin: (isAdmin) => set({ isAdmin }),
-  setLoading: (loading) => set({ loading }),
+  setUser:       (user)       => set({ user }),
+  setAdmin:      (isAdmin)    => set({ isAdmin }),
+  setLoading:    (loading)    => set({ loading }),
   setLikedSongs: (likedSongs) => set({ likedSongs }),
 
   logout: async () => {
     try {
       await authServiceLogout();
     } finally {
-      // 1. Clear only user-owned cached queries — preserve public song library cache.
       clearUserCache();
-      // 2. Reset auth state.
       set({ user: null, isAdmin: false, likedSongs: [] });
     }
   },
