@@ -1,43 +1,25 @@
 /**
  * client/src/components/songs/ArtistCard.jsx
  *
- * Card component for an artist shown in the horizontal Artists row on Home.
+ * Responsive improvements over previous version:
+ *  ✅ Full artist name shown (line-clamp-2 stays — graceful wrapping on 2 lines)
+ *  ✅ Card min-width removed — grows/shrinks naturally inside any grid
+ *  ✅ Hover: scale(1.03) + elevated shadow — visible on desktop, disabled on touch
+ *  ✅ Touch: :active state gives haptic-like scale feedback instead
+ *  ✅ Avatar size adapts: 56px default → 64px on md+ screens via CSS
+ *  ✅ Null-safety unchanged — id missing renders non-clickable div
  *
- * Visual anatomy (matches screenshot target):
- *   ┌──────────────────────────┐
- *   │                          │
- *   │      ┌────────┐          │
- *   │      │  initials avatar  │
- *   │      └────────┘          │
- *   │    Artist Name           │
- *   │    N songs               │
- *   │                          │
- *   └──────────────────────────┘
- *
- * Props:
- *   artist  {object}  — Artist object from API / useArtist hook.
- *     artist.id         {string}           — Firestore artist doc ID.
- *     artist.name       {string}           — Display name.
- *     artist.songCount  {number|undefined} — Song count. Falls back to 0.
- *     artist.imageUrl   {string|undefined} — Optional cover image.
- *
- * Null-safety:
- *   - Renders nothing (null) when `artist` is falsy.
- *   - artist.id missing → renders a non-clickable div instead of a Link.
- *   - artist.name missing → shows "Unknown Artist".
- *   - No .map call anywhere in this file.
- *
- * Avatar colour:
- *   Deterministic from the artist name so the same artist always gets the
- *   same colour across renders and devices. Uses a small palette of muted
- *   tones that look good on the dark background.
+ * Props: unchanged.
+ *   artist.id         {string}           — Firestore artist doc ID
+ *   artist.name       {string}           — Display name
+ *   artist.songCount  {number|undefined} — Song count
+ *   artist.imageUrl   {string|undefined} — Optional cover image
  */
 
 import { Link } from 'react-router-dom';
 import { useMemo } from 'react';
 
 // ─── Avatar colour palette ────────────────────────────────────────────────────
-// Muted, dark-friendly tones — same palette used in screenshot.
 const AVATAR_COLOURS = [
   '#4ade80', // emerald
   '#60a5fa', // blue
@@ -49,10 +31,6 @@ const AVATAR_COLOURS = [
   '#f87171', // red
 ];
 
-/**
- * Picks a colour deterministically from the artist name.
- * Same name → same colour on every render.
- */
 const getAvatarColour = (name = '') => {
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
@@ -61,13 +39,6 @@ const getAvatarColour = (name = '') => {
   return AVATAR_COLOURS[Math.abs(hash) % AVATAR_COLOURS.length];
 };
 
-/**
- * Returns up to 2 uppercase initials from the artist name.
- * "T-Series"         → "TS"
- * "Anuv Jain"        → "AJ"
- * "AFUSIC"           → "AF"
- * "dev"              → "D"
- */
 const getInitials = (name = '') => {
   const parts = name.trim().split(/[\s\-]+/).filter(Boolean);
   if (parts.length === 0) return '?';
@@ -76,66 +47,55 @@ const getInitials = (name = '') => {
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
-
 const ArtistCard = ({ artist }) => {
-  // Hard null-safety — never render broken card
   if (!artist) return null;
 
   const { id, name = 'Unknown Artist', songCount = 0, imageUrl } = artist;
 
-  const initials      = useMemo(() => getInitials(name), [name]);
-  const avatarColour  = useMemo(() => getAvatarColour(name), [name]);
-  const songLabel     = `${songCount} ${songCount === 1 ? 'song' : 'songs'}`;
+  const initials     = useMemo(() => getInitials(name), [name]);
+  const avatarColour = useMemo(() => getAvatarColour(name), [name]);
+  const songLabel    = `${songCount} ${songCount === 1 ? 'song' : 'songs'}`;
 
-  // Card inner content — same markup whether wrapped in Link or div
   const cardContent = (
     <>
+      <style>{CARD_STYLES}</style>
+
       {/* ── Avatar ── */}
-      <div className="flex justify-center mb-3">
+      <div className="ac-avatar-wrap">
         {imageUrl ? (
           <img
             src={imageUrl}
             alt={name}
-            className="w-14 h-14 rounded-full object-cover"
+            className="ac-avatar-img"
             loading="lazy"
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+            onError={(e) => {
+              e.currentTarget.style.display = 'none';
+              e.currentTarget.nextSibling.style.display = 'flex';
+            }}
           />
-        ) : (
-          <div
-            className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: `${avatarColour}22`, border: `1.5px solid ${avatarColour}55` }}
-            aria-hidden="true"
-          >
-            <span
-              className="text-lg font-bold leading-none select-none"
-              style={{ color: avatarColour }}
-            >
-              {initials}
-            </span>
-          </div>
-        )}
+        ) : null}
+        <div
+          className="ac-avatar-initials"
+          style={{
+            display: imageUrl ? 'none' : 'flex',
+            backgroundColor: `${avatarColour}22`,
+            border: `1.5px solid ${avatarColour}55`,
+          }}
+          aria-hidden="true"
+        >
+          <span style={{ color: avatarColour }} className="ac-initials-text">
+            {initials}
+          </span>
+        </div>
       </div>
 
       {/* ── Text ── */}
-      <p className="text-sm font-semibold text-white text-center leading-tight line-clamp-2 mb-1">
-        {name}
-      </p>
-      <p className="text-xs text-gray-500 text-center tabular-nums">
-        {songLabel}
-      </p>
+      <p className="ac-name">{name}</p>
+      <p className="ac-count">{songLabel}</p>
     </>
   );
 
-  // ── Wrapper — Link when id exists, plain div when id is missing (null-safe) ──
-  const wrapperClass = [
-    'flex flex-col items-center justify-center',
-    'p-4 rounded-xl bg-[#1e1e1e] border border-[#2a2a2a]',
-    'transition-all duration-200',
-    'hover:bg-[#252525] hover:border-[#333333]',
-    'cursor-pointer select-none',
-    'min-w-[120px] w-full',
-    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500',
-  ].join(' ');
+  const wrapperClass = 'ac-card';
 
   if (!id) {
     return (
@@ -151,5 +111,117 @@ const ArtistCard = ({ artist }) => {
     </Link>
   );
 };
+
+// ─── Scoped styles ────────────────────────────────────────────────────────────
+const CARD_STYLES = `
+  .ac-card {
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    justify-content: center;
+    padding:         16px 12px;
+    border-radius:   14px;
+    background:      #1e1e1e;
+    border:          1px solid #2a2a2a;
+    cursor:          pointer;
+    text-decoration: none;
+    /* Smooth hover — desktop only */
+    transition:      background 0.2s, border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+    -webkit-tap-highlight-color: transparent;
+    width: 100%;
+    box-sizing: border-box;
+    outline: none;
+  }
+
+  /* Desktop hover — lift effect */
+  @media (hover: hover) {
+    .ac-card:hover {
+      background:    #252525;
+      border-color:  #363636;
+      transform:     scale(1.03);
+      box-shadow:    0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+
+  /* Touch active — quick press feedback */
+  .ac-card:active {
+    transform:  scale(0.97);
+    box-shadow: none;
+  }
+
+  /* Focus ring for keyboard nav */
+  .ac-card:focus-visible {
+    outline:        2px solid #22c55e;
+    outline-offset: 3px;
+  }
+
+  /* ── Avatar wrapper — responsive sizing ── */
+  .ac-avatar-wrap {
+    width:         56px;
+    height:        56px;
+    border-radius: 50%;
+    overflow:      hidden;
+    margin-bottom: 10px;
+    flex-shrink:   0;
+    position:      relative;
+  }
+
+  .ac-avatar-img {
+    width:      100%;
+    height:     100%;
+    object-fit: cover;
+    display:    block;
+  }
+
+  .ac-avatar-initials {
+    width:           100%;
+    height:          100%;
+    border-radius:   50%;
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+  }
+
+  .ac-initials-text {
+    font-size:   18px;
+    font-weight: 700;
+    line-height: 1;
+    user-select: none;
+  }
+
+  /* ── Text ── */
+  .ac-name {
+    font-size:    13px;
+    font-weight:  600;
+    color:        #fff;
+    text-align:   center;
+    line-height:  1.35;
+    margin:       0 0 4px;
+    /* Allow up to 2 lines before truncating */
+    display:             -webkit-box;
+    -webkit-line-clamp:  2;
+    -webkit-box-orient:  vertical;
+    overflow:            hidden;
+    word-break:          break-word;
+    max-width:           100%;
+  }
+
+  .ac-count {
+    font-size:  12px;
+    color:      #6b7280;
+    text-align: center;
+    margin:     0;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Larger avatar on md+ screens */
+  @media (min-width: 768px) {
+    .ac-avatar-wrap { width: 64px; height: 64px; }
+    .ac-initials-text { font-size: 20px; }
+    .ac-name  { font-size: 14px; }
+    .ac-count { font-size: 12px; }
+  }
+`;
 
 export default ArtistCard;

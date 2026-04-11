@@ -17,7 +17,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import SongList from "../components/songs/SongList";
-import Loader from "../components/ui/Loader";
+import HomeSkeleton from "../components/home/HomeSkeleton";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import { useSongs } from "../hooks/useSongs";
@@ -185,7 +185,7 @@ const Home = () => {
   const handleClearAllHistory = () => { saveHistory([]); setHistory([]); };
 
   // ── States ──
-  if (loading) return <Loader />;
+  if (loading) return <HomeSkeleton />;
 
   if (error) {
     return (
@@ -201,7 +201,7 @@ const Home = () => {
 
   // ── Render ──
   return (
-    <>
+    <div className="home-content-enter">
       <style>{HOME_STYLES}</style>
 
       {/* ── Top bar ────────────────────────────────────────────────────────── */}
@@ -404,13 +404,22 @@ const Home = () => {
         </section>
 
       </div>
-    </>
+    </div>
   );
 };
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const HOME_STYLES = `
   @keyframes home-spin { to { transform: rotate(360deg); } }
+  @keyframes home-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Content enters smoothly after skeleton is replaced */
+  .home-content-enter {
+    animation: home-fade-in 0.25s ease both;
+  }
 
   /* ── Top bar ─────────────────────────────────────────────────────────────── */
   .home-topbar {
