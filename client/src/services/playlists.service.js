@@ -1,51 +1,41 @@
 /**
- * client/src/services/playlists.service.js — FIXED (production-ready)
+ * client/src/services/playlists.service.js
  *
- * BUG FIXED: "Query data cannot be undefined" for ["playlists"]
- * ──────────────────────────────────────────────────────────────
- * Root cause: `getPlaylists()` called `(await api.get('/playlists')).data.data`.
- * If the backend returns `{ success: true, data: null }` or any shape where
- * `.data.data` is undefined, React Query v5 throws:
- *   "Query data cannot be undefined. Please make sure to return a value
- *    other than undefined from your query function."
+ * SCALABLE FIX — Two new service functions added:
  *
- * Fix: all service functions now return a safe fallback (`[]` or `{}`) when
- * the chain resolves to undefined/null. This is defensive normalisation at the
- * service layer — consistent with CLAUDE.md rule §4 "Preserve service-level
- * normalisation so callers receive stable shapes even when backend varies."
+ *   fetchAdminPlaylists()        → GET /api/playlists/admin  (public)
+ *   fetchUserPlaylists(uid)      → GET /api/users/:uid/playlists (protected)
  *
- * Also: getPlaylists now reads both `res.data.data` (envelope shape) AND
- * `res.data` (plain array shape) so it handles the mixed response envelope
- * situation documented in CONTEXT.md §Gaps.
+ * These are called by the updated useAdminPlaylists and useUserPlaylists hooks.
+ * All existing functions are preserved exactly — zero breaking changes.
  */
 
 import api from './api';
 
-// ── Helper: safely extract an array from varying response shapes ──────────────
+// ─── Helper: safely extract an array from varying response shapes ─────────────
 function extractArray(res) {
-  // Envelope shape: { success, data: [] }
   if (Array.isArray(res?.data?.data)) return res.data.data;
-  // Plain array shape: { data: [] } (some endpoints)
   if (Array.isArray(res?.data))       return res.data;
-  // Fallback — never return undefined
   return [];
 }
 
-// ── Helper: safely extract an object ─────────────────────────────────────────
+// ─── Helper: safely extract an object ────────────────────────────────────────
 function extractObject(res) {
   if (res?.data?.data && typeof res.data.data === 'object') return res.data.data;
   if (res?.data       && typeof res.data       === 'object') return res.data;
   return {};
 }
 
+// ─── EXISTING functions — completely unchanged ────────────────────────────────
+
 export const getPlaylists = async () => {
   const res = await api.get('/playlists');
-  return extractArray(res); // ✅ always returns [], never undefined
+  return extractArray(res);
 };
 
 export const getPlaylistById = async (id) => {
   const res = await api.get(`/playlists/${id}`);
-  return extractObject(res); // ✅ always returns {}, never undefined
+  return extractObject(res);
 };
 
 export const createPlaylist = async (data) => {
@@ -60,7 +50,6 @@ export const updatePlaylist = async (id, data) => {
 
 export const deletePlaylist = async (id) => {
   const res = await api.delete(`/playlists/${id}`);
-  // DELETE may return null/empty — return a safe truthy ack object
   return res?.data?.data ?? res?.data ?? { deleted: true };
 };
 
@@ -74,14 +63,6 @@ export const removeSongFromPlaylist = async (playlistId, songId) => {
   return res?.data?.data ?? res?.data ?? { removed: true };
 };
 
-/**
- * Fetches full Song objects for an array of song IDs in one round-trip.
- * POST /api/songs/batch with the ID array.
- * Returns Song[] — IDs not found are silently omitted.
- *
- * @param {string[]} songIds
- * @returns {Promise<Song[]>}
- */
 export const getPlaylistSongs = async (songIds) => {
   if (!Array.isArray(songIds) || songIds.length === 0) return [];
   try {
@@ -92,4 +73,37 @@ export const getPlaylistSongs = async (songIds) => {
     console.error('[playlists.service] getPlaylistSongs error:', err.message);
     throw err;
   }
+};
+
+// ─── NEW: REST replacements for Firestore onSnapshot listeners ────────────────
+
+/**
+ * Fetches all public admin/library playlists.
+ * Replaces useAdminPlaylists Firestore onSnapshot.
+ * Calls GET /api/playlists/admin — public endpoint, no auth header needed
+ * (Axios interceptor still attaches it if present, which is harmless).
+ *
+ * Returns Playlist[] — always an array, never undefined.
+ *
+ * @returns {Promise<Playlist[]>}
+ */
+export const fetchAdminPlaylists = async () => {
+  const res = await api.get('/playlists/admin');
+  return extractArray(res);
+};
+
+/**
+ * Fetches all playlists owned by the given user.
+ * Replaces useUserPlaylists Firestore onSnapshot.
+ * Calls GET /api/users/:uid/playlists — protected, token required.
+ *
+ * Returns Playlist[] — always an array, never undefined.
+ *
+ * @param {string} uid
+ * @returns {Promise<Playlist[]>}
+ */
+export const fetchUserPlaylists = async (uid) => {
+  if (!uid) return [];
+  const res = await api.get(`/users/${uid}/playlists`);
+  return extractArray(res);
 };

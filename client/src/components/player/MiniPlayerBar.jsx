@@ -1,22 +1,22 @@
 /**
- * client/src/components/player/MiniPlayerBar.jsx — FIXED (production-ready)
+ * client/src/components/player/MiniPlayerBar.jsx
  *
- * BUG FIXED: "Maximum update depth exceeded" (MiniPlayerBar.jsx:50)
- * ──────────────────────────────────────────────────────────────────
- * Root cause: The `update` function inside the timeupdate/loadedmetadata
- * useEffect closed over `seeking` from component state. Every time `seeking`
- * changed, the effect re-ran: it removed the old listeners and added new ones.
- * The new listener still called `setProgress` / `setDuration` on the NEXT
- * tick of `timeupdate`, which fired setState again, which caused another render,
- * which rebuilt the closure... infinite update loop.
+ * FIX: removed unused `seeking` state variable.
  *
- * Fix: use a ref (`seekingRef`) to track the `seeking` boolean. The ref is
- * always current but never causes a re-render — so the audio event listeners
- * are added ONCE and never torn down/re-added due to `seeking` changes.
- * The `seeking` state variable is still kept for rendering the correct value
- * in the seek input, but it is no longer in the useEffect dependency array.
+ * The `seeking` boolean was tracked in two places:
+ *   1. seekingRef  — used inside the audio event listener (needed, kept)
+ *   2. setSeeking/seeking state — was never read in JSX or logic (dead code, removed)
  *
- * All original features and layout preserved.
+ * Removing the state variable eliminates the ESLint no-unused-vars error
+ * that blocked the production build:
+ *   "seeking" is assigned a value but never used  (MiniPlayerBar.jsx:35)
+ *
+ * The ref alone is sufficient and correct:
+ *   - It tracks seek state without causing re-renders.
+ *   - It prevents the "Maximum update depth exceeded" loop (see original fix notes).
+ *   - Nothing in the render path ever needed to read the `seeking` state value.
+ *
+ * All original features and layout are fully preserved.
  */
 
 import { useRef, useEffect, useState, useCallback, memo } from "react";
@@ -32,12 +32,14 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
 
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [seeking,  setSeeking]  = useState(false);
+  // FIX: removed `const [seeking, setSeeking] = useState(false)` — the
+  // `seeking` state value was never read anywhere in this component.
+  // seekingRef (below) is the only seeking tracker needed. It guards the
+  // timeupdate handler without causing re-renders or stale closure issues.
 
-  // ✅ FIX: use a ref to track seeking inside the audio event listener.
-  // The listener is registered once; the ref stays current without
-  // re-triggering the effect — eliminating the infinite update loop.
-  const seekingRef = useRef(false);
+  // Tracks whether the user is actively dragging the seek bar.
+  // A ref (not state) so the audio listener never needs to be re-registered.
+  const seekingRef  = useRef(false);
 
   const seekRef   = useRef(null);
   const volumeRef = useRef(null);
@@ -53,24 +55,23 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
     volumeRef.current?.style.setProperty("--pct", `${volume * 100}%`);
   }, [volume]);
 
-  // ✅ FIX: Empty dependency array — registered once, reads seeking via ref.
+  // Registered once (empty dep array). Reads seeking state via ref so the
+  // listener is never torn down/re-added on seeking changes — no update loop.
   useEffect(() => {
     const update = () => {
-      // Use the ref (always current) instead of the state variable (stale closure)
       if (!seekingRef.current) setProgress(audio.currentTime);
       setDuration(audio.duration || 0);
     };
-    audio.addEventListener("timeupdate",    update);
+    audio.addEventListener("timeupdate",     update);
     audio.addEventListener("loadedmetadata", update);
     return () => {
-      audio.removeEventListener("timeupdate",    update);
+      audio.removeEventListener("timeupdate",     update);
       audio.removeEventListener("loadedmetadata", update);
     };
-  }, []); // ← intentionally empty: listener never needs to be re-registered
+  }, []); // intentionally empty — listener must never be re-registered
 
   const handleSeekStart = useCallback(() => {
     seekingRef.current = true;
-    setSeeking(true);
   }, []);
 
   const handleSeekChange = useCallback((e) => {
@@ -80,7 +81,6 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
   const handleSeekEnd = useCallback((e) => {
     audio.currentTime  = Number(e.target.value);
     seekingRef.current = false;
-    setSeeking(false);
   }, []);
 
   const handleVolume = useCallback((e) => {
@@ -200,7 +200,7 @@ const MiniPlayerBar = memo(({ onExpand, showQueue, onToggleQueue }) => {
             </div>
           </div>
 
-          {/* Center — full controls (hidden mobile) */}
+          {/* Center — full controls (hidden on mobile) */}
           <div className="mini-bar-center" style={{ display: "flex", justifyContent: "center" }}>
             <PlayerControls size="md" showShuffle showRepeat />
           </div>
