@@ -17,6 +17,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import SongList from "../components/songs/SongList";
+import SongListSkeleton from "../components/songs/SongListSkeleton";
 import HomeSkeleton from "../components/home/HomeSkeleton";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
@@ -116,6 +117,16 @@ const Home = () => {
   const [showAllArtists, setShowAllArtists] = useState(false);
   const [showAllAlbums, setShowAllAlbums]   = useState(false);
 
+  /**
+   * isSearching — true for a brief 200ms window after the user types.
+   * This drives the skeleton so the UI feels responsive even though
+   * filtering is synchronous (client-side). The skeleton dismisses as
+   * soon as the debounce settles, which is imperceptible on fast devices
+   * but removes the jarring instant-swap on slower ones.
+   */
+  const [isSearching, setIsSearching] = useState(false);
+  const searchDebounceRef = useRef(null);
+
   const inputRef     = useRef(null);
   const wrapRef      = useRef(null);
   const blurTimerRef = useRef(null);
@@ -125,6 +136,11 @@ const Home = () => {
   const { user } = useAuthStore();
 
   const showHistory = searchFocused && searchText.trim() === "" && history.length > 0;
+
+  // Cleanup search debounce timer on unmount
+  useEffect(() => {
+    return () => { clearTimeout(searchDebounceRef.current); };
+  }, []);
 
   // Close history on outside click
   useEffect(() => {
@@ -166,7 +182,12 @@ const Home = () => {
   // Handlers
   const handleFocus = () => { clearTimeout(blurTimerRef.current); setSearchFocused(true); };
   const handleBlur  = () => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 150); };
-  const handleClear = () => { setSearchText(""); inputRef.current?.focus(); };
+  const handleClear = () => {
+    clearTimeout(searchDebounceRef.current);
+    setSearchText("");
+    setIsSearching(false);
+    inputRef.current?.focus();
+  };
 
   const handlePlaySong = useCallback((song, pool) => {
     const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
@@ -231,7 +252,20 @@ const Home = () => {
               type="text"
               placeholder="Filter songs or artists..."
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchText(val);
+                  // Show skeleton immediately when user starts/changes query,
+                  // clear it after 200ms so filtered results render smoothly.
+                  if (val.trim().length >= 1) {
+                    setIsSearching(true);
+                    clearTimeout(searchDebounceRef.current);
+                    searchDebounceRef.current = setTimeout(() => setIsSearching(false), 200);
+                  } else {
+                    clearTimeout(searchDebounceRef.current);
+                    setIsSearching(false);
+                  }
+                }}
               onFocus={handleFocus}
               onBlur={handleBlur}
               className="home-topbar__search-input"
@@ -378,7 +412,7 @@ const Home = () => {
         <section className="home-section">
           <div className="home-section__header">
             <h2 className="home-section__title">All Songs</h2>
-            {searchText.trim().length >= 1 && (
+            {searchText.trim().length >= 1 && !isSearching && (
               <span className="home-section__meta">
                 {filtered.length === 0
                   ? `No results for "${searchText}"`
@@ -387,7 +421,13 @@ const Home = () => {
             )}
           </div>
 
-          <SongList songs={filtered} onPlay={handlePlaySong} />
+          {/* Show skeleton while debounce is pending (user is still typing).
+              Use a fixed count of 8 — filtered is stale during this window. */}
+          {isSearching ? (
+            <SongListSkeleton count={8} />
+          ) : (
+            <SongList songs={filtered} onPlay={handlePlaySong} />
+          )}
 
           {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} className="home-sentinel">
