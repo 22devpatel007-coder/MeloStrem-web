@@ -11,7 +11,7 @@
  *             └─ PageWrapper  ← renders Sidebar + scrollable <main>
  *                 └─ Page (Home, Search, etc.)
  *
- * Auth/Login/Register get their own full-screen layout — no PageWrapper.
+ * Auth/Login/Register/ForgotPassword get their own full-screen layout — no PageWrapper.
  * Admin pages get PageWrapper so they also have the sidebar.
  */
 
@@ -23,14 +23,15 @@ import PageWrapper from '../components/layout/PageWrapper';
 import Loader from '../components/ui/Loader';
 
 // ── Eagerly loaded (on the critical path) ────────────────────────────────────
-import Home         from '../pages/Home';
-import Search       from '../pages/Search';
-import Player       from '../pages/Player';
-import Playlists    from '../pages/Playlists';
+import Home           from '../pages/Home';
+import Search         from '../pages/Search';
+import Player         from '../pages/Player';
+import Playlists      from '../pages/Playlists';
 import PlaylistDetail from '../pages/PlaylistDetail';
-import LikedSongs   from '../pages/LikedSongs';
-import Login        from '../pages/Login';
-import Register     from '../pages/Register';
+import LikedSongs     from '../pages/LikedSongs';
+import Login          from '../pages/Login';
+import Register       from '../pages/Register';
+import ForgotPassword from '../pages/ForgotPassword';
 
 // ── Lazily loaded (code-split) ────────────────────────────────────────────────
 const AdminDashboard    = lazy(() => import('../pages/admin/AdminDashboard'));
@@ -133,8 +134,9 @@ const AppRoutes = () => (
       />
 
       {/* ── Auth routes — full-screen, NO PageWrapper, NO sidebar ── */}
-      <Route path='/login'    element={<Login />} />
-      <Route path='/register' element={<Register />} />
+      <Route path='/login'           element={<Login />} />
+      <Route path='/register'        element={<Register />} />
+      <Route path='/forgot-password' element={<ForgotPassword />} />
 
       {/* ── Admin routes — PageWrapper gives them the sidebar too ── */}
       <Route

@@ -63,7 +63,7 @@ const App = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        const tokenResult = await firebaseUser.getIdTokenResult(true);
+        const tokenResult = await firebaseUser.getIdTokenResult();
         setUser(firebaseUser);
         setAdmin(!!tokenResult.claims.admin);
       } else {
