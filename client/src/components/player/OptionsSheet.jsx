@@ -1,30 +1,39 @@
 /**
  * client/src/components/player/OptionsSheet.jsx
  *
- * PERMANENT FIX — ReactDOM.createPortal
+ * UPGRADE: Framer Motion drag-to-dismiss
  *
- * ROOT CAUSE:
- *   position:fixed elements rendered inside ANY ancestor with overflow:hidden
- *   (or overflow:clip) are contained by that ancestor, not the viewport.
- *   App.jsx has two such ancestors. No CSS workaround can fix this.
+ * WHAT CHANGED vs previous version:
+ *   1. `framer-motion` AnimatePresence + motion.div replace the manual
+ *      `visible` / `animateIn` two-state lifecycle system entirely.
+ *   2. CSS `transform` and `transition` removed from .options-sheet__panel
+ *      — Framer Motion owns all animation on that element now.
+ *   3. Drag-to-dismiss added on mobile/tablet only (< 1024px).
+ *      Drag is disabled on desktop — desktop keeps its scale+fade card style.
+ *   4. Dismiss triggers when drag offset > DRAG_THRESHOLD (100px)
+ *      OR pointer velocity > VELOCITY_THRESHOLD (400 px/s).
+ *   5. During live drag, sheet follows finger via `style.y` (Framer MotionValue).
+ *      On release below threshold, spring snaps back to y=0 automatically.
+ *   6. `dragConstraints={{ top: 0 }}` prevents dragging upward.
+ *   7. `dragElastic={{ top: 0, bottom: 0.2 }}` gives natural resistance at top.
  *
- * FIX:
- *   Wrap the entire render output in ReactDOM.createPortal(content, document.body).
- *   This physically moves the DOM nodes to document.body — completely outside
- *   the React app tree — so position:fixed correctly anchors to the viewport.
- *   All React context (hooks, state, event handlers) continues to work normally
- *   because portals only move DOM nodes, not the React component tree.
+ * WHAT DID NOT CHANGE:
+ *   - Props: { song, isOpen, onClose } — identical.
+ *   - Portal target: document.body — identical.
+ *   - All handlers (like, queue, artist, album, playlist) — identical.
+ *   - Keyboard Escape behavior — identical.
+ *   - Backdrop click to close — identical.
+ *   - All responsive breakpoints (mobile / tablet / desktop) — identical.
+ *   - All icons, OptionRow, styles — identical.
+ *   - z-index layering — identical.
  *
- * RESPONSIVE BEHAVIOR (unchanged):
- *   Mobile  (<640px)   — full-width slide-up bottom sheet
- *   Tablet  (640–1023) — centered bottom sheet, max-width 480px
- *   Desktop (≥1024px)  — compact floating card, bottom-center, 420px, 24px from bottom
- *
- * Props: { song, isOpen, onClose } — unchanged.
+ * INSTALL REQUIREMENT:
+ *   cd client && npm install framer-motion
  */
 
 import { useState, useEffect, memo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import AddToPlaylist from '../playlists/AddToPlaylist';
 import { useLikedSongs } from '../../hooks/useLikedSongs';
@@ -32,10 +41,41 @@ import useAuthStore from '../../store/authStore';
 import useQueueStore from '../../store/queueStore';
 import { useToast } from '../ui/Toast';
 
+// ── Drag thresholds ────────────────────────────────────────────────────────────
+const DRAG_THRESHOLD     = 100; // px  — dismiss if dragged this far down
+const VELOCITY_THRESHOLD = 400; // px/s — dismiss if released with this velocity
+
+// ── Framer Motion variants ─────────────────────────────────────────────────────
+// Mobile / Tablet: slide up from bottom
+const mobileVariants = {
+  hidden:  { y: '100%' },
+  visible: { y: 0, transition: { type: 'spring', damping: 32, stiffness: 320 } },
+  exit:    { y: '100%', transition: { duration: 0.25, ease: [0.32, 0.72, 0, 1] } },
+};
+
+// Desktop: scale + fade card (no drag on desktop)
+const desktopVariants = {
+  hidden:  { y: 20, scale: 0.97, opacity: 0 },
+  visible: { y: 0,  scale: 1,    opacity: 1,
+    transition: { type: 'spring', damping: 28, stiffness: 300 } },
+  exit:    { y: 20, scale: 0.97, opacity: 0,
+    transition: { duration: 0.2, ease: 'easeIn' } },
+};
+
+// Backdrop opacity
+const backdropVariants = {
+  hidden:  { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: 0.25 } },
+  exit:    { opacity: 0, transition: { duration: 0.25 } },
+};
+
+// ── Helper: is desktop viewport? ───────────────────────────────────────────────
+const isDesktop = () =>
+  typeof window !== 'undefined' && window.innerWidth >= 1024;
+
+// ── Component ──────────────────────────────────────────────────────────────────
 const OptionsSheet = memo(({ song, isOpen, onClose }) => {
   const [showAddToPlaylist, setShowAddToPlaylist] = useState(false);
-  const [visible,   setVisible]   = useState(false);
-  const [animateIn, setAnimateIn] = useState(false);
 
   const navigate  = useNavigate();
   const { toast } = useToast();
@@ -48,21 +88,9 @@ const OptionsSheet = memo(({ song, isOpen, onClose }) => {
 
   const isLiked = !!song && likedSongIds.includes(song.id);
 
-  // ── Animation lifecycle ───────────────────────────────────────────────────
+  // Close AddToPlaylist sub-sheet when parent closes
   useEffect(() => {
-    if (isOpen) {
-      setVisible(true);
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => setAnimateIn(true)),
-      );
-    } else {
-      setAnimateIn(false);
-      const t = setTimeout(() => {
-        setVisible(false);
-        setShowAddToPlaylist(false);
-      }, 300);
-      return () => clearTimeout(t);
-    }
+    if (!isOpen) setShowAddToPlaylist(false);
   }, [isOpen]);
 
   // ── Keyboard: Escape closes ───────────────────────────────────────────────
@@ -78,7 +106,16 @@ const OptionsSheet = memo(({ song, isOpen, onClose }) => {
     return () => document.removeEventListener('keydown', onKey);
   }, [isOpen, showAddToPlaylist, onClose]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
+  // ── Drag-to-dismiss handler ───────────────────────────────────────────────
+  const handleDragEnd = useCallback((_event, info) => {
+    const { offset, velocity } = info;
+    if (offset.y > DRAG_THRESHOLD || velocity.y > VELOCITY_THRESHOLD) {
+      onClose();
+    }
+    // Below threshold → Framer Motion springs back to y=0 automatically
+  }, [onClose]);
+
+  // ── Action handlers ───────────────────────────────────────────────────────
   const handleLike = useCallback(async () => {
     if (!uid || !song || isToggling) return;
     const wasLiked = likedSongIds.includes(song.id);
@@ -111,16 +148,28 @@ const OptionsSheet = memo(({ song, isOpen, onClose }) => {
     }
   }, [song, navigate, onClose]);
 
-  if (!visible) return null;
+  // ── Drag props — mobile/tablet only ──────────────────────────────────────
+  // On desktop the sheet is a floating card; dragging a card feels wrong
+  // and the handle is hidden. Drag is gated at runtime so window resize
+  // during a session picks up the correct behaviour.
+  const dragProps = !isDesktop()
+    ? {
+        drag:            'y',
+        dragConstraints: { top: 0 },          // cannot drag upward
+        dragElastic:     { top: 0, bottom: 0.2 }, // resistance at top edge
+        dragMomentum:    false,                // disable momentum scroll
+        onDragEnd:       handleDragEnd,
+      }
+    : {};
 
-  // ── PORTAL: render into document.body, completely outside app DOM tree ────
+  // ── Portal ────────────────────────────────────────────────────────────────
   return createPortal(
     <>
       <style>{SHEET_STYLES}</style>
 
       {/*
-        AddToPlaylist also uses createPortal internally (see AddToPlaylist.jsx).
-        z-index 10000 > OptionsSheet z-index 9999.
+        AddToPlaylist uses createPortal internally (z-index 10000 > 9999).
+        Rendered outside AnimatePresence so its own lifecycle is independent.
       */}
       {showAddToPlaylist && song && (
         <AddToPlaylist
@@ -129,106 +178,116 @@ const OptionsSheet = memo(({ song, isOpen, onClose }) => {
         />
       )}
 
-      {/* ── Backdrop ── */}
-      <div
-        className="options-sheet__backdrop"
-        style={{ '--backdrop-opacity': animateIn ? '0.55' : '0' }}
-        onClick={onClose}
-        role="presentation"
-      >
-        <div
-          className={[
-            'options-sheet__panel',
-            animateIn ? 'options-sheet__panel--in' : '',
-          ].join(' ')}
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Song options"
-        >
-          {/* Drag handle — hidden on desktop */}
-          <div className="options-sheet__handle" aria-hidden="true" />
+      <AnimatePresence>
+        {isOpen && (
+          /* ── Backdrop ── */
+          <motion.div
+            className="options-sheet__backdrop"
+            variants={backdropVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            onClick={onClose}
+            role="presentation"
+          >
+            {/* ── Panel ── */}
+            <motion.div
+              className="options-sheet__panel"
+              variants={isDesktop() ? desktopVariants : mobileVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Song options"
+              {...dragProps}
+            >
+              {/* Drag handle — visible on mobile/tablet, hidden on desktop via CSS */}
+              <div className="options-sheet__handle" aria-hidden="true" />
 
-          {/* Song header */}
-          {song && (
-            <div className="options-sheet__header">
-              <div className="options-sheet__cover-wrap">
-                <img
-                  src={song.coverUrl}
-                  alt={song.title}
-                  className="options-sheet__cover"
-                  onError={(e) => {
-                    e.target.src = 'https://placehold.co/48x48/111/555?text=♪';
-                  }}
-                />
-              </div>
-              <div className="options-sheet__song-info">
-                <p className="options-sheet__song-title">{song.title}</p>
-                <p className="options-sheet__song-artist">{song.artist}</p>
-              </div>
+              {/* Song header */}
+              {song && (
+                <div className="options-sheet__header">
+                  <div className="options-sheet__cover-wrap">
+                    <img
+                      src={song.coverUrl}
+                      alt={song.title}
+                      className="options-sheet__cover"
+                      onError={(e) => {
+                        e.target.src = 'https://placehold.co/48x48/111/555?text=♪';
+                      }}
+                    />
+                  </div>
+                  <div className="options-sheet__song-info">
+                    <p className="options-sheet__song-title">{song.title}</p>
+                    <p className="options-sheet__song-artist">{song.artist}</p>
+                  </div>
+                  {uid && (
+                    <button
+                      className={[
+                        'options-sheet__header-heart',
+                        isLiked ? 'options-sheet__header-heart--liked' : '',
+                      ].join(' ')}
+                      onClick={handleLike}
+                      disabled={isToggling}
+                      aria-label={isLiked ? 'Unlike' : 'Like'}
+                      aria-pressed={isLiked}
+                    >
+                      <HeartIcon filled={isLiked} />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Action rows */}
               {uid && (
-                <button
-                  className={[
-                    'options-sheet__header-heart',
-                    isLiked ? 'options-sheet__header-heart--liked' : '',
-                  ].join(' ')}
+                <OptionRow
+                  icon={<HeartIcon filled={isLiked} colored={isLiked} />}
+                  label={isLiked ? 'Unlike' : 'Like'}
+                  sublabel={isLiked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
                   onClick={handleLike}
                   disabled={isToggling}
-                  aria-label={isLiked ? 'Unlike' : 'Like'}
-                  aria-pressed={isLiked}
-                >
-                  <HeartIcon filled={isLiked} />
-                </button>
+                  accent={isLiked}
+                />
               )}
-            </div>
-          )}
 
-          {/* Action rows */}
-          {uid && (
-            <OptionRow
-              icon={<HeartIcon filled={isLiked} colored={isLiked} />}
-              label={isLiked ? 'Unlike' : 'Like'}
-              sublabel={isLiked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
-              onClick={handleLike}
-              disabled={isToggling}
-              accent={isLiked}
-            />
-          )}
+              <OptionRow
+                icon={<QueueIcon />}
+                label="Add to Queue"
+                onClick={handleAddToQueue}
+              />
 
-          <OptionRow
-            icon={<QueueIcon />}
-            label="Add to Queue"
-            onClick={handleAddToQueue}
-          />
+              <OptionRow
+                icon={<PlaylistAddIcon />}
+                label="Add to Playlist"
+                onClick={() => setShowAddToPlaylist(true)}
+              />
 
-          <OptionRow
-            icon={<PlaylistAddIcon />}
-            label="Add to Playlist"
-            onClick={() => setShowAddToPlaylist(true)}
-          />
+              <OptionRow
+                icon={<ArtistIcon />}
+                label="Go to Artist"
+                sublabel={song?.artistId ? song.artist : 'Not available'}
+                onClick={handleGoToArtist}
+                disabled={!song?.artistId}
+              />
 
-          <OptionRow
-            icon={<ArtistIcon />}
-            label="Go to Artist"
-            sublabel={song?.artistId ? song.artist : 'Not available'}
-            onClick={handleGoToArtist}
-            disabled={!song?.artistId}
-          />
+              <OptionRow
+                icon={<AlbumIcon />}
+                label="Go to Album"
+                sublabel={song?.albumId ? song.album : 'Not available'}
+                onClick={handleGoToAlbum}
+                disabled={!song?.albumId}
+              />
 
-          <OptionRow
-            icon={<AlbumIcon />}
-            label="Go to Album"
-            sublabel={song?.albumId ? song.album : 'Not available'}
-            onClick={handleGoToAlbum}
-            disabled={!song?.albumId}
-          />
-
-          {/* Cancel */}
-          <button className="options-sheet__cancel" onClick={onClose}>
-            Cancel
-          </button>
-        </div>
-      </div>
+              {/* Cancel */}
+              <button className="options-sheet__cancel" onClick={onClose}>
+                Cancel
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>,
     document.body,
   );
@@ -318,6 +377,10 @@ const ChevronSmallIcon = () => (
 );
 
 // ── Styles ────────────────────────────────────────────────────────────────────
+// NOTE: transform and transition are intentionally REMOVED from
+// .options-sheet__panel and .options-sheet__panel--in.
+// Framer Motion owns all animation on the panel element now.
+// The --in class is no longer used or needed.
 const SHEET_STYLES = `
   /* ── Backdrop ──────────────────────────────────────────────────────────── */
   .options-sheet__backdrop {
@@ -327,11 +390,11 @@ const SHEET_STYLES = `
     display: flex;
     align-items: flex-end;
     justify-content: center;
-    background: rgba(0, 0, 0, var(--backdrop-opacity, 0));
-    transition: background 0.3s;
+    background: rgba(0, 0, 0, 0.55);
   }
 
   /* ── Panel — mobile-first base ─────────────────────────────────────────── */
+  /* transform and transition removed — Framer Motion owns these now.        */
   .options-sheet__panel {
     position: relative;
     width: 100%;
@@ -340,16 +403,13 @@ const SHEET_STYLES = `
     border-radius: 20px 20px 0 0;
     padding: 12px 0 env(safe-area-inset-bottom, 24px);
     font-family: 'Inter', -apple-system, sans-serif;
-
-    /* Slide-up animation */
-    transform: translateY(100%);
-    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-
-    clip-path: inset(0 round 20px 20px 0 0);
+    /* cursor feedback during drag */
+    cursor: grab;
+    touch-action: none;
   }
 
-  .options-sheet__panel--in {
-    transform: translateY(0);
+  .options-sheet__panel:active {
+    cursor: grabbing;
   }
 
   /* ── Drag handle ───────────────────────────────────────────────────────── */
@@ -478,11 +538,10 @@ const SHEET_STYLES = `
     .options-sheet__panel {
       max-width: 480px;
       border-radius: 20px 20px 0 0;
-      clip-path: inset(0 round 20px 20px 0 0);
     }
   }
 
-  /* ── Desktop (≥1024px): floating centered card ──────────────────────────── */
+  /* ── Desktop (≥1024px): floating centered card — no drag ───────────────── */
   @media (min-width: 1024px) {
     .options-sheet__backdrop {
       padding-bottom: 24px;
@@ -494,18 +553,9 @@ const SHEET_STYLES = `
       border: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 24px 64px rgba(0,0,0,0.7), 0 4px 16px rgba(0,0,0,0.4);
       padding-bottom: 16px;
-
-      transform: translateY(20px) scale(0.97);
-      opacity: 0;
-      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
-                  opacity   0.25s ease;
-
-      clip-path: inset(0 round 16px);
-    }
-
-    .options-sheet__panel--in {
-      transform: translateY(0) scale(1);
-      opacity: 1;
+      /* No grab cursor on desktop — no drag gesture */
+      cursor: default;
+      touch-action: auto;
     }
 
     .options-sheet__handle {

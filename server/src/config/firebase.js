@@ -1,39 +1,64 @@
 /**
  * server/src/config/firebase.js  — PRODUCTION READY
  *
- * BUG FIXED: "14 UNAVAILABLE: No connection established. EHOSTUNREACH 2404:6800:..."
- * ──────────────────────────────────────────────────────────────────────────────
- * Root cause: Firebase Admin SDK defaults to gRPC transport for Firestore.
- * gRPC resolves Google's API hostnames to IPv6 addresses (2404:6800:...).
- * Render.com's infrastructure does not route IPv6 to external services,
- * so every gRPC connection attempt fails with EHOSTUNREACH immediately.
+ * FIXES:
+ *  1. EHOSTUNREACH (IPv6) — gRPC DNS + preferRest bypass
+ *  2. ECONNRESET / ETIMEDOUT — custom HTTPS agent with socket keepalive
  *
- * Fix — two layers, both required:
+ * ── Why ECONNRESET still happened even with preferRest: true ─────────────────
  *
- * 1. process.env.GRPC_DNS_RESOLVER = 'native'  (set BEFORE initializeApp)
- *    Forces the gRPC DNS resolver to use the OS native resolver instead of
- *    the c-ares resolver. The native resolver respects /etc/gai.conf and
- *    system IPv4 preference, giving gRPC a chance to fall back to IPv4.
- *    Must be set before the gRPC C-core initialises (i.e. before any
- *    firebase-admin import touches gRPC), which is why it goes at the top
- *    of this file before initializeApp.
+ * preferRest: true switches Firestore from gRPC to standard HTTPS REST.
+ * However, Node.js's default https.globalAgent has keepAlive: false, meaning
+ * sockets are closed after each request and reopened on the next one.
+ * Render.com (and most PaaS platforms) impose a ~10-minute idle TCP timeout
+ * at the infrastructure level. Even with keep-alive sockets, if no traffic
+ * flows for several minutes, Render silently kills the TCP connection from
+ * its side. The next Firestore call finds a half-open socket — the client
+ * believes it's alive, the server has already closed it — resulting in:
  *
- * 2. db.settings({ preferRest: true })  (set AFTER getFirestore())
- *    Switches Firestore SDK from gRPC transport to HTTPS REST transport
- *    entirely. REST calls go to https://firestore.googleapis.com over
- *    standard port 443, which Render routes correctly over IPv4.
- *    This is the definitive fix — gRPC is bypassed completely.
- *    Officially supported by Google; safe for production.
- *    Tradeoff: ~10–20ms extra latency per Firestore call (negligible).
+ *   ECONNRESET  — remote closed the connection mid-stream
+ *   ETIMEDOUT   — socket never gets a response
+ *   "Client network socket disconnected before secure TLS connection"
  *
- * No other files need to change. No new dependencies needed.
+ * Fix — custom https.Agent with three settings:
+ *
+ *   keepAlive: true
+ *     Instructs Node.js to send TCP keep-alive probes on idle sockets,
+ *     preventing infrastructure from treating them as dead connections.
+ *
+ *   keepAliveMsecs: 30_000  (30s)
+ *     How often to send TCP keep-alive probes. Must be well under Render's
+ *     ~10 minute idle kill threshold. 30s is conservative and safe.
+ *
+ *   timeout: 20_000  (20s)
+ *     Socket-level read timeout. If Firestore doesn't respond within 20s,
+ *     Node destroys the socket and throws — letting retryFirestore catch it
+ *     and retry on a fresh socket, rather than hanging indefinitely.
+ *
+ * This agent is injected via db.settings({ httpAgent }) so it applies to
+ * every Firestore REST call made by the Admin SDK.
+ *
+ * No new npm dependencies. https is Node.js built-in.
  */
 
-// ── Must be set before initializeApp so gRPC C-core picks it up ──────────────
-process.env.GRPC_DNS_RESOLVER = 'native';
+'use strict';
 
+const https  = require('https');
 const admin  = require('firebase-admin');
 const config = require('./index');
+
+// ── Must be set before initializeApp so gRPC C-core picks it up ──────────────
+// Kept as a safety net in case preferRest is ever toggled off accidentally.
+process.env.GRPC_DNS_RESOLVER = 'native';
+
+// ── Custom HTTPS agent — keepalive + socket timeout ───────────────────────────
+// Shared across all Firestore REST connections from this process.
+const firestoreHttpAgent = new https.Agent({
+  keepAlive:      true,   // send TCP keep-alive probes on idle sockets
+  keepAliveMsecs: 30_000, // probe every 30s — well under Render's idle kill
+  timeout:        20_000, // destroy socket if no response in 20s
+  maxSockets:     25,     // cap concurrent sockets; Firestore REST is stateless
+});
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -47,7 +72,12 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// ── Force REST transport — bypasses gRPC and its IPv6 dependency entirely ─────
-db.settings({ preferRest: true });
+// ── REST transport + custom agent ─────────────────────────────────────────────
+// preferRest: true  — bypass gRPC entirely (no IPv6 dependency)
+// httpAgent         — inject keepalive agent for all REST calls
+db.settings({
+  preferRest: true,
+  httpAgent:  firestoreHttpAgent,
+});
 
 module.exports = { admin, db };

@@ -119,7 +119,7 @@ const SongCard = ({
   const pool      = contextSongs ?? songList ?? null;
   const poolIndex = startIndex   ?? index    ?? 0;
 
-  const { playSong, currentSong, isPlaying, setPlaybackContext } = usePlayerStore();
+  const { currentSong, isPlaying, setPlaybackContext } = usePlayerStore();
   const { user: currentUser } = useAuthStore();
   const { likedSongIds }      = useLikedSongs(currentUser?.uid);
 
