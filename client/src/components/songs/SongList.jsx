@@ -1,16 +1,40 @@
 /**
  * client/src/components/songs/SongList.jsx
  *
- * UI UPDATE: Wraps SongCard rows in a vertical list container.
- * - Passes `index` prop to each SongCard so row numbers render correctly.
- * - Adds a column header row so users can orient themselves in the layout.
- * - Empty state and loading state preserved from original.
- * - Zero logic changes — songs prop contract unchanged.
+ * UPDATES IN THIS VERSION:
+ *
+ * ── UPDATE 1: Pass contextSongs + startIndex to SongCard ─────────────────────
+ *   The fixed SongContextMenu requires two new props so "Play" can set the full
+ *   playback context (queue, shuffle pool, repeat pool) correctly:
+ *     - contextSongs {Song[]}  — the full ordered list this song belongs to
+ *     - startIndex   {number}  — the position of this song inside contextSongs
+ *
+ *   SongList is the canonical owner of both pieces of data (it has `songs` and
+ *   the loop index `i`), so it is the right place to pass them down.
+ *
+ *   SongCard must forward these to SongContextMenu:
+ *     <SongContextMenu
+ *       song={song}
+ *       contextSongs={contextSongs}   ← NEW (forwarded from SongList)
+ *       startIndex={startIndex}       ← NEW (forwarded from SongList)
+ *       onClose={...}
+ *       onAddToPlaylist={...}
+ *       onDelete={...}
+ *       onLike={...}
+ *     />
+ *
+ * ── UPDATE 2: `songList` prop renamed to `contextSongs` inside SongCard call ─
+ *   The old prop was named `songList` — kept for backward compat by passing BOTH
+ *   names so SongCard can migrate at its own pace without a hard cut:
+ *     songList={songs}         ← preserved so existing SongCard code doesn't break
+ *     contextSongs={songs}     ← new canonical name for SongContextMenu forwarding
+ *
+ * ── PRESERVED: all layout, styles, header, empty/loading states — unchanged ──
  */
 
 import SongCard from './SongCard';
 
-/* ── Column header — matches SongCard grid columns exactly ─────────────────── */
+/* ── Column header — must mirror SongCard grid columns exactly ─────────────── */
 const ListHeader = () => (
   <>
     <style>{HEADER_STYLES}</style>
@@ -27,6 +51,7 @@ const ListHeader = () => (
   </>
 );
 
+// ── SongList ──────────────────────────────────────────────────────────────────
 const SongList = ({ songs }) => {
   if (!songs || songs.length === 0) {
     return (
@@ -46,7 +71,27 @@ const SongList = ({ songs }) => {
         <div className="song-list__rows" role="list">
           {songs.map((song, i) => (
             <div key={song.id} role="listitem">
-              <SongCard song={song} songList={songs} index={i} />
+              <SongCard
+                song={song}
+                /*
+                 * songList — preserved for backward compat with existing SongCard
+                 * code that may still read this prop name internally.
+                 */
+                songList={songs}
+                /*
+                 * contextSongs — new canonical name. SongCard should forward this
+                 * directly to SongContextMenu so "Play" sets the correct pool.
+                 * Both props point to the same array; no extra allocation.
+                 */
+                contextSongs={songs}
+                /*
+                 * index / startIndex — both passed so SongCard can use whichever
+                 * name it already uses for the row number display (index) while
+                 * also having startIndex ready to forward to SongContextMenu.
+                 */
+                index={i}
+                startIndex={i}
+              />
             </div>
           ))}
         </div>
@@ -95,12 +140,12 @@ const HEADER_STYLES = `
     text-overflow: ellipsis;
   }
 
-  .song-list__hcol--index  { text-align: center; }
-  .song-list__hcol--cover  { /* spacer */ }
-  .song-list__hcol--dur    { text-align: right; }
+  .song-list__hcol--index   { text-align: center; }
+  .song-list__hcol--cover   { /* spacer */ }
+  .song-list__hcol--dur     { text-align: right; }
   .song-list__hcol--actions { /* spacer */ }
 
-  /* Mirror SongCard responsive breakpoints */
+  /* Mirror SongCard responsive breakpoints exactly */
   @media (max-width: 1023px) {
     .song-list__header {
       grid-template-columns: 32px 48px 1fr 100px 52px 72px;
@@ -109,13 +154,18 @@ const HEADER_STYLES = `
   }
 
   @media (max-width: 639px) {
+    /*
+     * Fixed 4-column mobile grid — must match SongCard's mobile grid exactly
+     * so header columns align with row columns at all viewport widths.
+     */
     .song-list__header {
-      grid-template-columns: 32px 44px 1fr 48px 64px;
+      grid-template-columns: 32px 44px 1fr 72px;
       gap: 8px;
       padding: 0 8px 6px;
     }
     .song-list__hcol--album { display: none; }
     .song-list__hcol--genre { display: none; }
+    .song-list__hcol--dur   { display: none; }
   }
 `;
 
