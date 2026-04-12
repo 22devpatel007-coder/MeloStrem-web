@@ -245,14 +245,14 @@ const PlaylistRow = memo(({ playlist, rowState, errorMsg, disabled, onTap }) => 
   }[rowState] || '';
 
   return (
-    <button
-      className={['atp-row', stateClass].join(' ')}
-      onClick={disabled ? undefined : onTap}
-      disabled={disabled}
-      role="listitem"
-      aria-label={`Add to ${playlist.name}`}
-      aria-pressed={rowState === 'added'}
-    >
+    // AFTER — remove role="listitem" only
+<button
+  className={['atp-row', stateClass].join(' ')}
+  onClick={disabled ? undefined : onTap}
+  disabled={disabled}
+  aria-label={`Add to ${playlist.name}`}
+  aria-pressed={rowState === 'added'}
+>
       <div className="atp-row__dot-wrap">
         {playlist.coverUrl ? (
           <img
