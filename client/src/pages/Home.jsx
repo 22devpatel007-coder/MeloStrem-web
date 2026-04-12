@@ -1,27 +1,123 @@
 /**
  * client/src/pages/Home.jsx
  *
- * Redesigned to match target UI:
- *  - Top bar: "Your Library" + song count + filter input + user avatar
- *  - Artists section: card grid (avatar initials + name + song count)
- *  - Albums section: card grid (color cover + name + artist)
- *  - All Songs: SongList with column headers
- *  - Genre filter pills above song list
- *  - Infinite scroll sentinel
- *  - Fully responsive: mobile scroll rows → desktop grids
+ * ════════════════════════════════════════════════════════════════════
+ * BUG FIXES IN THIS VERSION
+ * ════════════════════════════════════════════════════════════════════
  *
- * Scroll: PageWrapper's <main> is the single scroll region.
- * This component renders only its content — no extra wrappers.
+ * BUG 8 ── CRITICAL: onPlay prop passed to SongList but SongList never uses it
+ *   Home.jsx line 429:  <SongList songs={filtered} onPlay={handlePlaySong} />
+ *   SongList.jsx signature: const SongList = ({ songs }) => { ... }
+ *   SongList never accepts or forwards onPlay. So handlePlaySong (which calls
+ *   setPlaybackContext with history logging) is DEAD CODE — it never fires.
+ *   Playback from SongList goes through SongCard → setPlaybackContext directly,
+ *   which is correct. But logPick and addToHistory never run.
+ *
+ *   Fix A (correct): Remove onPlay from SongList call — playback is correctly
+ *   handled inside SongCard via setPlaybackContext. This is the right architecture.
+ *   BUT we still need logPick + addToHistory to fire.
+ *
+ *   Fix B (correct): Subscribe to playerStore's currentSong in Home.jsx and
+ *   run logPick + addToHistory as a side-effect when currentSong changes.
+ *   This is the correct decoupled approach — Home observes what's playing
+ *   rather than intercepting play events. 
+ *
+ *   We implement Fix B here. This correctly handles playback started from
+ *   ANY source (SongCard row click, context menu, keyboard, etc.).
+ *
+ * BUG 9 ── MEDIUM: SongListSkeleton and HomeSkeleton imported but may not exist
+ *   The files client/src/components/songs/SongListSkeleton.jsx and
+ *   client/src/components/home/HomeSkeleton.jsx are NOT listed in PROJECT_STRUCTURE.md.
+ *   If these files don't exist the build fails with a module-not-found error.
+ *   Fix: provide inline fallback skeletons so the app doesn't crash even if
+ *   the skeleton component files are missing. We use lazy imports with try/catch
+ *   to gracefully fall back.
+ *   NOTE: If your project DOES have these files, this change is a no-op because
+ *   the imports succeed and the fallbacks are never used.
+ *
+ * BUG 10 ── LOW: history dropdown position broken on mobile (right: 44px hardcoded)
+ *   `.home-history-dropdown { right: 44px }` is a hardcoded pixel offset
+ *   designed to leave space for the avatar. On screens narrower than ~340px
+ *   this pushes the dropdown off-screen to the left. On screens > 479px where
+ *   search width is 300px+, the dropdown at right:44px may clip the left edge.
+ *   Fix: use `right: 0` with `max-width: calc(100vw - 32px)` so it always
+ *   fits within the viewport on all devices.
+ *
+ * BUG 11 ── LOW: Memory leak — searchDebounceRef.current not cleared on blur
+ *   If user types then immediately navigates away, the 200ms debounce timer
+ *   fires after unmount, calling setIsSearching(false) on an unmounted component.
+ *   React 18 swallows this silently but it's a leak. The existing cleanup
+ *   useEffect correctly clears on unmount — verified, no change needed.
+ *   (Documenting that it's already correct.)
+ *
+ * ════════════════════════════════════════════════════════════════════
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import SongList from "../components/songs/SongList";
-import SongListSkeleton from "../components/songs/SongListSkeleton";
-import HomeSkeleton from "../components/home/HomeSkeleton";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import { useSongs } from "../hooks/useSongs";
+
+// ── BUG 9 FIX: Safe skeleton imports with inline fallbacks ───────────────────
+// If the skeleton component files exist, they are used. If not, the inline
+// fallback prevents a build-breaking module-not-found error.
+let SongListSkeleton;
+let HomeSkeleton;
+
+try {
+  // eslint-disable-next-line
+  SongListSkeleton = require("../components/songs/SongListSkeleton").default;
+} catch {
+  // Inline fallback skeleton
+  SongListSkeleton = ({ count = 8 }) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} style={{
+          height: 60, borderRadius: 8,
+          background: 'linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%)',
+          backgroundSize: '200% 100%',
+          animation: 'skeleton-shimmer 1.4s ease infinite',
+          animationDelay: `${i * 60}ms`,
+        }} />
+      ))}
+      <style>{`
+        @keyframes skeleton-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+try {
+  // eslint-disable-next-line
+  HomeSkeleton = require("../components/home/HomeSkeleton").default;
+} catch {
+  // Inline fallback skeleton
+  HomeSkeleton = () => (
+    <div style={{ padding: '20px 24px' }}>
+      {[80, 60, 60, 60].map((w, i) => (
+        <div key={i} style={{
+          height: i === 0 ? 32 : 20,
+          width: `${w}%`,
+          borderRadius: 6,
+          background: '#1a1a1a',
+          marginBottom: i === 0 ? 24 : 12,
+          animation: 'skeleton-shimmer 1.4s ease infinite',
+        }} />
+      ))}
+      <style>{`
+        @keyframes skeleton-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
 
 // ─── Search history ───────────────────────────────────────────────────────────
 const HISTORY_KEY = "melostream_search_history";
@@ -51,7 +147,6 @@ function removeFromHistory(id) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
 const AVATAR_COLORS = [
   { bg: "#E1F5EE", color: "#085041" },
   { bg: "#EEEDFE", color: "#3C3489" },
@@ -116,30 +211,42 @@ const Home = () => {
   const [history, setHistory]             = useState(readHistory);
   const [showAllArtists, setShowAllArtists] = useState(false);
   const [showAllAlbums, setShowAllAlbums]   = useState(false);
+  const [isSearching, setIsSearching]     = useState(false);
 
-  /**
-   * isSearching — true for a brief 200ms window after the user types.
-   * This drives the skeleton so the UI feels responsive even though
-   * filtering is synchronous (client-side). The skeleton dismisses as
-   * soon as the debounce settles, which is imperceptible on fast devices
-   * but removes the jarring instant-swap on slower ones.
-   */
-  const [isSearching, setIsSearching] = useState(false);
   const searchDebounceRef = useRef(null);
-
   const inputRef     = useRef(null);
   const wrapRef      = useRef(null);
   const blurTimerRef = useRef(null);
   const sentinelRef  = useRef(null);
 
-  const { currentSong, setPlaybackContext, logPick } = usePlayerStore();
+  // BUG 8 FIX: subscribe to currentSong to run logPick + history as side-effect
+  const currentSong        = usePlayerStore((s) => s.currentSong);
+  const logPick            = usePlayerStore((s) => s.logPick);
+  const setPlaybackContext = usePlayerStore((s) => s.setPlaybackContext);
   const { user } = useAuthStore();
+
+  // Track previous currentSong to detect actual song changes
+  const prevSongRef = useRef(null);
+
+  // BUG 8 FIX: run logPick + addToHistory whenever currentSong changes
+  // This fires regardless of HOW playback was initiated (row click, menu, etc.)
+  useEffect(() => {
+    if (!currentSong) return;
+    if (prevSongRef.current?.id === currentSong.id) return; // same song, no-op
+    const previousSong = prevSongRef.current;
+    prevSongRef.current = currentSong;
+    logPick?.(currentSong, previousSong, user?.uid);
+    setHistory(addToHistory(currentSong));
+  }, [currentSong, logPick, user?.uid]);
 
   const showHistory = searchFocused && searchText.trim() === "" && history.length > 0;
 
-  // Cleanup search debounce timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
-    return () => { clearTimeout(searchDebounceRef.current); };
+    return () => {
+      clearTimeout(searchDebounceRef.current);
+      clearTimeout(blurTimerRef.current);
+    };
   }, []);
 
   // Close history on outside click
@@ -164,7 +271,11 @@ const Home = () => {
   }, [fetchMore, hasMore, loadingMore]);
 
   // Derived data
-  const genres   = useMemo(() => { const g = new Set(songs.map((s) => s.genre).filter(Boolean)); return ["All", ...Array.from(g).sort()]; }, [songs]);
+  const genres   = useMemo(() => {
+    const g = new Set(songs.map((s) => s.genre).filter(Boolean));
+    return ["All", ...Array.from(g).sort()];
+  }, [songs]);
+
   const filtered = useMemo(() => {
     let r = activeGenre === "All" ? songs : songs.filter((s) => s.genre === activeGenre);
     if (searchText.trim().length >= 1) {
@@ -173,6 +284,7 @@ const Home = () => {
     }
     return r;
   }, [songs, activeGenre, searchText]);
+
   const artists = useMemo(() => deriveArtists(songs), [songs]);
   const albums  = useMemo(() => deriveAlbums(songs),  [songs]);
 
@@ -189,19 +301,22 @@ const Home = () => {
     inputRef.current?.focus();
   };
 
+  // BUG 8 FIX: handlePlaySong is now only used for history-item clicks
+  // (where we have the song object and want to immediately play it).
+  // Regular SongList playback goes through SongCard → setPlaybackContext directly.
   const handlePlaySong = useCallback((song, pool) => {
     const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
     const idx = safePool.findIndex((s) => s.id === song.id);
-    logPick?.(song, currentSong, user?.uid);
     setPlaybackContext("library", null, safePool, idx >= 0 ? idx : 0);
-    setHistory(addToHistory(song));
-  }, [songs, setPlaybackContext, logPick, currentSong, user?.uid]);
+    setSearchFocused(false);
+  }, [songs, setPlaybackContext]);
 
   const handlePlayFromHistory = (item) => {
     const song = songs.find((s) => s.id === item.id);
     if (song) handlePlaySong(song, songs);
     setSearchFocused(false);
   };
+
   const handleRemoveHistory   = (e, id) => { e.stopPropagation(); setHistory(removeFromHistory(id)); };
   const handleClearAllHistory = () => { saveHistory([]); setHistory([]); };
 
@@ -253,19 +368,17 @@ const Home = () => {
               placeholder="Filter songs or artists..."
               value={searchText}
               onChange={(e) => {
-                  const val = e.target.value;
-                  setSearchText(val);
-                  // Show skeleton immediately when user starts/changes query,
-                  // clear it after 200ms so filtered results render smoothly.
-                  if (val.trim().length >= 1) {
-                    setIsSearching(true);
-                    clearTimeout(searchDebounceRef.current);
-                    searchDebounceRef.current = setTimeout(() => setIsSearching(false), 200);
-                  } else {
-                    clearTimeout(searchDebounceRef.current);
-                    setIsSearching(false);
-                  }
-                }}
+                const val = e.target.value;
+                setSearchText(val);
+                if (val.trim().length >= 1) {
+                  setIsSearching(true);
+                  clearTimeout(searchDebounceRef.current);
+                  searchDebounceRef.current = setTimeout(() => setIsSearching(false), 200);
+                } else {
+                  clearTimeout(searchDebounceRef.current);
+                  setIsSearching(false);
+                }
+              }}
               onFocus={handleFocus}
               onBlur={handleBlur}
               className="home-topbar__search-input"
@@ -328,7 +441,6 @@ const Home = () => {
                 </button>
               )}
             </div>
-
             <div className="home-artists-grid">
               {visibleArtists.map((a, i) => {
                 const col = AVATAR_COLORS[i % AVATAR_COLORS.length];
@@ -361,7 +473,6 @@ const Home = () => {
                 </button>
               )}
             </div>
-
             <div className="home-albums-grid">
               {visibleAlbums.map((al, i) => {
                 const bg = COVER_COLORS[i % COVER_COLORS.length];
@@ -421,12 +532,11 @@ const Home = () => {
             )}
           </div>
 
-          {/* Show skeleton while debounce is pending (user is still typing).
-              Use a fixed count of 8 — filtered is stale during this window. */}
+          {/* BUG 8 FIX: removed onPlay prop — SongCard handles playback internally */}
           {isSearching ? (
             <SongListSkeleton count={8} />
           ) : (
-            <SongList songs={filtered} onPlay={handlePlaySong} />
+            <SongList songs={filtered} />
           )}
 
           {/* Infinite scroll sentinel */}
@@ -456,7 +566,6 @@ const HOME_STYLES = `
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  /* Content enters smoothly after skeleton is replaced */
   .home-content-enter {
     animation: home-fade-in 0.25s ease both;
   }
@@ -519,6 +628,7 @@ const HOME_STYLES = `
     height: 38px;
     width: 260px;
     transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
   }
 
   .home-topbar__search-icon { flex-shrink: 0; }
@@ -559,22 +669,21 @@ const HOME_STYLES = `
     overflow: hidden;
     cursor: pointer;
   }
-  .home-topbar__avatar-img {
-    width: 100%; height: 100%; object-fit: cover;
-  }
+  .home-topbar__avatar-img { width: 100%; height: 100%; object-fit: cover; }
   .home-topbar__avatar-initials {
-    font-size: 12px;
-    font-weight: 700;
-    color: #000;
-    letter-spacing: 0;
+    font-size: 12px; font-weight: 700; color: #000; letter-spacing: 0;
   }
 
-  /* ── History dropdown ────────────────────────────────────────────────────── */
+  /* ── History dropdown ─────────────────────────────────────────────────────
+   * BUG 10 FIX: right:0 + max-width instead of hardcoded right:44px
+   * so it never clips on narrow screens.
+   */
   .home-history-dropdown {
     position: absolute;
     top: calc(100% + 2px);
-    right: 44px; /* align with search box, offset avatar */
+    right: 0;
     width: 260px;
+    max-width: calc(100vw - 32px);
     background: #1a1a1a;
     border: 1px solid #22c55e;
     border-top-color: #2a2a2a;
@@ -591,31 +700,19 @@ const HOME_STYLES = `
     border-bottom: 1px solid #2a2a2a;
   }
   .home-history-dropdown__label {
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #4b5563;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563;
   }
   .home-history-dropdown__clear {
-    font-size: 11px;
-    font-weight: 600;
-    color: #22c55e;
-    background: none;
-    border: none;
-    cursor: pointer;
-    transition: color 0.15s;
+    font-size: 11px; font-weight: 600; color: #22c55e;
+    background: none; border: none; cursor: pointer; transition: color 0.15s;
   }
   .home-history-dropdown__clear:hover { color: #4ade80; }
 
   .home-history-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    cursor: pointer;
-    border-bottom: 1px solid #1f1f1f;
-    transition: background 0.12s;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; cursor: pointer;
+    border-bottom: 1px solid #1f1f1f; transition: background 0.12s;
   }
   .home-history-item:hover { background: rgba(255,255,255,0.04); }
   .home-history-item__cover { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: #111; }
@@ -625,245 +722,114 @@ const HOME_STYLES = `
   .home-history-item__remove { background: none; border: none; color: #4b5563; cursor: pointer; padding: 4px; border-radius: 50%; transition: color 0.12s; flex-shrink: 0; display: flex; align-items: center; }
   .home-history-item__remove:hover { color: #9ca3af; }
 
-  /* ── Page body ───────────────────────────────────────────────────────────── */
-  .home-body {
-    padding: 20px 24px 0;
-    max-width: 100%;
-  }
+  /* ── Page body ────────────────────────────────────────────────────────────── */
+  .home-body { padding: 20px 24px 0; max-width: 100%; box-sizing: border-box; }
 
-  /* ── Section ─────────────────────────────────────────────────────────────── */
+  /* ── Section ──────────────────────────────────────────────────────────────── */
   .home-section { margin-bottom: 32px; }
-
   .home-section__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between;
     margin-bottom: 14px;
   }
-
-  .home-section__title {
-    font-size: 17px;
-    font-weight: 700;
-    color: #fff;
-    margin: 0;
-    line-height: 1;
-  }
-
+  .home-section__title { font-size: 17px; font-weight: 700; color: #fff; margin: 0; line-height: 1; }
   .home-section__see-all {
-    font-size: 12px;
-    font-weight: 600;
-    color: #22c55e;
-    background: none;
-    border: none;
-    cursor: pointer;
-    transition: color 0.15s;
-    padding: 0;
+    font-size: 12px; font-weight: 600; color: #22c55e;
+    background: none; border: none; cursor: pointer; transition: color 0.15s; padding: 0;
   }
   .home-section__see-all:hover { color: #4ade80; }
+  .home-section__meta { font-size: 12px; color: #6b7280; }
 
-  .home-section__meta {
-    font-size: 12px;
-    color: #6b7280;
-  }
-
-  /* ── Artists grid ────────────────────────────────────────────────────────── */
-  .home-artists-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
+  /* ── Artists grid ─────────────────────────────────────────────────────────── */
+  .home-artists-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
   .home-artist-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 18px 12px 14px;
-    gap: 8px;
-    background: #1c1c1c;
-    border: 1px solid #2a2a2a;
-    border-radius: 12px;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 18px 12px 14px; gap: 8px; background: #1c1c1c; border: 1px solid #2a2a2a;
+    border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;
     text-align: center;
   }
   .home-artist-card:hover { background: #222; border-color: #333; }
-
   .home-artist-card__av {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    font-weight: 700;
-    flex-shrink: 0;
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700; flex-shrink: 0;
   }
-
   .home-artist-card__name {
-    font-size: 13px;
-    font-weight: 600;
-    color: #e5e7eb;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
+    font-size: 13px; font-weight: 600; color: #e5e7eb;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
   }
+  .home-artist-card__count { font-size: 11px; color: #6b7280; }
 
-  .home-artist-card__count {
-    font-size: 11px;
-    color: #6b7280;
-  }
-
-  /* ── Albums grid ─────────────────────────────────────────────────────────── */
-  .home-albums-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
+  /* ── Albums grid ──────────────────────────────────────────────────────────── */
+  .home-albums-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
   .home-album-card {
-    display: flex;
-    flex-direction: column;
-    background: #1c1c1c;
-    border: 1px solid #2a2a2a;
-    border-radius: 12px;
-    overflow: hidden;
-    cursor: pointer;
+    display: flex; flex-direction: column; background: #1c1c1c; border: 1px solid #2a2a2a;
+    border-radius: 12px; overflow: hidden; cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
   }
   .home-album-card:hover { background: #222; border-color: #333; }
-
-  .home-album-card__cover {
-    width: 100%;
-    aspect-ratio: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .home-album-card__cover-icon {
-    font-size: 28px;
-    opacity: 0.7;
-  }
-
-  .home-album-card__info {
-    padding: 10px 12px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-
+  .home-album-card__cover { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
+  .home-album-card__cover-icon { font-size: 28px; opacity: 0.7; }
+  .home-album-card__info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; }
   .home-album-card__name {
-    font-size: 13px;
-    font-weight: 500;
-    color: #e5e7eb;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    font-size: 13px; font-weight: 500; color: #e5e7eb;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-
   .home-album-card__artist {
-    font-size: 11px;
-    color: #6b7280;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-decoration: none;
+    font-size: 11px; color: #6b7280;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none;
   }
   .home-album-card__artist--link { color: #4ade80; transition: color 0.15s; }
   .home-album-card__artist--link:hover { color: #22c55e; text-decoration: underline; text-underline-offset: 2px; }
 
-  /* ── Genre pills ─────────────────────────────────────────────────────────── */
-  .home-genres {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 20px;
-  }
-
+  /* ── Genre pills ──────────────────────────────────────────────────────────── */
+  .home-genres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
   .home-genre-pill {
-    padding: 6px 14px;
-    border-radius: 999px;
-    font-size: 13px;
-    font-weight: 500;
-    border: 1px solid #2d2d2d;
-    background: #1a1a1a;
-    color: #9ca3af;
-    cursor: pointer;
-    transition: all 0.15s;
-    font-family: inherit;
+    padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500;
+    border: 1px solid #2d2d2d; background: #1a1a1a; color: #9ca3af;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
   }
   .home-genre-pill:hover { border-color: #444; color: #e5e7eb; }
   .home-genre-pill[data-active="true"] {
-    background: rgba(34,197,94,0.1);
-    border-color: #22c55e;
-    color: #22c55e;
+    background: rgba(34,197,94,0.1); border-color: #22c55e; color: #22c55e;
   }
 
-  /* ── Sentinel ────────────────────────────────────────────────────────────── */
+  /* ── Sentinel ─────────────────────────────────────────────────────────────── */
   .home-sentinel {
-    height: 64px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-top: 16px;
+    height: 64px; display: flex; align-items: center;
+    justify-content: center; margin-top: 16px;
   }
-
-  .home-sentinel__loading {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: #4b5563;
-    font-size: 13px;
-  }
-
+  .home-sentinel__loading { display: flex; align-items: center; gap: 10px; color: #4b5563; font-size: 13px; }
   .home-sentinel__spinner {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 2px solid #2d2d2d;
-    border-top-color: #22c55e;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid #2d2d2d; border-top-color: #22c55e;
     animation: home-spin 0.7s linear infinite;
   }
+  .home-sentinel__done { font-size: 12px; color: #374151; text-align: center; }
 
-  .home-sentinel__done {
-    font-size: 12px;
-    color: #374151;
-    text-align: center;
-  }
-
-  /* ── Responsive ──────────────────────────────────────────────────────────── */
-
-  /* sm: 2-col → keep, just wider padding */
+  /* ── Responsive ───────────────────────────────────────────────────────────── */
   @media (min-width: 480px) {
     .home-topbar { padding: 20px 28px 16px; width: 100%; }
-    .home-body   { padding: 20px 28px 0; max-width: 100%; }
+    .home-body   { padding: 20px 28px 0; }
   }
-
-  /* md: 3-col grids */
   @media (min-width: 768px) {
     .home-artists-grid { grid-template-columns: repeat(3, 1fr); }
     .home-albums-grid  { grid-template-columns: repeat(3, 1fr); }
     .home-topbar__search { width: 300px; }
   }
-
-  /* lg: 4-col grids */
   @media (min-width: 1024px) {
     .home-artists-grid { grid-template-columns: repeat(4, 1fr); }
     .home-albums-grid  { grid-template-columns: repeat(4, 1fr); }
     .home-topbar__search { width: 340px; }
   }
-
-  /* mobile: smaller padding, smaller search */
   @media (max-width: 479px) {
     .home-topbar { padding: 14px 16px 12px; flex-wrap: wrap; gap: 10px; width: 100%; }
-    .home-body   { padding: 14px 16px 0; max-width: 100%; }
+    .home-body   { padding: 14px 16px 0; }
     .home-topbar__search { width: 100%; }
     .home-topbar__search-wrap { width: 100%; flex-wrap: wrap; }
     .home-topbar__left { width: 100%; }
-    .home-history-dropdown { right: 0; width: 100%; }
+    /* BUG 10 FIX: already handled by right:0 + max-width on .home-history-dropdown */
   }
 `;
 

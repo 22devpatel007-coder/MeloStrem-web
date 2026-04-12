@@ -52,7 +52,7 @@ const CreatePlaylistModal = ({ onClose, navigateOnCreate = true }) => {
 };
 
 const styles = {
-  backdrop:  { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 20 },
+  backdrop:  { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 400, padding: 20 },
   modal:     { background: '#1a1a1a', border: '1px solid #2d2d2d', borderRadius: 16, padding: 32, width: '100%', maxWidth: 400, fontFamily: "'Inter', sans-serif" },
   title:     { color: '#fff', fontSize: 18, fontWeight: 700, marginBottom: 20 },
   error:     { background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: '#f87171', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 16 },
