@@ -1,12 +1,39 @@
 /**
  * client/src/components/layout/Sidebar.jsx
  *
- * PERMANENT FIX: Navbar removed from all pages.
- * Sidebar now owns ALL navigation + user identity + logout.
+ * PRODUCTION FIX — Removed duplicate user/email/logout section.
  *
- * - User email shown at bottom
- * - Logout button pinned to bottom
- * - Navbar.jsx is no longer used anywhere and can be deleted
+ * ROOT CAUSE OF DOUBLE-EMAIL BUG:
+ *   PageWrapper already renders a top bar with UserMenu (avatar + email +
+ *   logout dropdown) on ALL breakpoints. Sidebar was also rendering an
+ *   identical user email + avatar + logout button at its bottom — so the
+ *   email appeared twice on every page.
+ *
+ *   PageWrapper's own comment (line 4) stated:
+ *     "SIDEBAR user/logout section should be removed (see Sidebar.jsx patch)"
+ *   — but Sidebar.jsx was never updated. This patch completes that intent.
+ *
+ * WHAT CHANGED:
+ *   - Removed the bottom user/email/avatar block (was lines ~210–230)
+ *   - Removed the bottom logout button (was lines ~230–245)
+ *   - Removed the second divider that preceded them
+ *   - Removed ArrowRightOnRectangleIcon import (no longer used)
+ *   - Removed handleLogout (logout is now owned by PageWrapper's UserMenu)
+ *   - logout is no longer destructured from useAuthStore (not needed here)
+ *
+ * WHAT DID NOT CHANGE:
+ *   - All nav items, icons, classes — untouched
+ *   - Playlist rendering logic — untouched
+ *   - Backdrop — untouched
+ *   - Props: { isOpen, onClose } — untouched
+ *   - Desktop layout — untouched
+ *   - useUserPlaylists() fix from prior patch — preserved
+ *   - h-screen + style={{ height: '100dvh' }} mobile fix — preserved
+ *
+ * SCALABILITY NOTE:
+ *   User identity / logout now has a single owner: PageWrapper > UserMenu.
+ *   Any future changes to the logout flow, avatar display, or user info
+ *   need to be made in exactly one place.
  */
 
 import { useNavigate, NavLink } from 'react-router-dom';
@@ -18,10 +45,9 @@ import {
   Cog6ToothIcon,
   MusicalNoteIcon,
   XMarkIcon,
-  ArrowRightOnRectangleIcon,
 } from '@heroicons/react/24/outline';
 import useAuthStore from '../../store/authStore';
-import { usePlaylists } from '../../hooks/usePlaylists';
+import { useUserPlaylists } from '../../hooks/usePlaylists';
 
 // ─── Nav item config ──────────────────────────────────────────────────────────
 
@@ -45,17 +71,13 @@ const navLinkClass = ({ isActive }) =>
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const Sidebar = ({ isOpen = false, onClose }) => {
-  const { user, isAdmin, logout } = useAuthStore();
-  const navigate = useNavigate();
-  const { playlists = [] } = usePlaylists(user?.uid) ?? {};
+  const { isAdmin } = useAuthStore();
+
+  // Fetches GET /api/users/:uid/playlists with staleTime:30s.
+  // Correct user-scoped playlists; no refetch storm on window focus.
+  const { playlists = [] } = useUserPlaylists();
 
   const safePlaylist = Array.isArray(playlists) ? playlists : [];
-
-  const handleLogout = async () => {
-    onClose?.();
-    await logout();
-    navigate('/login');
-  };
 
   return (
     <>
@@ -69,14 +91,21 @@ const Sidebar = ({ isOpen = false, onClose }) => {
       )}
 
       {/* ── Sidebar panel ── */}
+      {/*
+        h-screen (100vh fallback) + style height:100dvh for modern mobile browsers.
+        dvh = dynamic viewport height — accounts for mobile address bar so the
+        playlist section never gets clipped by browser chrome.
+        md:h-full restores normal desktop behaviour.
+      */}
       <aside
         className={[
-          'fixed top-0 left-0 h-full z-40 flex flex-col',
+          'fixed top-0 left-0 h-screen z-40 flex flex-col',
           'w-[260px] bg-[#111111] border-r border-[#2a2a2a]',
           'transition-transform duration-300 ease-in-out',
           isOpen ? 'translate-x-0' : '-translate-x-full',
-          'md:relative md:translate-x-0 md:flex md:shrink-0',
+          'md:relative md:h-full md:translate-x-0 md:flex md:shrink-0',
         ].join(' ')}
+        style={{ height: '100dvh' }}
         aria-label="Main navigation"
       >
         {/* ── Logo ── */}
@@ -140,6 +169,11 @@ const Sidebar = ({ isOpen = false, onClose }) => {
         <div className="mx-5 border-t border-[#2a2a2a] shrink-0" />
 
         {/* ── Playlists section (scrollable) ── */}
+        {/*
+          flex-1 + overflow-y-auto + min-h-0:
+          This section absorbs all available space and scrolls internally.
+          No content below this will ever be pushed off-screen.
+        */}
         <div className="flex-1 overflow-y-auto px-3 py-4 min-h-0">
           <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-widest text-gray-500 select-none">
             Playlists
@@ -176,32 +210,12 @@ const Sidebar = ({ isOpen = false, onClose }) => {
           )}
         </div>
 
-        {/* ── Divider ── */}
-        <div className="mx-5 border-t border-[#2a2a2a] shrink-0" />
-
-        {/* ── User + Logout (pinned to bottom) ── */}
-        <div className="px-3 py-4 shrink-0">
-          {user?.email && (
-            <div className="px-3 mb-2 flex items-center gap-2 min-w-0">
-              {/* Avatar initial */}
-              <span className="w-7 h-7 rounded-full bg-[#2a2a2a] flex items-center justify-center text-xs font-bold text-gray-300 shrink-0">
-                {user.email[0].toUpperCase()}
-              </span>
-              <span className="text-xs text-gray-500 truncate min-w-0">
-                {user.email}
-              </span>
-            </div>
-          )}
-
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-red-400 hover:bg-[#1e1e1e] transition-colors duration-150"
-            aria-label="Log out"
-          >
-            <ArrowRightOnRectangleIcon className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
-            Logout
-          </button>
-        </div>
+        {/*
+          ── NO user/email/logout block here ──
+          User identity and logout live exclusively in PageWrapper > UserMenu
+          (the top bar avatar dropdown, visible on all breakpoints).
+          Having it here too was the source of the double-email bug.
+        */}
       </aside>
     </>
   );

@@ -24,8 +24,7 @@ import { auth } from "../firebase";
 
 // ─── Firebase error → safe user-facing message ───────────────────────────────
 const FIREBASE_ERROR_MESSAGES = {
-  "auth/invalid-email":
-    "Please enter a valid email address.",
+  "auth/invalid-email": "Please enter a valid email address.",
   "auth/too-many-requests":
     "Too many attempts. Please wait a few minutes and try again.",
   "auth/network-request-failed":
@@ -40,10 +39,10 @@ const getErrorMessage = (code) => {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 const ForgotPassword = () => {
-  const [email, setEmail]       = useState("");
-  const [error, setError]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const [sent, setSent]         = useState(false);  // success state
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false); // success state
 
   // Synchronous double-submit guard (same pattern as Login.jsx)
   const submitting = useRef(false);
@@ -92,8 +91,8 @@ const ForgotPassword = () => {
               <p style={styles.successTitle}>Check your inbox</p>
               <p style={styles.successBody}>
                 If an account exists for <strong>{email.trim()}</strong>, a
-                password reset link has been sent. Check your spam folder if
-                you don't see it.
+                password reset link has been sent. Check your spam folder if you
+                don't see it.
               </p>
             </div>
           </div>
@@ -206,15 +205,25 @@ const InlineLoader = ({ children }) => (
 
 // ─── Icons ────────────────────────────────────────────────────────────────────
 const MusicNoteIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
     <path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3H9z" />
   </svg>
 );
 
 const AlertIcon = () => (
   <svg
-    width="15" height="15" viewBox="0 0 24 24" fill="currentColor"
-    aria-hidden="true" style={{ flexShrink: 0, marginTop: "1px" }}
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+    style={{ flexShrink: 0, marginTop: "1px" }}
   >
     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
   </svg>
@@ -222,8 +231,12 @@ const AlertIcon = () => (
 
 const CheckIcon = () => (
   <svg
-    width="20" height="20" viewBox="0 0 24 24" fill="currentColor"
-    aria-hidden="true" style={{ flexShrink: 0, marginTop: "2px", color: "var(--color-accent)" }}
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+    style={{ flexShrink: 0, marginTop: "2px", color: "var(--color-accent)" }}
   >
     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5l-4.5-4.5 1.41-1.41L10 13.67l7.09-7.09L18.5 8l-8.5 8.5z" />
   </svg>
@@ -231,14 +244,26 @@ const CheckIcon = () => (
 
 const SpinnerIcon = ({ color = "#000" }) => (
   <svg
-    width="15" height="15" viewBox="0 0 24 24" fill="none"
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
     aria-hidden="true"
     style={{ animation: "ms-spin 0.75s linear infinite", flexShrink: 0 }}
   >
-    <circle cx="12" cy="12" r="10" stroke={color} strokeWidth="2.5" strokeOpacity="0.25" />
+    <circle
+      cx="12"
+      cy="12"
+      r="10"
+      stroke={color}
+      strokeWidth="2.5"
+      strokeOpacity="0.25"
+    />
     <path
       d="M12 2a10 10 0 0 1 10 10"
-      stroke={color} strokeWidth="2.5" strokeLinecap="round"
+      stroke={color}
+      strokeWidth="2.5"
+      strokeLinecap="round"
     />
   </svg>
 );

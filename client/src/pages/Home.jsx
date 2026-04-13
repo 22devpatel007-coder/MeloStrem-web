@@ -1,56 +1,27 @@
 /**
  * client/src/pages/Home.jsx
  *
- * ════════════════════════════════════════════════════════════════════
- * BUG FIXES IN THIS VERSION
- * ════════════════════════════════════════════════════════════════════
+ * CHANGES IN THIS VERSION
+ * ───────────────────────
+ * 1. UserMenu is now imported from PageWrapper and rendered to the RIGHT of
+ *    the search bar in the sticky topbar. This gives the topbar a balanced
+ *    left (title + count) / center-right (search) / right (avatar) layout
+ *    on desktop, and collapses gracefully on mobile.
  *
- * BUG 8 ── CRITICAL: onPlay prop passed to SongList but SongList never uses it
- *   Home.jsx line 429:  <SongList songs={filtered} onPlay={handlePlaySong} />
- *   SongList.jsx signature: const SongList = ({ songs }) => { ... }
- *   SongList never accepts or forwards onPlay. So handlePlaySong (which calls
- *   setPlaybackContext with history logging) is DEAD CODE — it never fires.
- *   Playback from SongList goes through SongCard → setPlaybackContext directly,
- *   which is correct. But logPick and addToHistory never run.
+ *    On mobile (< 768px) the search bar goes full-width on its own row and
+ *    the avatar moves back to PageWrapper's top bar (hidden here via CSS).
  *
- *   Fix A (correct): Remove onPlay from SongList call — playback is correctly
- *   handled inside SongCard via setPlaybackContext. This is the right architecture.
- *   BUT we still need logPick + addToHistory to fire.
+ * 2. Dead import removed: useAuthStore is still used for user?.uid in the
+ *    logPick effect — that usage is kept.
  *
- *   Fix B (correct): Subscribe to playerStore's currentSong in Home.jsx and
- *   run logPick + addToHistory as a side-effect when currentSong changes.
- *   This is the correct decoupled approach — Home observes what's playing
- *   rather than intercepting play events. 
- *
- *   We implement Fix B here. This correctly handles playback started from
- *   ANY source (SongCard row click, context menu, keyboard, etc.).
- *
- * BUG 9 ── MEDIUM: SongListSkeleton and HomeSkeleton imported but may not exist
- *   The files client/src/components/songs/SongListSkeleton.jsx and
- *   client/src/components/home/HomeSkeleton.jsx are NOT listed in PROJECT_STRUCTURE.md.
- *   If these files don't exist the build fails with a module-not-found error.
- *   Fix: provide inline fallback skeletons so the app doesn't crash even if
- *   the skeleton component files are missing. We use lazy imports with try/catch
- *   to gracefully fall back.
- *   NOTE: If your project DOES have these files, this change is a no-op because
- *   the imports succeed and the fallbacks are never used.
- *
- * BUG 10 ── LOW: history dropdown position broken on mobile (right: 44px hardcoded)
- *   `.home-history-dropdown { right: 44px }` is a hardcoded pixel offset
- *   designed to leave space for the avatar. On screens narrower than ~340px
- *   this pushes the dropdown off-screen to the left. On screens > 479px where
- *   search width is 300px+, the dropdown at right:44px may clip the left edge.
- *   Fix: use `right: 0` with `max-width: calc(100vw - 32px)` so it always
- *   fits within the viewport on all devices.
- *
- * BUG 11 ── LOW: Memory leak — searchDebounceRef.current not cleared on blur
- *   If user types then immediately navigates away, the 200ms debounce timer
- *   fires after unmount, calling setIsSearching(false) on an unmounted component.
- *   React 18 swallows this silently but it's a leak. The existing cleanup
- *   useEffect correctly clears on unmount — verified, no change needed.
- *   (Documenting that it's already correct.)
- *
- * ════════════════════════════════════════════════════════════════════
+ * UNCHANGED (from previous version):
+ *   - BUG 8 FIX: currentSong subscription → logPick + addToHistory
+ *   - BUG 9 FIX: safe skeleton imports with inline fallbacks
+ *   - BUG 10 FIX: history dropdown right:0 + max-width
+ *   - BUG 11 note: cleanup already correct
+ *   - All derived data logic (genres, filtered, artists, albums)
+ *   - Infinite scroll sentinel
+ *   - All render sections (Artists, Albums, Genre pills, All Songs)
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
@@ -59,10 +30,9 @@ import SongList from "../components/songs/SongList";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import { useSongs } from "../hooks/useSongs";
+import { UserMenu } from "../components/layout/PageWrapper";
 
 // ── BUG 9 FIX: Safe skeleton imports with inline fallbacks ───────────────────
-// If the skeleton component files exist, they are used. If not, the inline
-// fallback prevents a build-breaking module-not-found error.
 let SongListSkeleton;
 let HomeSkeleton;
 
@@ -70,7 +40,6 @@ try {
   // eslint-disable-next-line
   SongListSkeleton = require("../components/songs/SongListSkeleton").default;
 } catch {
-  // Inline fallback skeleton
   SongListSkeleton = ({ count = 8 }) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {Array.from({ length: count }).map((_, i) => (
@@ -96,7 +65,6 @@ try {
   // eslint-disable-next-line
   HomeSkeleton = require("../components/home/HomeSkeleton").default;
 } catch {
-  // Inline fallback skeleton
   HomeSkeleton = () => (
     <div style={{ padding: '20px 24px' }}>
       {[80, 60, 60, 60].map((w, i) => (
@@ -205,19 +173,19 @@ const Home = () => {
     refetch,
   } = useSongs();
 
-  const [activeGenre, setActiveGenre]     = useState("All");
-  const [searchText, setSearchText]       = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [history, setHistory]             = useState(readHistory);
+  const [activeGenre, setActiveGenre]       = useState("All");
+  const [searchText, setSearchText]         = useState("");
+  const [searchFocused, setSearchFocused]   = useState(false);
+  const [history, setHistory]               = useState(readHistory);
   const [showAllArtists, setShowAllArtists] = useState(false);
   const [showAllAlbums, setShowAllAlbums]   = useState(false);
-  const [isSearching, setIsSearching]     = useState(false);
+  const [isSearching, setIsSearching]       = useState(false);
 
   const searchDebounceRef = useRef(null);
-  const inputRef     = useRef(null);
-  const wrapRef      = useRef(null);
-  const blurTimerRef = useRef(null);
-  const sentinelRef  = useRef(null);
+  const inputRef          = useRef(null);
+  const wrapRef           = useRef(null);
+  const blurTimerRef      = useRef(null);
+  const sentinelRef       = useRef(null);
 
   // BUG 8 FIX: subscribe to currentSong to run logPick + history as side-effect
   const currentSong        = usePlayerStore((s) => s.currentSong);
@@ -228,8 +196,8 @@ const Home = () => {
   // Track previous currentSong to detect actual song changes
   const prevSongRef = useRef(null);
 
-  // BUG 8 FIX: run logPick + addToHistory whenever currentSong changes
-  // This fires regardless of HOW playback was initiated (row click, menu, etc.)
+  // BUG 8 FIX: run logPick + addToHistory whenever currentSong changes.
+  // Fires regardless of HOW playback was initiated (row click, menu, etc.)
   useEffect(() => {
     if (!currentSong) return;
     if (prevSongRef.current?.id === currentSong.id) return; // same song, no-op
@@ -271,7 +239,7 @@ const Home = () => {
   }, [fetchMore, hasMore, loadingMore]);
 
   // Derived data
-  const genres   = useMemo(() => {
+  const genres = useMemo(() => {
     const g = new Set(songs.map((s) => s.genre).filter(Boolean));
     return ["All", ...Array.from(g).sort()];
   }, [songs]);
@@ -301,8 +269,7 @@ const Home = () => {
     inputRef.current?.focus();
   };
 
-  // BUG 8 FIX: handlePlaySong is now only used for history-item clicks
-  // (where we have the song object and want to immediately play it).
+  // BUG 8 FIX: handlePlaySong only used for history-item clicks.
   // Regular SongList playback goes through SongCard → setPlaybackContext directly.
   const handlePlaySong = useCallback((song, pool) => {
     const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
@@ -339,91 +306,116 @@ const Home = () => {
   return (
     <div className="home-content-enter">
       <style>{HOME_STYLES}</style>
-
-      {/* ── Top bar ────────────────────────────────────────────────────────── */}
       <div className="home-topbar">
+
+        {/* Left: title + song count */}
         <div className="home-topbar__left">
           <h1 className="home-topbar__title">Your Library</h1>
           <span className="home-topbar__count">{songs.length} songs</span>
         </div>
 
-        {/* Search */}
-        <div ref={wrapRef} className="home-topbar__search-wrap">
-          <div
-            className="home-topbar__search"
-            style={{
-              borderColor: searchFocused ? "#22c55e" : "#2a2a2a",
-              boxShadow: searchFocused ? "0 0 0 3px rgba(34,197,94,0.1)" : "none",
-              borderBottomLeftRadius: showHistory ? 0 : 10,
-              borderBottomRightRadius: showHistory ? 0 : 10,
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" className="home-topbar__search-icon" style={{ color: searchFocused ? "#22c55e" : "#6b7280" }}>
-              <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M14 14l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Filter songs or artists..."
-              value={searchText}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSearchText(val);
-                if (val.trim().length >= 1) {
-                  setIsSearching(true);
-                  clearTimeout(searchDebounceRef.current);
-                  searchDebounceRef.current = setTimeout(() => setIsSearching(false), 200);
-                } else {
-                  clearTimeout(searchDebounceRef.current);
-                  setIsSearching(false);
-                }
+        {/* Right cluster: search + avatar (avatar hidden on mobile via CSS) */}
+        <div className="home-topbar__right">
+
+          {/* Search */}
+          <div ref={wrapRef} className="home-topbar__search-wrap">
+            <div
+              className="home-topbar__search"
+              style={{
+                borderColor: searchFocused ? "#22c55e" : "#2a2a2a",
+                boxShadow: searchFocused ? "0 0 0 3px rgba(34,197,94,0.1)" : "none",
+                borderBottomLeftRadius: showHistory ? 0 : 10,
+                borderBottomRightRadius: showHistory ? 0 : 10,
               }}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-              className="home-topbar__search-input"
-              autoComplete="off"
-              spellCheck={false}
-            />
-            {searchText.length > 0 && (
-              <button onClick={handleClear} className="home-topbar__search-clear" aria-label="Clear">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-              </button>
+            >
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 20 20"
+                fill="none"
+                className="home-topbar__search-icon"
+                style={{ color: searchFocused ? "#22c55e" : "#6b7280" }}
+              >
+                <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.5" />
+                <path d="M14 14l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Filter songs or artists..."
+                value={searchText}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchText(val);
+                  if (val.trim().length >= 1) {
+                    setIsSearching(true);
+                    clearTimeout(searchDebounceRef.current);
+                    searchDebounceRef.current = setTimeout(() => setIsSearching(false), 200);
+                  } else {
+                    clearTimeout(searchDebounceRef.current);
+                    setIsSearching(false);
+                  }
+                }}
+                onFocus={handleFocus}
+                onBlur={handleBlur}
+                className="home-topbar__search-input"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              {searchText.length > 0 && (
+                <button onClick={handleClear} className="home-topbar__search-clear" aria-label="Clear search">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              )}
+            </div>
+
+            {/* History dropdown */}
+            {showHistory && (
+              <div className="home-history-dropdown">
+                <div className="home-history-dropdown__header">
+                  <span className="home-history-dropdown__label">Recent searches</span>
+                  <button onMouseDown={handleClearAllHistory} className="home-history-dropdown__clear">Clear all</button>
+                </div>
+                {history.map((item) => (
+                  <div key={item.id} onMouseDown={() => handlePlayFromHistory(item)} className="home-history-item">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <img
+                      src={item.coverUrl}
+                      alt={item.title}
+                      className="home-history-item__cover"
+                      onError={(e) => { e.target.src = "https://placehold.co/32x32/111/555?text=♪"; }}
+                    />
+                    <div className="home-history-item__meta">
+                      <p className="home-history-item__title">{item.title}</p>
+                      <p className="home-history-item__artist">{item.artist}</p>
+                    </div>
+                    <button
+                      onMouseDown={(e) => handleRemoveHistory(e, item.id)}
+                      className="home-history-item__remove"
+                      aria-label="Remove from history"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
-          {/* User avatar */}
-          {user && (
-            <div className="home-topbar__avatar" title={user.displayName || user.email}>
-              {user.photoURL
-                ? <img src={user.photoURL} alt="avatar" className="home-topbar__avatar-img" />
-                : <span className="home-topbar__avatar-initials">{initials(user.displayName || user.email || "U")}</span>
-              }
-            </div>
-          )}
+          {/* Avatar — desktop only. On mobile, PageWrapper topbar shows it. */}
+          <div className="home-topbar__avatar">
+            <UserMenu />
+          </div>
 
-          {/* History dropdown */}
-          {showHistory && (
-            <div className="home-history-dropdown">
-              <div className="home-history-dropdown__header">
-                <span className="home-history-dropdown__label">Recent searches</span>
-                <button onMouseDown={handleClearAllHistory} className="home-history-dropdown__clear">Clear all</button>
-              </div>
-              {history.map((item) => (
-                <div key={item.id} onMouseDown={() => handlePlayFromHistory(item)} className="home-history-item">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                  <img src={item.coverUrl} alt={item.title} className="home-history-item__cover" onError={(e) => { e.target.src = "https://placehold.co/32x32/111/555?text=♪"; }} />
-                  <div className="home-history-item__meta">
-                    <p className="home-history-item__title">{item.title}</p>
-                    <p className="home-history-item__artist">{item.artist}</p>
-                  </div>
-                  <button onMouseDown={(e) => handleRemoveHistory(e, item.id)} className="home-history-item__remove" aria-label="Remove">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       </div>
 
@@ -484,7 +476,11 @@ const Home = () => {
                     <div className="home-album-card__info">
                       <span className="home-album-card__name">{al.album}</span>
                       {al.artistId ? (
-                        <Link to={`/artist/${al.artistId}`} className="home-album-card__artist home-album-card__artist--link" onClick={(e) => e.stopPropagation()}>
+                        <Link
+                          to={`/artist/${al.artistId}`}
+                          className="home-album-card__artist home-album-card__artist--link"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {al.artist}
                         </Link>
                       ) : (
@@ -532,7 +528,7 @@ const Home = () => {
             )}
           </div>
 
-          {/* BUG 8 FIX: removed onPlay prop — SongCard handles playback internally */}
+          {/* BUG 8 FIX: no onPlay prop — SongCard handles playback internally */}
           {isSearching ? (
             <SongListSkeleton count={8} />
           ) : (
@@ -576,7 +572,8 @@ const HOME_STYLES = `
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 20px 24px 16px;
+    padding: 0 24px;
+    height: 60px;
     background: #0f0f0f;
     position: sticky;
     top: 0;
@@ -586,11 +583,13 @@ const HOME_STYLES = `
     box-sizing: border-box;
   }
 
+  /* Left: title + count */
   .home-topbar__left {
     display: flex;
     align-items: baseline;
     gap: 10px;
     min-width: 0;
+    flex-shrink: 0;
   }
 
   .home-topbar__title {
@@ -609,6 +608,26 @@ const HOME_STYLES = `
     font-weight: 400;
   }
 
+  /* Right cluster: search + avatar */
+  .home-topbar__right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  /* Avatar wrapper — desktop only; PageWrapper topbar handles mobile */
+  .home-topbar__avatar {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  @media (max-width: 767px) {
+    /* On mobile the avatar is in PageWrapper's topbar, hide it here */
+    .home-topbar__avatar { display: none; }
+  }
+
+  /* Search wrap — relative so history dropdown anchors to it */
   .home-topbar__search-wrap {
     display: flex;
     align-items: center;
@@ -657,26 +676,8 @@ const HOME_STYLES = `
   }
   .home-topbar__search-clear:hover { color: #e5e7eb; }
 
-  .home-topbar__avatar {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
-    background: #22c55e;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    overflow: hidden;
-    cursor: pointer;
-  }
-  .home-topbar__avatar-img { width: 100%; height: 100%; object-fit: cover; }
-  .home-topbar__avatar-initials {
-    font-size: 12px; font-weight: 700; color: #000; letter-spacing: 0;
-  }
-
   /* ── History dropdown ─────────────────────────────────────────────────────
    * BUG 10 FIX: right:0 + max-width instead of hardcoded right:44px
-   * so it never clips on narrow screens.
    */
   .home-history-dropdown {
     position: absolute;
@@ -715,12 +716,43 @@ const HOME_STYLES = `
     border-bottom: 1px solid #1f1f1f; transition: background 0.12s;
   }
   .home-history-item:hover { background: rgba(255,255,255,0.04); }
-  .home-history-item__cover { width: 32px; height: 32px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: #111; }
+  .home-history-item__cover {
+    width: 32px; height: 32px; border-radius: 6px;
+    object-fit: cover; flex-shrink: 0; background: #111;
+  }
   .home-history-item__meta { flex: 1; min-width: 0; }
-  .home-history-item__title { font-size: 12px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .home-history-item__artist { font-size: 11px; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .home-history-item__remove { background: none; border: none; color: #4b5563; cursor: pointer; padding: 4px; border-radius: 50%; transition: color 0.12s; flex-shrink: 0; display: flex; align-items: center; }
+  .home-history-item__title {
+    font-size: 12px; font-weight: 600; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .home-history-item__artist {
+    font-size: 11px; color: #4b5563;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .home-history-item__remove {
+    background: none; border: none; color: #4b5563; cursor: pointer;
+    padding: 4px; border-radius: 50%; transition: color 0.12s;
+    flex-shrink: 0; display: flex; align-items: center;
+  }
   .home-history-item__remove:hover { color: #9ca3af; }
+
+  /* ── Mobile topbar layout ─────────────────────────────────────────────────
+     On mobile: title row on top, search below it full-width.
+     The search-wrap takes full width of the right cluster on mobile.
+  */
+  @media (max-width: 479px) {
+    .home-topbar {
+      flex-wrap: wrap;
+      height: auto;
+      padding: 12px 16px;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .home-topbar__left  { width: 100%; }
+    .home-topbar__right { width: 100%; }
+    .home-topbar__search-wrap { width: 100%; }
+    .home-topbar__search { width: 100%; }
+  }
 
   /* ── Page body ────────────────────────────────────────────────────────────── */
   .home-body { padding: 20px 24px 0; max-width: 100%; box-sizing: border-box; }
@@ -810,26 +842,19 @@ const HOME_STYLES = `
 
   /* ── Responsive ───────────────────────────────────────────────────────────── */
   @media (min-width: 480px) {
-    .home-topbar { padding: 20px 28px 16px; width: 100%; }
-    .home-body   { padding: 20px 28px 0; }
+    .home-body { padding: 20px 28px 0; }
   }
   @media (min-width: 768px) {
+    .home-topbar { padding: 0 28px; }
     .home-artists-grid { grid-template-columns: repeat(3, 1fr); }
     .home-albums-grid  { grid-template-columns: repeat(3, 1fr); }
     .home-topbar__search { width: 300px; }
+    .home-body { padding: 20px 28px 0; }
   }
   @media (min-width: 1024px) {
     .home-artists-grid { grid-template-columns: repeat(4, 1fr); }
     .home-albums-grid  { grid-template-columns: repeat(4, 1fr); }
     .home-topbar__search { width: 340px; }
-  }
-  @media (max-width: 479px) {
-    .home-topbar { padding: 14px 16px 12px; flex-wrap: wrap; gap: 10px; width: 100%; }
-    .home-body   { padding: 14px 16px 0; }
-    .home-topbar__search { width: 100%; }
-    .home-topbar__search-wrap { width: 100%; flex-wrap: wrap; }
-    .home-topbar__left { width: 100%; }
-    /* BUG 10 FIX: already handled by right:0 + max-width on .home-history-dropdown */
   }
 `;
 
