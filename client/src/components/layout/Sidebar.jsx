@@ -36,7 +36,7 @@
  *   need to be made in exactly one place.
  */
 
-import { useNavigate, NavLink } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
   HomeIcon,
   MagnifyingGlassIcon,
