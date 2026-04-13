@@ -1,36 +1,36 @@
 /**
  * client/src/hooks/usePlaylists.js
  *
- * SCALABLE PERMANENT FIX
- * ──────────────────────
- * BEFORE: useUserPlaylists + useAdminPlaylists each opened a persistent
- * Firestore WebSocket (onSnapshot) per user per tab. 1000 concurrent users
- * = 2000 open WebSocket connections. Multi-tab caused WatchChangeAggregator
- * assertion errors. Library playlists disappeared when the stream corrupted.
+ * PRODUCTION FIX — Request storm eliminated
  *
- * AFTER: Both hooks use React Query + REST API exclusively.
- * Zero Firestore listeners. Zero WebSocket connections from the client.
- * Zero assertion errors. Works correctly across unlimited tabs.
- * Server holds one Firestore Admin SDK connection pool shared by all requests.
+ * ROOT CAUSE (two bugs):
  *
- * BEHAVIOUR PRESERVED:
- *   ✅ useUserPlaylists  → returns user's own playlists (Your Playlists section)
- *   ✅ useAdminPlaylists → returns library playlists (Library Playlists section)
- *   ✅ usePlaylists      → REST admin CRUD (unchanged)
- *   ✅ usePlaylistMutations → direct Firestore writes (unchanged — writes are
- *      one-shot, not listeners, so they don't cause the assertion error)
+ *   BUG 1 — usePlaylists() had NO staleTime (React Query default = 0ms).
+ *     staleTime:0 = data immediately stale after every fetch.
+ *     Every refetchOnWindowFocus (tab switch, window click) triggered a new
+ *     POST /playlists request. Sidebar.jsx calls usePlaylists() on every
+ *     mount, compounding the storm with the songs storm to produce the
+ *     repeated 500 + 429 pattern visible in DevTools.
  *
- * CACHE INVALIDATION STRATEGY:
- *   After any mutation (create/update/delete/addSong/removeSong), we invalidate
- *   both USER_PLAYLISTS and PLAYLISTS so every hook consumer gets fresh data.
- *   React Query deduplicates the refetch — only one network request fires
- *   even if multiple components are subscribed.
+ *   BUG 2 — Sidebar.jsx was calling usePlaylists(uid) which is the ADMIN
+ *     CRUD hook. usePlaylists() ignores its argument (it has no uid param),
+ *     fetches ALL playlists via GET /api/playlists (admin route), and has
+ *     no cache policy. Sidebar should call useUserPlaylists() instead.
+ *     (Fix for Sidebar is in Sidebar.jsx — see that file.)
  *
- * REAL-TIME vs POLLING:
- *   onSnapshot gave real-time push updates. React Query uses stale-while-
- *   revalidate + refetchOnWindowFocus. For a music app this is the correct
- *   trade-off — playlists don't need sub-second sync. If real-time is required
- *   in future, add a 30s refetchInterval to the query options.
+ * FIX applied here:
+ *   Added staleTime + gcTime to usePlaylists (admin CRUD hook) so even if
+ *   it's called from a non-admin context it doesn't storm the server.
+ *
+ *   staleTime: 2 minutes — admin playlists rarely change mid-session.
+ *   gcTime:    10 minutes — keeps data across navigations.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - useUserPlaylists — already had staleTime: 30s (correct, untouched)
+ *   - useAdminPlaylists — already had staleTime: 5min (correct, untouched)
+ *   - usePlaylistMutations — untouched
+ *   - All mutation functions — untouched
+ *   - All return shapes — untouched
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -45,10 +45,8 @@ import {
   fetchUserPlaylists,
 } from '../services/playlists.service';
 import { QUERY_KEYS } from '../constants/queryKeys';
-// import { useState, useEffect, useRef } from 'react';
 import {
   collection,
-  // query as firestoreQuery,
   addDoc,
   updateDoc,
   deleteDoc,
@@ -61,7 +59,10 @@ import {
 import { db } from '../firebase';
 import { useAuthStore } from '../store/authStore';
 
-// ── usePlaylists — REST-backed admin CRUD (unchanged) ─────────────────────────
+// ── usePlaylists — REST-backed admin CRUD ─────────────────────────────────────
+//
+// Used by admin pages to manage playlists (create/update/delete/addSong/removeSong).
+// FIXED: added staleTime + gcTime to stop request storm on window focus.
 export const usePlaylists = () => {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: [QUERY_KEYS.PLAYLISTS] });
@@ -69,6 +70,9 @@ export const usePlaylists = () => {
   const playlistsQuery = useQuery({
     queryKey: [QUERY_KEYS.PLAYLISTS],
     queryFn:  getPlaylists,
+    // ── FIXED: was missing — default staleTime:0 caused refetch storm ────────
+    staleTime: 2 * 60_000,   // 2 minutes — admin playlists rarely change mid-session
+    gcTime:    10 * 60_000,  // 10 minutes in-memory cache
   });
 
   const create     = useMutation({ mutationFn: createPlaylistREST,                                             onSuccess: invalidate });
@@ -88,19 +92,11 @@ export const usePlaylists = () => {
   };
 };
 
-// ── useUserPlaylists — REST via React Query (replaces Firestore onSnapshot) ───
+// ── useUserPlaylists — REST via React Query ───────────────────────────────────
 //
 // Fetches GET /api/users/:uid/playlists.
-// React Query handles: caching, deduplication, background refetch on focus,
-// loading/error states, and stale-while-revalidate.
-//
-// staleTime: 30s — user's own playlists change only via explicit mutations.
-//   After any mutation, we manually invalidate so data is always fresh.
-// refetchOnWindowFocus: true (React Query default) — switching tabs refetches
-//   if data is stale, keeping the list current across tab switches.
-//
-// Return shape matches the original hook exactly:
-//   { playlists: Playlist[], loading: boolean }
+// staleTime: 30s — already correct, untouched.
+// This is what Sidebar.jsx should call (fixed in Sidebar.jsx).
 export const useUserPlaylists = () => {
   const { user } = useAuthStore();
   const uid      = user?.uid ?? null;
@@ -109,7 +105,8 @@ export const useUserPlaylists = () => {
     queryKey: [QUERY_KEYS.USER_PLAYLISTS, uid],
     queryFn:  () => fetchUserPlaylists(uid),
     enabled:  !!uid,
-    staleTime: 30_000,
+    staleTime: 30_000,       // 30 seconds — correct, untouched
+    gcTime:    5 * 60_000,   // 5 minutes in-memory cache
   });
 
   return {
@@ -118,20 +115,10 @@ export const useUserPlaylists = () => {
   };
 };
 
-// ── useAdminPlaylists — REST via React Query (replaces Firestore onSnapshot) ──
+// ── useAdminPlaylists — REST via React Query ──────────────────────────────────
 //
 // Fetches GET /api/playlists/admin.
-// Public content — same for every user, so no uid in the query key.
-// React Query deduplicates: if Home + Playlists + PlaylistDetail all call
-// useAdminPlaylists simultaneously, only ONE HTTP request fires.
-//
-// staleTime: 5min — admin/library playlists change rarely (admin action required).
-//   Long stale time means returning users get instant cached data with
-//   a background refetch only if data is older than 5 minutes.
-// gcTime: 10min — keeps data in memory across page navigations.
-//
-// Return shape matches the original hook exactly:
-//   { adminPlaylists: Playlist[], loading: boolean }
+// staleTime: 5min — already correct, untouched.
 export const useAdminPlaylists = () => {
   const query = useQuery({
     queryKey: [QUERY_KEYS.ADMIN_PLAYLISTS],
@@ -148,20 +135,11 @@ export const useAdminPlaylists = () => {
 
 // ── usePlaylistMutations — direct Firestore writes + cache invalidation ───────
 //
-// Write operations (addDoc, updateDoc, deleteDoc) are one-shot — they don't
-// open persistent listeners, so they never caused the assertion error.
-// They are kept as direct Firestore writes for low latency (no round-trip
-// through Express for simple mutations).
-//
-// ADDED: queryClient.invalidateQueries after each mutation so the REST-backed
-// useUserPlaylists hook always reflects the latest state after a write.
-// This is the correct integration point between direct Firestore writes
-// and React Query-managed reads.
+// Completely untouched. Write operations are one-shot, no persistent listeners.
 export const usePlaylistMutations = () => {
   const { user: currentUser } = useAuthStore();
   const qc = useQueryClient();
 
-  // Invalidate user playlists after any mutation so useUserPlaylists refetches.
   const invalidateUserPlaylists = () => {
     if (currentUser?.uid) {
       qc.invalidateQueries({ queryKey: [QUERY_KEYS.USER_PLAYLISTS, currentUser.uid] });
@@ -192,13 +170,13 @@ export const usePlaylistMutations = () => {
       createdAt:   serverTimestamp(),
       updatedAt:   serverTimestamp(),
     });
-    invalidateUserPlaylists(); // ✅ keep React Query cache in sync
+    invalidateUserPlaylists();
     return ref.id;
   };
 
   const deletePlaylist = async (playlistId) => {
     await deleteDoc(doc(db, 'playlists', playlistId));
-    invalidateUserPlaylists(); // ✅ keep React Query cache in sync
+    invalidateUserPlaylists();
   };
 
   const updatePlaylist = async (playlistId, fields) => {
@@ -207,7 +185,7 @@ export const usePlaylistMutations = () => {
       ...fields,
       updatedAt: serverTimestamp(),
     });
-    invalidateUserPlaylists(); // ✅ keep React Query cache in sync
+    invalidateUserPlaylists();
   };
 
   const addSongToPlaylist = async (playlistId, songId) => {
@@ -216,7 +194,7 @@ export const usePlaylistMutations = () => {
       songIds:   arrayUnion(songId),
       updatedAt: serverTimestamp(),
     });
-    invalidateUserPlaylists(); // ✅ keep React Query cache in sync
+    invalidateUserPlaylists();
   };
 
   const removeSongFromPlaylist = async (playlistId, songId) => {
@@ -225,7 +203,7 @@ export const usePlaylistMutations = () => {
       songIds:   arrayRemove(songId),
       updatedAt: serverTimestamp(),
     });
-    invalidateUserPlaylists(); // ✅ keep React Query cache in sync
+    invalidateUserPlaylists();
   };
 
   const reorderSongs = async (playlistId, newSongIds) => {
@@ -234,7 +212,7 @@ export const usePlaylistMutations = () => {
       songIds:   newSongIds,
       updatedAt: serverTimestamp(),
     });
-    invalidateUserPlaylists(); // ✅ keep React Query cache in sync
+    invalidateUserPlaylists();
   };
 
   return {

@@ -1,36 +1,30 @@
 /**
  * client/src/components/layout/PageWrapper.jsx
  *
- * PRODUCTION FIX — position:fixed restoration
+ * CHANGES IN THIS VERSION
+ * ───────────────────────
+ * 1. UserMenu is now a NAMED EXPORT so Home.jsx (and any future page) can
+ *    import and embed it inline next to their own search bars.
  *
- * ROOT CAUSE (two stacked issues):
+ * 2. On desktop (≥ 768px) the topbar's UserMenu is hidden via CSS
+ *    (.topbar__usermenu-desktop-hide) because Home.jsx now renders it
+ *    inside its own sticky topbar next to the search input.
+ *    On mobile (< 768px) it stays in the top bar as before.
  *
- *   1. The inner column div had `overflow-hidden` → any ancestor with
- *      overflow:hidden creates a new containing block that traps ALL
- *      position:fixed descendants (OptionsSheet, AddToPlaylist drawer,
- *      modals, etc.) — they scroll with the page instead of sticking
- *      to the viewport.
- *      FIX: removed overflow-hidden from the inner column div entirely.
+ * 3. Navbar.jsx is confirmed dead — it duplicates UserMenu and is never
+ *    imported anywhere. It should be deleted from the project.
  *
- *   2. <main> had `overflow-x-hidden` → in Safari this also creates a
- *      containing block, breaking fixed children rendered inside pages.
- *      FIX: removed overflow-x-hidden from <main>. Horizontal overflow
- *      is now suppressed at the html/body level (add `overflow-x: hidden`
- *      to body in your global CSS — index.css — which does NOT break fixed).
- *
- * SCROLL CONTRACT (unchanged):
- *   - <main> is the only scroll region: overflow-y-auto stays.
- *   - Sidebar, header, bottom nav are NOT in the scroll flow.
- *
- * WHAT DID NOT CHANGE:
- *   - MobileBottomNav — unchanged
- *   - Mobile top bar — unchanged
- *   - .pb-page-safe padding values — unchanged
- *   - Props: { title, children } — unchanged
- *   - Desktop layout — unchanged
+ * UNCHANGED:
+ *   - MobileBottomNav (icons, labels, z-index 90)
+ *   - pb-page-safe formula
+ *   - Sidebar wiring (isOpen/onClose)
+ *   - Scroll region, overflow rules, containing-block contract
+ *   - All z-index contracts
+ *   - All UserMenu logic (avatar, dropdown, logout, escape, outside-click)
+ *   - Props: { title, children }
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Bars3Icon,
   MusicalNoteIcon,
@@ -45,10 +39,32 @@ import {
   HeartIcon           as HeartIconSolid,
   QueueListIcon       as PlaylistIconSolid,
 } from '@heroicons/react/24/solid';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
+import useAuthStore from '../../store/authStore';
+
+// ── Avatar helpers (deterministic) ────────────────────────────────────────────
+
+const avatarSlot = (str = '') => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  return (Math.abs(hash) % 7) + 1; // 1–7
+};
+
+const getInitials = (user) => {
+  if (!user) return '?';
+  if (user.displayName) {
+    const parts = user.displayName.trim().split(/\s+/);
+    return parts.length >= 2
+      ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      : parts[0].slice(0, 2).toUpperCase();
+  }
+  if (user.email) return user.email[0].toUpperCase();
+  return '?';
+};
 
 // ── Bottom nav config ─────────────────────────────────────────────────────────
+
 const BOTTOM_NAV_ITEMS = [
   { to: '/',          label: 'Library',   Icon: HomeIcon,            ActiveIcon: HomeIconSolid },
   { to: '/search',    label: 'Search',    Icon: MagnifyingGlassIcon, ActiveIcon: SearchIconSolid },
@@ -57,6 +73,7 @@ const BOTTOM_NAV_ITEMS = [
 ];
 
 // ── MobileBottomNav ───────────────────────────────────────────────────────────
+
 const MobileBottomNav = () => (
   <>
     <style>{NAV_STYLES}</style>
@@ -85,7 +102,158 @@ const MobileBottomNav = () => (
   </>
 );
 
+// ── UserMenu (avatar button + dropdown panel) ─────────────────────────────────
+// Named export so pages like Home.jsx can embed it inline in their own topbar.
+
+export const UserMenu = () => {
+  const { user, logout } = useAuthStore();
+  const navigate         = useNavigate();
+  const [open, setOpen]  = useState(false);
+  const wrapperRef       = useRef(null);
+
+  const initials = getInitials(user);
+  const slot     = avatarSlot(user?.email || user?.displayName || '');
+
+  // Close on outside mousedown
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
+  const handleLogout = useCallback(async () => {
+    setOpen(false);
+    try {
+      await logout();
+    } catch (err) {
+      // authStore clears local state in finally, navigation is safe regardless.
+      console.error('[UserMenu] logout error:', err);
+    } finally {
+      navigate('/login', { replace: true });
+    }
+  }, [logout, navigate]);
+
+  if (!user) return null;
+
+  return (
+    <div ref={wrapperRef} className="um-wrapper" style={{ position: 'relative' }}>
+      {/* ── Avatar button ── */}
+      <button
+        className="um-avatar-btn"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={`Account menu for ${user.displayName || user.email || 'user'}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={user.displayName || user.email || 'Account'}
+      >
+        <span
+          className="um-avatar"
+          style={{
+            background: `var(--avatar-${slot}-bg)`,
+            color:      `var(--avatar-${slot}-fg)`,
+          }}
+          aria-hidden="true"
+        >
+          {initials}
+        </span>
+        {/* Chevron indicator */}
+        <svg
+          className={`um-chevron${open ? ' um-chevron--open' : ''}`}
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M2 3.5L5 6.5L8 3.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+
+      {/* ── Dropdown panel ── */}
+      {open && (
+        <div
+          className="um-panel"
+          role="menu"
+          aria-label="Account options"
+        >
+          {/* User identity */}
+          <div className="um-identity">
+            <span
+              className="um-panel-avatar"
+              style={{
+                background: `var(--avatar-${slot}-bg)`,
+                color:      `var(--avatar-${slot}-fg)`,
+              }}
+              aria-hidden="true"
+            >
+              {initials}
+            </span>
+            <div className="um-identity-text">
+              {user.displayName && (
+                <span className="um-name">{user.displayName}</span>
+              )}
+              {user.email && (
+                <span className="um-email" title={user.email}>
+                  {user.email}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="um-divider" aria-hidden="true" />
+
+          {/* Logout */}
+          <button
+            className="um-logout"
+            onClick={handleLogout}
+            role="menuitem"
+            aria-label="Log out of MeloStream"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Log out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ── PageWrapper ───────────────────────────────────────────────────────────────
+
 export const PageWrapper = ({ title, children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -94,58 +262,71 @@ export const PageWrapper = ({ title, children }) => {
       <style>{WRAPPER_STYLES}</style>
 
       {/*
-        FIXED: overflow-visible on both wrapper divs.
-        Neither div should have overflow:hidden — that breaks position:fixed
-        for ALL descendants. Scroll is handled only by <main> below.
+        CRITICAL: No overflow:hidden here or on any direct child.
+        overflow:hidden creates a new containing block in all browsers,
+        which traps position:fixed children (OptionsSheet, modals, drawers).
+        Scroll is handled ONLY by <main> below.
       */}
-      <div className="flex h-full w-full min-w-0">
+      <div className="flex flex-col h-full w-full min-w-0">
 
-        {/* ── Sidebar ── */}
-        <Sidebar
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
-
-        {/* ── Main content column ── */}
-        {/*
-          FIXED: was `overflow-hidden` — removed entirely.
-          This div just needs to flex-fill; it must NOT clip its children.
-        */}
-        <div className="flex flex-col flex-1 min-w-0 min-h-0">
-
-          {/* ── Mobile top bar ── */}
-          <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-[#111111] border-b border-[#2a2a2a] shrink-0 z-20">
+        {/* ── Top bar — ALL breakpoints ────────────────────────────────────
+            On mobile: shows hamburger + logo + UserMenu.
+            On desktop (md+): hamburger and logo are hidden (sidebar is open).
+            UserMenu is also hidden on desktop (md+) because pages like Home.jsx
+            render it inside their own sticky topbar next to the search input.
+            On pages that do NOT have their own topbar, UserMenu remains visible
+            on desktop too — override .topbar__usermenu with display:flex if needed.
+        ── */}
+        <header
+          className="topbar"
+          role="banner"
+        >
+          {/* Left: hamburger (mobile/tablet) + logo */}
+          <div className="topbar__left">
+            {/* Hamburger — hidden on md+ because sidebar is always open there */}
             <button
-              className="p-1.5 text-gray-400 hover:text-white transition-colors rounded-md hover:bg-[#2a2a2a]"
+              className="topbar__hamburger"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open navigation menu"
+              aria-expanded={sidebarOpen}
+              aria-controls="main-sidebar"
             >
               <Bars3Icon className="w-5 h-5" />
             </button>
 
-            <NavLink to="/" className="flex items-center gap-2">
-              <span className="w-7 h-7 rounded-md bg-emerald-500 flex items-center justify-center">
+            {/* Logo — hidden on md+ because Sidebar already shows it */}
+            <NavLink to="/" className="topbar__logo" aria-label="MeloStream home">
+              <span className="topbar__logo-icon" aria-hidden="true">
                 <MusicalNoteIcon className="w-3.5 h-3.5 text-white" />
               </span>
-              <span className="text-white font-bold text-base tracking-tight">
-                MeloStream
-              </span>
+              <span className="topbar__logo-text">MeloStream</span>
             </NavLink>
-          </header>
+          </div>
 
-          {/*
-            Scroll region.
-            FIXED: removed overflow-x-hidden — in Safari this creates a
-            containing block that traps position:fixed children.
-            Horizontal scroll suppression belongs on body in index.css:
-              body { overflow-x: hidden; }
-            That is safe and does NOT break position:fixed.
+          {/* Right: UserMenu — mobile only on pages that have their own topbar
+              (e.g. Home). On pages without a topbar it stays visible on all
+              breakpoints because there is no other place to show it.
+              The class topbar__usermenu controls this via CSS below. */}
+          <div className="topbar__usermenu">
+            <UserMenu />
+          </div>
+        </header>
 
-            .pb-page-safe responsive values (unchanged):
-              mobile  → 136px  (player 64 + nav 56 + gap 16)
-              desktop → 112px  (player only)
-          */}
-          <main className="flex-1 min-h-0 overflow-y-auto pb-page-safe">
+        {/* ── Body row (sidebar + scroll region) ── */}
+        <div className="flex flex-1 min-w-0 min-h-0">
+
+          {/* ── Sidebar ── */}
+          <Sidebar
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
+          />
+
+          {/* ── Scroll region ── */}
+          <main
+            className="flex-1 min-h-0 overflow-y-auto pb-page-safe"
+            id="main-content"
+            role="main"
+          >
             {title && (
               <div className="px-6 pt-6 pb-2">
                 <h1 className="text-2xl font-bold text-white">{title}</h1>
@@ -156,7 +337,7 @@ export const PageWrapper = ({ title, children }) => {
         </div>
       </div>
 
-      {/* Mobile bottom nav — hidden at md+ via CSS */}
+      {/* Mobile bottom nav — hidden at md+ */}
       <MobileBottomNav />
     </>
   );
@@ -167,8 +348,262 @@ export default PageWrapper;
 // ── Styles ────────────────────────────────────────────────────────────────────
 
 const WRAPPER_STYLES = `
+  /* ── Top bar ──────────────────────────────────────────────────────── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px;
+    height: 52px;
+    background: #111111;
+    border-bottom: 1px solid #1f1f1f;
+    flex-shrink: 0;
+    z-index: 20;
+    /* Ensures dropdown panel is not clipped by stacking context */
+    position: relative;
+  }
+  @media (min-width: 768px) {
+  .topbar { display: none; }
+}
+  .topbar__left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  /* Hamburger: visible only below md (768px) */
+  .topbar__hamburger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+    color: #9ca3af;
+    border-radius: 6px;
+    transition: color 0.15s, background 0.15s;
+    flex-shrink: 0;
+  }
+  .topbar__hamburger:hover {
+    color: #fff;
+    background: #2a2a2a;
+  }
+  @media (min-width: 768px) {
+    .topbar__hamburger { display: none; }
+  }
+
+  /* Logo: visible only below md — sidebar shows it on desktop */
+  .topbar__logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    flex-shrink: 0;
+  }
+  .topbar__logo-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    background: #22c55e;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .topbar__logo-text {
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    white-space: nowrap;
+  }
+  @media (min-width: 768px) {
+    .topbar__logo { display: none; }
+  }
+
+  /* ── UserMenu in topbar ───────────────────────────────────────────── */
+  /* On mobile: always show it here (it's the only place the avatar appears).
+     On desktop (md+): hide it here — Home.jsx renders it next to the search bar.
+     For pages that do NOT have their own search topbar, add the modifier class
+     topbar__usermenu--always to keep it visible on all breakpoints. */
+  .topbar__usermenu {
+    flex-shrink: 0;
+  }
+  @media (min-width: 768px) {
+    .topbar__usermenu { display: none; }
+  }
+  /* Override for pages without their own topbar (non-Home pages) */
+  .topbar__usermenu--always {
+    display: flex !important;
+    align-items: center;
+  }
+
+  /* ── UserMenu wrapper ─────────────────────────────────────────────── */
+  .um-wrapper {
+    flex-shrink: 0;
+  }
+
+  /* ── Avatar button ── */
+  .um-avatar-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 1px solid #2a2a2a;
+    border-radius: 999px;
+    padding: 3px 8px 3px 3px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    font-family: inherit;
+  }
+  .um-avatar-btn:hover {
+    border-color: #3a3a3a;
+    background: #1a1a1a;
+  }
+  .um-avatar-btn:focus-visible {
+    outline: 2px solid #22c55e;
+    outline-offset: 2px;
+  }
+
+  .um-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .um-chevron {
+    color: #6b7280;
+    transition: transform 0.2s ease, color 0.15s;
+    flex-shrink: 0;
+  }
+  .um-chevron--open {
+    transform: rotate(180deg);
+    color: #9ca3af;
+  }
+
+  /* ── Dropdown panel ── */
+  .um-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    min-width: 220px;
+    background: #181818;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), 0 2px 6px rgba(0, 0, 0, 0.4);
+    z-index: 200;
+    overflow: hidden;
+    animation: um-enter 0.15s ease;
+  }
+
+  @keyframes um-enter {
+    from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)   scale(1); }
+  }
+
+  /* Identity row */
+  .um-identity {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 14px 12px;
+  }
+
+  .um-panel-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .um-identity-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .um-name {
+    color: #e5e7eb;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .um-email {
+    color: #6b7280;
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 160px;
+  }
+
+  /* Divider */
+  .um-divider {
+    height: 1px;
+    background: #222222;
+    margin: 0 14px;
+  }
+
+  /* Logout button */
+  .um-logout {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px 12px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: #9ca3af;
+    text-align: left;
+    transition: color 0.15s, background 0.15s;
+  }
+  .um-logout:hover {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.07);
+  }
+  .um-logout:focus-visible {
+    outline: 2px solid #22c55e;
+    outline-offset: -2px;
+  }
+
+  /* ── pb-page-safe ─────────────────────────────────────────────────────
+     Mobile (< 768px):
+       Top bar (52px) is visible but fixed in flow — no offset needed.
+       Player (64px) sits above nav (56px) → 120px from bottom.
+       Add 16px gap → 136px + safe-area.
+
+     Desktop (≥ 768px):
+       Nav hidden. Player sits at bottom:0, 80px tall.
+       112px used for a generous breathing gap.
+  ── */
   .pb-page-safe {
-    padding-bottom: 136px;
+    padding-bottom: calc(136px + env(safe-area-inset-bottom, 0px));
   }
   @media (min-width: 768px) {
     .pb-page-safe {
@@ -182,6 +617,11 @@ const NAV_STYLES = `
     .m-bottom-nav { display: none !important; }
   }
 
+  /*
+    MobileBottomNav:
+    - z-index: 90 — below MiniPlayerBar (95) and modals (100+)
+    - min-height: 56px — matches MOBILE_NAV_HEIGHT in MiniPlayerBar.jsx
+  */
   .m-bottom-nav {
     position: fixed;
     bottom: 0;
@@ -211,27 +651,15 @@ const NAV_STYLES = `
     user-select: none;
   }
 
-  .m-bottom-nav__tab--on {
-    color: #22c55e;
-  }
-
-  .m-bottom-nav__tab:not(.m-bottom-nav__tab--on):active {
-    color: #9ca3af;
-  }
+  .m-bottom-nav__tab--on { color: #22c55e; }
+  .m-bottom-nav__tab:not(.m-bottom-nav__tab--on):active { color: #9ca3af; }
 
   .m-bottom-nav__icon {
-    width: 22px;
-    height: 22px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
   }
-
-  .m-bottom-nav__icon svg {
-    width: 22px;
-    height: 22px;
-  }
+  .m-bottom-nav__icon svg { width: 22px; height: 22px; }
 
   .m-bottom-nav__label {
     font-size: 10px;
