@@ -1,22 +1,35 @@
 /**
  * server/src/controllers/playlists.controller.js
  *
- * PERMANENT FIX — ECONNRESET / socket hang up on getPublicAdminPlaylists
- *                 and all inline db.* calls
+ * PERMANENT FIX — getUserPlaylists was silently returning empty array
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Root cause:
- *   getPublicAdminPlaylists, getAdminPlaylists, deleteAdminPlaylist, and
- *   getUserPlaylists all made direct unguarded db.collection(...).get() calls.
- *   Under Render's idle socket drop conditions, these threw ECONNRESET with
- *   no retry, surfacing as 500s visible in the error log.
+ * ROOT CAUSE (getUserPlaylists):
  *
- * Fix:
- *   All inline db.* calls are now wrapped in retryFirestore().
- *   Service-layer calls (createPlaylist, deletePlaylist) are already retried
- *   inside firebase.service.js, so no double-wrapping is needed there.
+ *   BUG 1 — .where('isAdmin', '==', false) is too strict.
+ *     Playlists created via Firestore direct writes (usePlaylistMutations)
+ *     correctly set isAdmin:false. But playlists created via REST or older
+ *     code paths may have isAdmin:undefined or the field missing entirely.
+ *     Firestore inequality/equality filters do NOT match documents where the
+ *     field is absent — those playlists were silently dropped from results.
  *
- * No changes to response shapes, route contracts, or middleware chains.
+ *     FIX: Query only on ownerId. Filter out isAdmin:true in application
+ *     code so missing-field documents are included. This is safe because
+ *     the ownerId === req.user.uid ownership check is already enforced.
+ *
+ *   BUG 2 — Composite index requirement.
+ *     where('ownerId') + where('isAdmin') + orderBy('createdAt') requires a
+ *     composite Firestore index. If that index does not exist the entire
+ *     query throws a 9 FAILED_PRECONDITION error, which was caught and
+ *     returned as a 500 — surfacing as an empty list in the sidebar.
+ *
+ *     FIX: Removing the where('isAdmin') clause drops the composite index
+ *     requirement. The remaining where('ownerId') + orderBy('createdAt')
+ *     only needs a single-field index on createdAt (auto-created by
+ *     Firestore) or a simple composite that is far more likely to exist.
+ *
+ * All other controllers — completely unchanged.
+ * No changes to response shapes or route contracts.
  */
 
 'use strict';
@@ -47,7 +60,6 @@ function serializeSnap(snap) {
 // ── GET /api/playlists/admin (public, no auth) ────────────────────────────────
 exports.getPublicAdminPlaylists = async (req, res) => {
   try {
-    // FIX: wrapped in retryFirestore — was failing with ECONNRESET after idle
     const snap = await retryFirestore(
       () => db
         .collection('playlists')
@@ -65,25 +77,48 @@ exports.getPublicAdminPlaylists = async (req, res) => {
 };
 
 // ── GET /api/users/:uid/playlists (protected, verifyToken) ───────────────────
+//
+// FIXED: Removed .where('isAdmin', '==', false) from the Firestore query.
+//
+// Why:
+//   1. Playlists with a missing or undefined isAdmin field are never returned
+//      by Firestore equality filters — they were silently dropped.
+//   2. The two-field where() + orderBy() combination required a composite
+//      index that may not exist, causing a FAILED_PRECONDITION 500 error.
+//
+// The isAdmin:true guard is now applied in JS after the fetch. This is safe
+// because the query is already scoped to ownerId === req.user.uid, so a user
+// can never see another user's playlists regardless of the isAdmin value.
 exports.getUserPlaylists = async (req, res) => {
+  const { uid } = req.params;
+
+  if (req.user.uid !== uid) {
+    return sendError(res, 'Forbidden', 403, 'FORBIDDEN');
+  }
+
   try {
-    const { uid } = req.params;
-    if (req.user.uid !== uid) {
-      return sendError(res, 'Forbidden', 403, 'FORBIDDEN');
-    }
-    // FIX: wrapped in retryFirestore
+    // Query only on ownerId — no composite index required.
+    // orderBy createdAt desc requires a single-field index (auto-created).
     const snap = await retryFirestore(
       () => db
         .collection('playlists')
         .where('ownerId', '==', uid)
-        .where('isAdmin', '==', false)
         .orderBy('createdAt', 'desc')
         .get(),
       { label: 'getUserPlaylists' }
     );
-    return sendSuccess(res, serializeSnap(snap));
+
+    // Filter out admin-owned playlists in application code.
+    // isAdmin:true  → admin library playlist, not shown in user sidebar.
+    // isAdmin:false → user playlist.
+    // isAdmin:undefined/missing → created by older code path; treat as user playlist.
+    const playlists = snap.docs
+      .filter((d) => d.data().isAdmin !== true)
+      .map((d) => serializeDoc(d.id, d.data()));
+
+    return sendSuccess(res, playlists);
   } catch (err) {
-    logger.error('getUserPlaylists error:', { uid: req.params.uid, error: err.message });
+    logger.error('getUserPlaylists error:', { uid, error: err.message, code: err.code });
     return sendError(res, 'Could not load your playlists. Please try again.', 500, 'USER_PLAYLISTS_FETCH_ERROR');
   }
 };
@@ -95,7 +130,7 @@ exports.uploadPlaylistSong = async (req, res) => {
     if (!title || !artist || !genre) {
       return res.status(400).json({ error: 'title, artist and genre are required' });
     }
-    const existing = await checkDuplicateSong(title, artist); // already retried in service
+    const existing = await checkDuplicateSong(title, artist);
     if (existing) {
       return res.json({
         status: 'duplicate',
@@ -130,7 +165,7 @@ exports.uploadPlaylistSong = async (req, res) => {
       updatedAt:        new Date(),
     };
 
-    const newSong = await createSong(songData); // retried inside firebase.service
+    const newSong = await createSong(songData);
     res.status(201).json({ status: 'uploaded', songId: newSong.id, song: serializeDoc(newSong.id, songData) });
   } catch (err) {
     logger.error('uploadPlaylistSong error:', { error: err.message });
@@ -159,7 +194,7 @@ exports.createAdminPlaylist = async (req, res) => {
       createdAt: new Date(), updatedAt: new Date(),
     };
 
-    const newPlaylist = await createPlaylist(playlistData); // retried inside firebase.service
+    const newPlaylist = await createPlaylist(playlistData);
     newPlaylist.createdAt = playlistData.createdAt.toISOString();
     newPlaylist.updatedAt = playlistData.updatedAt.toISOString();
     res.status(201).json(newPlaylist);
@@ -200,7 +235,7 @@ exports.createAdminPlaylistWithCover = async (req, res) => {
       createdAt: new Date(), updatedAt: new Date(),
     };
 
-    const newPlaylist = await createPlaylist(playlistData); // retried inside firebase.service
+    const newPlaylist = await createPlaylist(playlistData);
     newPlaylist.createdAt = playlistData.createdAt.toISOString();
     newPlaylist.updatedAt = playlistData.updatedAt.toISOString();
     res.status(201).json(newPlaylist);
@@ -213,7 +248,6 @@ exports.createAdminPlaylistWithCover = async (req, res) => {
 // ── GET /api/playlists/admin/all (protected, admin-only) ─────────────────────
 exports.getAdminPlaylists = async (req, res) => {
   try {
-    // FIX: wrapped in retryFirestore
     const snap = await retryFirestore(
       () => db.collection('playlists').where('isAdmin', '==', true).orderBy('createdAt', 'desc').get(),
       { label: 'getAdminPlaylists' }
@@ -228,7 +262,6 @@ exports.getAdminPlaylists = async (req, res) => {
 // ── DELETE /api/playlists/admin/:id ──────────────────────────────────────────
 exports.deleteAdminPlaylist = async (req, res) => {
   try {
-    // FIX: wrapped in retryFirestore
     const docSnap = await retryFirestore(
       () => db.collection('playlists').doc(req.params.id).get(),
       { label: 'deleteAdminPlaylist:get' }
@@ -240,7 +273,7 @@ exports.deleteAdminPlaylist = async (req, res) => {
     const { coverStoragePath } = docSnap.data();
     if (coverStoragePath) await deleteAsset(coverStoragePath, { resource_type: 'image' });
 
-    await deletePlaylist(req.params.id); // retried inside firebase.service
+    await deletePlaylist(req.params.id);
     res.json({ message: 'Playlist deleted successfully' });
   } catch (err) {
     logger.error('deleteAdminPlaylist error:', { error: err.message });

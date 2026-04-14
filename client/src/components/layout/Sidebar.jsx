@@ -1,39 +1,15 @@
 /**
  * client/src/components/layout/Sidebar.jsx
  *
- * PRODUCTION FIX — Removed duplicate user/email/logout section.
+ * PRODUCTION FIX — Added loading + error states for playlist section.
  *
- * ROOT CAUSE OF DOUBLE-EMAIL BUG:
- *   PageWrapper already renders a top bar with UserMenu (avatar + email +
- *   logout dropdown) on ALL breakpoints. Sidebar was also rendering an
- *   identical user email + avatar + logout button at its bottom — so the
- *   email appeared twice on every page.
- *
- *   PageWrapper's own comment (line 4) stated:
- *     "SIDEBAR user/logout section should be removed (see Sidebar.jsx patch)"
- *   — but Sidebar.jsx was never updated. This patch completes that intent.
- *
- * WHAT CHANGED:
- *   - Removed the bottom user/email/avatar block (was lines ~210–230)
- *   - Removed the bottom logout button (was lines ~230–245)
- *   - Removed the second divider that preceded them
- *   - Removed ArrowRightOnRectangleIcon import (no longer used)
- *   - Removed handleLogout (logout is now owned by PageWrapper's UserMenu)
- *   - logout is no longer destructured from useAuthStore (not needed here)
- *
- * WHAT DID NOT CHANGE:
- *   - All nav items, icons, classes — untouched
- *   - Playlist rendering logic — untouched
- *   - Backdrop — untouched
- *   - Props: { isOpen, onClose } — untouched
- *   - Desktop layout — untouched
- *   - useUserPlaylists() fix from prior patch — preserved
- *   - h-screen + style={{ height: '100dvh' }} mobile fix — preserved
- *
- * SCALABILITY NOTE:
- *   User identity / logout now has a single owner: PageWrapper > UserMenu.
- *   Any future changes to the logout flow, avatar display, or user info
- *   need to be made in exactly one place.
+ * CHANGES FROM PREVIOUS VERSION:
+ *   - Destructure `loading` and `isError` from useUserPlaylists()
+ *   - Replace bare "No playlists yet." with 3-state render:
+ *       loading  → skeleton shimmer (3 placeholder rows)
+ *       isError  → red error message
+ *       empty    → "No playlists yet."
+ *   - All other logic, classes, layout — completely unchanged.
  */
 
 import { NavLink } from 'react-router-dom';
@@ -68,14 +44,31 @@ const navLinkClass = ({ isActive }) =>
       : 'text-gray-400 hover:text-white hover:bg-[#222222]',
   ].join(' ');
 
+// ─── PlaylistSkeleton — shown while fetch is in-flight ───────────────────────
+
+const PlaylistSkeleton = () => (
+  <ul className="flex flex-col gap-0.5 px-3 mt-2" aria-hidden="true">
+    {[1, 2, 3].map((n) => (
+      <li key={n} className="flex items-center gap-3 px-0 py-2">
+        <span className="w-[14px] h-[14px] rounded-sm shrink-0 bg-[#2a2a2a] animate-pulse" />
+        <span
+          className="h-3 rounded bg-[#2a2a2a] animate-pulse"
+          style={{ width: `${50 + n * 15}%` }}
+        />
+      </li>
+    ))}
+  </ul>
+);
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 const Sidebar = ({ isOpen = false, onClose }) => {
   const { isAdmin } = useAuthStore();
 
-  // Fetches GET /api/users/:uid/playlists with staleTime:30s.
-  // Correct user-scoped playlists; no refetch storm on window focus.
-  const { playlists = [] } = useUserPlaylists();
+  // useUserPlaylists fetches GET /api/users/:uid/playlists.
+  // staleTime: 30s — no refetch storm on window focus.
+  // loading/isError drive the 3-state playlist section below.
+  const { playlists = [], loading, isError } = useUserPlaylists();
 
   const safePlaylist = Array.isArray(playlists) ? playlists : [];
 
@@ -179,7 +172,16 @@ const Sidebar = ({ isOpen = false, onClose }) => {
             Playlists
           </p>
 
-          {safePlaylist.length === 0 ? (
+          {/* ── 3-state render: loading / error / list ── */}
+          {loading ? (
+            // Skeleton rows while fetch is in-flight — prevents layout shift
+            <PlaylistSkeleton />
+          ) : isError ? (
+            // Network / server error — friendly message, never expose raw error
+            <p className="px-3 text-xs text-red-400 mt-2">
+              Couldn't load playlists.
+            </p>
+          ) : safePlaylist.length === 0 ? (
             <p className="px-3 text-xs text-gray-600 mt-2">No playlists yet.</p>
           ) : (
             <ul className="flex flex-col gap-0.5">
@@ -214,7 +216,6 @@ const Sidebar = ({ isOpen = false, onClose }) => {
           ── NO user/email/logout block here ──
           User identity and logout live exclusively in PageWrapper > UserMenu
           (the top bar avatar dropdown, visible on all breakpoints).
-          Having it here too was the source of the double-email bug.
         */}
       </aside>
     </>
