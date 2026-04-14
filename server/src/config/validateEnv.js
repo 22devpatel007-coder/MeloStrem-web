@@ -25,6 +25,7 @@
  * Variables required in ALL environments (development, staging, production).
  * These are the absolute minimum for the server to function at all.
  */
+require('dotenv').config()
 const ALWAYS_REQUIRED = [
   "PORT",
   "FIREBASE_PROJECT_ID",
