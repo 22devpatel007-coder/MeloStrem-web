@@ -1,27 +1,39 @@
 /**
  * client/src/components/layout/PageWrapper.jsx
  *
- * CHANGES IN THIS VERSION
- * ───────────────────────
- * 1. UserMenu is now a NAMED EXPORT so Home.jsx (and any future page) can
- *    import and embed it inline next to their own search bars.
+ * PHASE 1 — TASK 1.3 ADDITION: PageErrorBoundary wraps the <main> scroll region.
  *
- * 2. On desktop (≥ 768px) the topbar's UserMenu is hidden via CSS
- *    (.topbar__usermenu-desktop-hide) because Home.jsx now renders it
- *    inside its own sticky topbar next to the search input.
- *    On mobile (< 768px) it stays in the top bar as before.
+ * WHAT CHANGED vs previous version:
+ *   1. Imported PageErrorBoundary from components/errors/ErrorBoundary.jsx
+ *   2. PageErrorBoundary wraps {children} inside <main> — see the
+ *      "── Scroll region ──" section below.
  *
- * 3. Navbar.jsx is confirmed dead — it duplicates UserMenu and is never
- *    imported anywhere. It should be deleted from the project.
+ * WHY ONLY <main>:
+ *   The boundary wraps only the content region, not the topbar, sidebar,
+ *   or MobileBottomNav. If a page component crashes:
+ *   - The topbar (hamburger, logo, UserMenu) stays functional
+ *   - The Sidebar stays open and navigable
+ *   - The MobileBottomNav remains fully functional
+ *   - The MusicPlayer (mounted outside in App.jsx) is completely unaffected
+ *   Only the page content area shows the "This page ran into a problem" UI.
  *
- * UNCHANGED:
- *   - MobileBottomNav (icons, labels, z-index 90)
- *   - pb-page-safe formula
- *   - Sidebar wiring (isOpen/onClose)
- *   - Scroll region, overflow rules, containing-block contract
- *   - All z-index contracts
- *   - All UserMenu logic (avatar, dropdown, logout, escape, outside-click)
- *   - Props: { title, children }
+ * WHAT DID NOT CHANGE:
+ *   - UserMenu (named export) — identical, no modifications
+ *   - MobileBottomNav — identical
+ *   - Sidebar wiring (isOpen/onClose) — identical
+ *   - pb-page-safe formula — identical
+ *   - Scroll region overflow rules — identical
+ *   - All z-index contracts — identical
+ *   - All avatar/initials helpers — identical
+ *   - Topbar layout and hamburger logic — identical
+ *   - All CSS (WRAPPER_STYLES, NAV_STYLES) — identical
+ *   - Props: { title, children } — identical
+ *   - containing-block contract (no overflow:hidden) — identical
+ *
+ * PREVIOUS CHANGES PRESERVED:
+ *   1. UserMenu is a NAMED EXPORT so Home.jsx can embed it inline.
+ *   2. .topbar__usermenu-desktop-hide hides UserMenu on desktop for Home.jsx.
+ *   3. Navbar.jsx confirmed dead — delete it from the project.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -42,6 +54,7 @@ import {
 import { NavLink, useNavigate } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import useAuthStore from '../../store/authStore';
+import { PageErrorBoundary } from '../errors/ErrorBoundary';
 
 // ── Avatar helpers (deterministic) ────────────────────────────────────────────
 
@@ -322,17 +335,27 @@ export const PageWrapper = ({ title, children }) => {
           />
 
           {/* ── Scroll region ── */}
+          {/*
+            TASK 1.3: PageErrorBoundary wraps only the content area.
+            If any page component crashes during render (bad song metadata,
+            null artist/album ID, unhandled null in JSX), only this region
+            shows an error state with a retry button.
+            The topbar, sidebar, MobileBottomNav, and MusicPlayer (mounted
+            in App.jsx) are all completely unaffected by a page crash.
+          */}
           <main
             className="flex-1 min-h-0 overflow-y-auto pb-page-safe"
             id="main-content"
             role="main"
           >
-            {title && (
-              <div className="px-6 pt-6 pb-2">
-                <h1 className="text-2xl font-bold text-white">{title}</h1>
-              </div>
-            )}
-            {children}
+            <PageErrorBoundary>
+              {title && (
+                <div className="px-6 pt-6 pb-2">
+                  <h1 className="text-2xl font-bold text-white">{title}</h1>
+                </div>
+              )}
+              {children}
+            </PageErrorBoundary>
           </main>
         </div>
       </div>
@@ -346,6 +369,7 @@ export const PageWrapper = ({ title, children }) => {
 export default PageWrapper;
 
 // ── Styles ────────────────────────────────────────────────────────────────────
+// Identical to previous version — zero changes.
 
 const WRAPPER_STYLES = `
   /* ── Top bar ──────────────────────────────────────────────────────── */
