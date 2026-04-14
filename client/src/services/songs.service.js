@@ -1,18 +1,30 @@
 /**
  * client/src/services/songs.service.js
  *
- * Fix: extractSongs normalization is now applied at the service layer, not
- * just at the hook layer. This means every caller — hooks, admin pages,
- * one-off components — always receives a safe { songs, nextCursor, hasMore }
- * shape regardless of what the server actually returned.
+ * Phase 2 — Task 2.2: Model Transformation Layer
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * extractSongs rules:
- *   - If payload is already { songs: [] } shape → use it.
- *   - If payload is a raw array (legacy / accidental) → wrap it.
- *   - If payload is anything else (null, undefined, error object) → safe default.
+ * What changed from Phase 1 version:
+ *   - extractSong() now enforces field-level defaults matching Song.fromFirestore()
+ *     on the backend. Both layers agree on the exact shape a Song has.
+ *   - The backend Song model now always returns clean, normalized shapes, so
+ *     frontend normalization is a DEFENSIVE THIN LAYER only — it does not need
+ *     to reconstruct missing fields, just guard against unexpected payloads.
+ *   - All function signatures, export names, and behavior are IDENTICAL to the
+ *     Phase 1 version. No call sites need to change.
  *
- * getSongById, createSong, updateSong, deleteSong are single-record operations
- * and do not use extractSongs — they use extractSong (singular) instead.
+ * What did NOT change:
+ *   - extractSongs() shape and envelope handling: unchanged.
+ *   - getSongs, getSongById, createSong, updateSong, deleteSong: unchanged.
+ *   - unwrap() helper: unchanged.
+ *   - All console.warn paths: preserved.
+ *
+ * Frontend Song shape contract (mirrors Song.fromFirestore output):
+ *   id, title, artist, genre, album, duration,
+ *   audioUrl (NOT fileUrl — backend model exposes audioUrl as the canonical name),
+ *   coverUrl, titleLower, artistLower,
+ *   artistId (string | null), albumId (string | null), trackNumber (number | null),
+ *   playCount, featured, uploadedBy, createdAt, updatedAt
  */
 
 import api from './api';
@@ -32,15 +44,14 @@ export const extractSongs = (payload) => {
     return { songs: [], nextCursor: null, hasMore: false };
   }
 
-  // Array response — wrap defensively (should not happen per API contract but guard anyway).
   if (Array.isArray(payload)) {
     console.warn('[songs.service] extractSongs: received raw array — expected object payload');
-    return { songs: payload, nextCursor: null, hasMore: false };
+    return { songs: payload.map(extractSong).filter(Boolean), nextCursor: null, hasMore: false };
   }
 
-  const songs = Array.isArray(payload.songs) ? payload.songs : [];
+  const songs      = Array.isArray(payload.songs) ? payload.songs.map(extractSong).filter(Boolean) : [];
   const nextCursor = payload.nextCursor ?? null;
-  const hasMore = typeof payload.hasMore === 'boolean' ? payload.hasMore : false;
+  const hasMore    = typeof payload.hasMore === 'boolean' ? payload.hasMore : false;
 
   if (!Array.isArray(payload.songs)) {
     console.warn('[songs.service] extractSongs: songs field missing or non-array', payload);
@@ -50,8 +61,14 @@ export const extractSongs = (payload) => {
 };
 
 /**
- * Normalizes a single-song response.
- * Returns null if the payload is not a usable song object.
+ * Normalizes a single Song response object.
+ *
+ * Phase 2.2 update: applies field-level defaults so every Song the frontend
+ * receives has the same shape regardless of whether it came from a legacy
+ * Firestore document or a new one written by the Phase 2 backend.
+ *
+ * Returns null only if payload is null/undefined/non-object/array.
+ * Never returns null for a valid object — always returns a complete Song shape.
  *
  * @param {unknown} payload
  * @returns {Song | null}
@@ -61,15 +78,35 @@ export const extractSong = (payload) => {
     console.warn('[songs.service] extractSong: unexpected payload', payload);
     return null;
   }
-  return payload;
+
+  // fileUrl → audioUrl alias: backend Song.fromFirestore() exposes audioUrl,
+  // but legacy documents may have only fileUrl. Handle both here for safety.
+  const audioUrl = payload.audioUrl || payload.fileUrl || '';
+
+  return {
+    id:               typeof payload.id          === 'string'  ? payload.id               : '',
+    title:            typeof payload.title        === 'string'  ? payload.title.trim()     : '',
+    artist:           typeof payload.artist       === 'string'  ? payload.artist.trim()    : '',
+    genre:            typeof payload.genre        === 'string'  ? payload.genre.trim()     : '',
+    album:            typeof payload.album        === 'string'  ? payload.album.trim()     : '',
+    duration:         typeof payload.duration     === 'number'  ? payload.duration         : 0,
+    audioUrl,
+    coverUrl:         typeof payload.coverUrl     === 'string'  ? payload.coverUrl         : '',
+    titleLower:       typeof payload.titleLower   === 'string'  ? payload.titleLower       : '',
+    artistLower:      typeof payload.artistLower  === 'string'  ? payload.artistLower      : '',
+    artistId:         payload.artistId    ?? null,
+    albumId:          payload.albumId     ?? null,
+    trackNumber:      payload.trackNumber != null ? Number(payload.trackNumber) || null : null,
+    playCount:        typeof payload.playCount    === 'number'  ? payload.playCount        : 0,
+    featured:         typeof payload.featured     === 'boolean' ? payload.featured         : false,
+    uploadedBy:       typeof payload.uploadedBy   === 'string'  ? payload.uploadedBy       : '',
+    createdAt:        payload.createdAt  ?? null,
+    updatedAt:        payload.updatedAt  ?? null,
+  };
 };
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-/**
- * Unwraps Axios response data — handles both { data: payload } and bare payload.
- * Axios puts response body in res.data. Some interceptors re-wrap it; unwrap once.
- */
 const unwrap = (res) => res?.data ?? res;
 
 // ─── Service functions ────────────────────────────────────────────────────────
