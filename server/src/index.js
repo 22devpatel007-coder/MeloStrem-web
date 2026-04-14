@@ -24,32 +24,21 @@ const os = require("os");
 const https = require("https");
 const http = require("http");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. STARTUP VALIDATION
+//    Must run before any other import that reads process.env (config/index.js
+//    reads env vars at require-time, so validateEnv must come first).
+//    Exits immediately with a clear error if any required var is missing.
+// ─────────────────────────────────────────────────────────────────────────────
+const { validateEnv } = require("./config/validateEnv");
+validateEnv();
+
+// ── Remaining imports (safe to load after env is confirmed present) ───────────
 const config = require("./config/index");
 const logger = require("./utils/logger");
 const routes = require("./routes/index");
 const errorHandler = require("./middleware/errorHandler");
 const { generalLimiter } = require("./middleware/rateLimiter");
-
-// ─────────────────────────────────────────────────────────────────────────────
-// 1. STARTUP VALIDATION
-//    Fail fast: cheap checks that catch misconfigured deployments before the
-//    server ever starts binding a port.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const REQUIRED_ENV = ["PORT"];
-
-// In production every secret must be explicit — no silent fallbacks.
-if (config.nodeEnv === "production") {
-  REQUIRED_ENV.push("CLIENT_ORIGIN");
-}
-
-const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
-if (missingEnv.length > 0) {
-  console.error(
-    `[Startup] FATAL — missing required environment variable(s): ${missingEnv.join(", ")}. Exiting.`,
-  );
-  process.exit(1);
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. CORS ALLOWLIST
