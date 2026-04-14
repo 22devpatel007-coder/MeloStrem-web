@@ -7,30 +7,34 @@
  * getArtistSongs — returns paginated songs where artistId === :id,
  *                  using the same cursor pagination contract as /api/songs
  *
- * Both handlers return safe, friendly error messages to clients and log
- * technical details for developers — consistent with songs.controller.js.
+ * PHASE 1 — TASK 1.1 changes:
+ *   - All direct res.status(4xx/5xx).json() error calls replaced with throws.
+ *   - Controllers no longer call res.json() for errors — errorHandler owns that.
+ *   - Success responses, pagination logic, Firestore queries: untouched.
  */
+
+'use strict';
 
 const { db } = require('../config/firebase');
 const logger  = require('../utils/logger');
+const { ValidationError, NotFoundError, InternalError } = require('../errors');
 
-const INTERNAL_ERROR  = 'Something went wrong. Please try again.';
 const SONGS_PER_PAGE  = 30;
 const MAX_SONGS_LIMIT = 50;
 
 // ── GET /api/artists/:id ───────────────────────────────────────────────────
-exports.getArtist = async (req, res) => {
+exports.getArtist = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     if (!id || typeof id !== 'string' || !id.trim()) {
-      return res.status(400).json({ error: 'Invalid artist ID', code: 'VALIDATION_ERROR' });
+      throw new ValidationError('Invalid artist ID', 'VALIDATION_ERROR');
     }
 
     const snap = await db.collection('artists').doc(id.trim()).get();
 
     if (!snap.exists) {
-      return res.status(404).json({ error: 'Artist not found', code: 'NOT_FOUND' });
+      throw new NotFoundError('Artist not found', 'NOT_FOUND');
     }
 
     const data = snap.data();
@@ -41,8 +45,9 @@ exports.getArtist = async (req, res) => {
       updatedAt:  data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
     });
   } catch (err) {
-    logger.error('getArtist error:', { error: err.message, artistId: req.params.id });
-    return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
+    if (err.isOperational !== undefined) return next(err);
+    logger.error('getArtist unexpected error:', { error: err.message, artistId: req.params.id });
+    return next(new InternalError('Something went wrong. Please try again.', 'INTERNAL_ERROR', { originalError: err.message }));
   }
 };
 
@@ -53,12 +58,12 @@ exports.getArtist = async (req, res) => {
 // Query params:
 //   limit  — number of songs per page (default 30, max 50)
 //   cursor — Firestore document ID to start after (for pagination)
-exports.getArtistSongs = async (req, res) => {
+exports.getArtistSongs = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     if (!id || typeof id !== 'string' || !id.trim()) {
-      return res.status(400).json({ error: 'Invalid artist ID', code: 'VALIDATION_ERROR' });
+      throw new ValidationError('Invalid artist ID', 'VALIDATION_ERROR');
     }
 
     const limit  = Math.min(parseInt(req.query.limit) || SONGS_PER_PAGE, MAX_SONGS_LIMIT);
@@ -68,7 +73,7 @@ exports.getArtistSongs = async (req, res) => {
     // for an unknown ID (better DX and consistent with getArtist).
     const artistSnap = await db.collection('artists').doc(id.trim()).get();
     if (!artistSnap.exists) {
-      return res.status(404).json({ error: 'Artist not found', code: 'NOT_FOUND' });
+      throw new NotFoundError('Artist not found', 'NOT_FOUND');
     }
 
     // Build paginated query — filter by artistId, order by createdAt desc
@@ -105,7 +110,8 @@ exports.getArtistSongs = async (req, res) => {
 
     return res.json({ songs, nextCursor, hasMore });
   } catch (err) {
-    logger.error('getArtistSongs error:', { error: err.message, artistId: req.params.id });
-    return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
+    if (err.isOperational !== undefined) return next(err);
+    logger.error('getArtistSongs unexpected error:', { error: err.message, artistId: req.params.id });
+    return next(new InternalError('Something went wrong. Please try again.', 'INTERNAL_ERROR', { originalError: err.message }));
   }
 };

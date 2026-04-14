@@ -1,11 +1,14 @@
 /**
  * server/src/controllers/users.controller.js
  *
- * PRODUCTION READY — No changes from previous version.
+ * PRODUCTION READY — All Firestore calls wrapped in retryFirestore() to absorb
+ * transient ECONNRESET / socket hang up failures.
  *
- * All Firestore calls are wrapped in retryFirestore() to absorb transient
- * ECONNRESET / socket hang up failures that occur when Render's idle
- * connections are dropped.
+ * PHASE 1 — TASK 1.1 changes:
+ *   - All res.status(4xx/5xx).json() error calls replaced with AppError throws.
+ *   - Controllers call next(err) instead of res.json() for errors.
+ *   - All success responses (res.json with data), business logic, retryFirestore
+ *     calls, and session pick fire-and-forget pattern: completely untouched.
  *
  * logSessionPicks uses maxAttempts:2 — fire-and-forget telemetry should not
  * accumulate a large retry backlog on persistent failures.
@@ -17,30 +20,32 @@ const { db } = require("../config/firebase");
 const { getAllUsers } = require("../services/firebase.service");
 const { retryFirestore } = require("../utils/retryFirestore");
 const logger = require("../utils/logger");
+const { ForbiddenError, ValidationError, InternalError } = require("../errors");
 
 // ── GET /users ────────────────────────────────────────────────────────────────
-exports.getAllUsers = async (req, res) => {
+exports.getAllUsers = async (req, res, next) => {
   try {
     let users = await getAllUsers(); // retried inside firebase.service
     users = users.map((u) => ({ ...u, likedSongs: undefined }));
-    res.json({ success: true, data: users });
+    return res.json({ success: true, data: users });
   } catch (err) {
     logger.error("getAllUsers error:", { error: err.message });
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to fetch users. Please try again.",
-      });
+    return next(
+      new InternalError(
+        "Failed to fetch users. Please try again.",
+        "INTERNAL_ERROR",
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
 // ── GET /users/:uid/liked-songs ───────────────────────────────────────────────
-exports.getLikedSongs = async (req, res) => {
+exports.getLikedSongs = async (req, res, next) => {
   const { uid } = req.params;
 
   if (req.user.uid !== uid) {
-    return res.status(403).json({ success: false, message: "Forbidden" });
+    return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
   }
 
   try {
@@ -83,27 +88,26 @@ exports.getLikedSongs = async (req, res) => {
     return res.json({ success: true, data: songs });
   } catch (err) {
     logger.error("getLikedSongs error:", { uid, error: err.message });
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to fetch liked songs. Please try again.",
-      });
+    return next(
+      new InternalError(
+        "Failed to fetch liked songs. Please try again.",
+        "INTERNAL_ERROR",
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
 // ── POST /users/:uid/liked-songs/:songId ──────────────────────────────────────
-exports.toggleLikedSong = async (req, res) => {
+exports.toggleLikedSong = async (req, res, next) => {
   const { uid, songId } = req.params;
 
   if (req.user.uid !== uid) {
-    return res.status(403).json({ success: false, message: "Forbidden" });
+    return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
   }
 
   if (!songId) {
-    return res
-      .status(400)
-      .json({ success: false, message: "songId is required" });
+    return next(new ValidationError("songId is required", "VALIDATION_ERROR"));
   }
 
   try {
@@ -126,40 +130,46 @@ exports.toggleLikedSong = async (req, res) => {
       { label: "toggleLikedSong" },
     );
 
-    res.json({ success: true, data: updatedList });
+    return res.json({ success: true, data: updatedList });
   } catch (err) {
     logger.error("toggleLikedSong error:", { uid, songId, error: err.message });
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to update liked songs. Please try again.",
-      });
+    return next(
+      new InternalError(
+        "Failed to update liked songs. Please try again.",
+        "INTERNAL_ERROR",
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
 // ── POST /users/:uid/session-picks ────────────────────────────────────────────
-exports.logSessionPicks = async (req, res) => {
+exports.logSessionPicks = async (req, res, next) => {
   const { uid } = req.params;
 
   if (req.user.uid !== uid) {
-    return res.status(403).json({ success: false, message: "Forbidden" });
+    return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
   }
 
   const { picks } = req.body;
 
   if (!Array.isArray(picks) || picks.length === 0) {
-    return res
-      .status(400)
-      .json({ success: false, message: "picks must be a non-empty array" });
+    return next(
+      new ValidationError(
+        "picks must be a non-empty array",
+        "VALIDATION_ERROR",
+      ),
+    );
   }
 
   const MAX_PICKS_PER_BATCH = 50;
   if (picks.length > MAX_PICKS_PER_BATCH) {
-    return res.status(400).json({
-      success: false,
-      message: `picks batch too large — max ${MAX_PICKS_PER_BATCH} per request`,
-    });
+    return next(
+      new ValidationError(
+        `picks batch too large — max ${MAX_PICKS_PER_BATCH} per request`,
+        "VALIDATION_ERROR",
+      ),
+    );
   }
 
   // Respond immediately — telemetry write is non-blocking from client's perspective.

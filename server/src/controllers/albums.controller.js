@@ -6,26 +6,33 @@
  * getAlbum      — returns a single Album document by ID
  * getAlbumSongs — returns all songs in an album ordered by trackNumber asc
  *                 (non-paginated — albums are bounded in size)
+ *
+ * PHASE 1 — TASK 1.1 changes:
+ *   - All direct res.status(4xx/5xx).json() error calls replaced with throws.
+ *   - Controllers no longer call res.json() for errors — errorHandler owns that.
+ *   - Success responses (res.json with data) are completely unchanged.
+ *   - Business logic, Firestore queries, sort logic: untouched.
  */
+
+'use strict';
 
 const { db } = require('../config/firebase');
 const logger  = require('../utils/logger');
-
-const INTERNAL_ERROR = 'Something went wrong. Please try again.';
+const { ValidationError, NotFoundError, InternalError } = require('../errors');
 
 // ── GET /api/albums/:id ────────────────────────────────────────────────────
-exports.getAlbum = async (req, res) => {
+exports.getAlbum = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     if (!id || typeof id !== 'string' || !id.trim()) {
-      return res.status(400).json({ error: 'Invalid album ID', code: 'VALIDATION_ERROR' });
+      throw new ValidationError('Invalid album ID', 'VALIDATION_ERROR');
     }
 
     const snap = await db.collection('albums').doc(id.trim()).get();
 
     if (!snap.exists) {
-      return res.status(404).json({ error: 'Album not found', code: 'NOT_FOUND' });
+      throw new NotFoundError('Album not found', 'NOT_FOUND');
     }
 
     const data = snap.data();
@@ -36,8 +43,11 @@ exports.getAlbum = async (req, res) => {
       updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
     });
   } catch (err) {
-    logger.error('getAlbum error:', { error: err.message, albumId: req.params.id });
-    return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
+    // Re-throw AppErrors so errorHandler handles them with the correct status.
+    // Wrap unknown errors so stack trace is always logged.
+    if (err.isOperational !== undefined) return next(err);
+    logger.error('getAlbum unexpected error:', { error: err.message, albumId: req.params.id });
+    return next(new InternalError('Something went wrong. Please try again.', 'INTERNAL_ERROR', { originalError: err.message }));
   }
 };
 
@@ -50,18 +60,18 @@ exports.getAlbum = async (req, res) => {
 // in ascending queries, so we push them to the end client-side after fetch).
 //
 // Returns: { songs: Song[], albumId: string }
-exports.getAlbumSongs = async (req, res) => {
+exports.getAlbumSongs = async (req, res, next) => {
   try {
     const { id } = req.params;
 
     if (!id || typeof id !== 'string' || !id.trim()) {
-      return res.status(400).json({ error: 'Invalid album ID', code: 'VALIDATION_ERROR' });
+      throw new ValidationError('Invalid album ID', 'VALIDATION_ERROR');
     }
 
     // Verify album exists — return 404 for unknown ID.
     const albumSnap = await db.collection('albums').doc(id.trim()).get();
     if (!albumSnap.exists) {
-      return res.status(404).json({ error: 'Album not found', code: 'NOT_FOUND' });
+      throw new NotFoundError('Album not found', 'NOT_FOUND');
     }
 
     // Firestore query: filter by albumId, order by trackNumber ascending.
@@ -94,7 +104,8 @@ exports.getAlbumSongs = async (req, res) => {
 
     return res.json({ songs, albumId: id.trim() });
   } catch (err) {
-    logger.error('getAlbumSongs error:', { error: err.message, albumId: req.params.id });
-    return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
+    if (err.isOperational !== undefined) return next(err);
+    logger.error('getAlbumSongs unexpected error:', { error: err.message, albumId: req.params.id });
+    return next(new InternalError('Something went wrong. Please try again.', 'INTERNAL_ERROR', { originalError: err.message }));
   }
 };
