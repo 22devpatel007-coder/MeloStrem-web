@@ -61,7 +61,7 @@ const retryRequest = async (error, maxRetries = 2) => {
   config._retryCount = (config._retryCount || 0) + 1;
   if (config._retryCount > maxRetries) return Promise.reject(error);
 
-  // Exponential backoff: 1s, 2s, 4s …
+  // Exponential backoff: 1s, 2s, 4s ...
   const delay = Math.min(1000 * 2 ** (config._retryCount - 1), 8000);
   await new Promise((resolve) => setTimeout(resolve, delay));
 
@@ -99,7 +99,50 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// ── Token refresh state (Task 1.4) ────────────────────────────────────────────
+// isRefreshing — true while a getIdToken(true) call is in-flight.
+//   Prevents N simultaneous 401s from each spawning their own refresh call.
+//
+// _refreshQueue — requests that arrived while a refresh was already running.
+//   Each entry is { resolve, reject }. When the refresh settles, every queued
+//   request is either retried (resolve) or rejected (reject) in one pass.
+//
+// _refreshRetryCount — guards against infinite 401 loops.
+//   If the server keeps returning 401 even after a successful token refresh
+//   (e.g. the account was deleted server-side), we stop after 1 retry cycle
+//   and redirect to /login instead of hammering the backend indefinitely.
 let isRefreshing = false;
+let _refreshQueue = [];
+let _refreshRetryCount = 0;
+const MAX_REFRESH_RETRIES = 1;
+
+/**
+ * Drain the pending queue after a token refresh attempt.
+ * @param {string|null} newToken  Fresh token on success, null on failure.
+ * @param {Error|null}  err       Error to reject with on failure.
+ */
+const _drainRefreshQueue = (newToken, err) => {
+  _refreshQueue.forEach(({ resolve, reject }) => {
+    if (err) {
+      reject(err);
+    } else {
+      resolve(newToken);
+    }
+  });
+  _refreshQueue = [];
+};
+
+/**
+ * Redirect to /login and reject with a session-expired error.
+ * Resets all refresh state so the next login attempt starts clean.
+ */
+const _forceLogout = (reason = 'Session expired. Please log in again.') => {
+  isRefreshing = false;
+  _refreshRetryCount = 0;
+  _drainRefreshQueue(null, new Error(reason));
+  window.location.href = '/login';
+  return Promise.reject(new Error(reason));
+};
 
 // ── Response interceptor — error normalisation + retry ────────────────────────
 const handleResponseError = async (error) => {
@@ -151,26 +194,82 @@ const handleResponseError = async (error) => {
     error.response?.data?.code ||
     'UNKNOWN';
 
-  // ── 401 — try a silent token refresh once ─────────────────────────────────
-  if (status === 401 && !isRefreshing) {
+  // ── 401 — Token Refresh with Request Queue (Task 1.4) ─────────────────────
+  //
+  // Problem this solves:
+  //   Firebase ID tokens expire after 1 hour. If 5 requests all get 401
+  //   simultaneously, the old code would fire 5 independent getIdToken(true)
+  //   calls and then retry all 5 — causing a request storm and race conditions.
+  //
+  // How this works:
+  //   1. First 401 sets isRefreshing = true and starts ONE refresh call.
+  //   2. Any subsequent 401s while refresh is in-flight are added to
+  //      _refreshQueue as pending { resolve, reject } callbacks — they wait.
+  //   3. When the refresh resolves:
+  //      - Success → _drainRefreshQueue(newToken) retries all queued requests
+  //        with the fresh token attached.
+  //      - Failure → _drainRefreshQueue(null, err) rejects all queued requests,
+  //        then _forceLogout() redirects to /login.
+  //   4. _refreshRetryCount prevents an infinite loop: if the server keeps
+  //      returning 401 even after a valid fresh token, we give up after
+  //      MAX_REFRESH_RETRIES (1) attempt and force logout.
+  //   5. _skipRefresh flag on the original config prevents the refresh-retry
+  //      itself from re-entering this block on its own 401.
+  if (status === 401) {
+    const originalConfig = error.config;
+
+    // Guard: if this request was already a post-refresh retry, do not loop.
+    if (originalConfig._skipRefresh || _refreshRetryCount >= MAX_REFRESH_RETRIES) {
+      return _forceLogout();
+    }
+
+    if (isRefreshing) {
+      // Another refresh is already running — queue this request.
+      // Returns a Promise that resolves/rejects when the refresh settles.
+      return new Promise((resolve, reject) => {
+        _refreshQueue.push({
+          resolve: (newToken) => {
+            originalConfig.headers = originalConfig.headers || {};
+            originalConfig.headers.Authorization = `Bearer ${newToken}`;
+            originalConfig._skipRefresh = true;
+            resolve(api(originalConfig));
+          },
+          reject,
+        });
+      });
+    }
+
+    // We are the first 401 — start the refresh cycle.
     isRefreshing = true;
+    _refreshRetryCount += 1;
+
     try {
       const user = auth.currentUser;
-      if (user) {
-        await user.getIdToken(true); // force refresh
-        isRefreshing = false;
-        // Retry the original request once with the fresh token
-        return api(error.config);
-      } else {
-        // No Firebase user — session is gone entirely
-        isRefreshing = false;
-        window.location.href = '/login';
-        return Promise.reject(new Error('Session expired. Please log in again.'));
+
+      if (!user) {
+        // No Firebase user at all — session is completely gone.
+        return _forceLogout();
       }
-    } catch {
+
+      // Force-refresh the ID token (bypasses Firebase's local cache).
+      const newToken = await user.getIdToken(true);
+
+      // Refresh succeeded — reset state.
       isRefreshing = false;
-      window.location.href = '/login';
-      return Promise.reject(new Error('Session expired. Please log in again.'));
+      _refreshRetryCount = 0;
+
+      // Drain the queue: retry all waiting requests with the new token.
+      _drainRefreshQueue(newToken, null);
+
+      // Retry the original request that triggered the 401.
+      originalConfig.headers = originalConfig.headers || {};
+      originalConfig.headers.Authorization = `Bearer ${newToken}`;
+      originalConfig._skipRefresh = true; // prevent re-entry on this config
+      return api(originalConfig);
+
+    } catch (refreshError) {
+      // getIdToken(true) itself failed — token is revoked or user deleted.
+      return _forceLogout();
     }
   }
 
