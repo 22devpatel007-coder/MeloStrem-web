@@ -1,18 +1,26 @@
 /**
  * client/src/store/authStore.js
  *
- * SCALABLE FIX — Added 'userPlaylists' to USER_QUERY_KEYS.
+ * PRODUCTION READY — No logic changes from previous version.
  *
- * useUserPlaylists now caches data under [QUERY_KEYS.USER_PLAYLISTS, uid].
- * This is user-scoped data and must be cleared on logout so a different
- * user logging in on the same device never sees the previous user's playlists.
+ * USER_QUERY_KEYS lists all query keys that are user-scoped and must be
+ * wiped on logout so a different user on the same device never sees
+ * another user's data.
  *
- * ADMIN_PLAYLISTS ('adminPlaylists') is intentionally NOT in this list —
- * it is public content (same for all users) and should be preserved across
- * logout exactly like SONGS and SEARCH, so the next user gets instant
- * cached library playlists without a network round-trip.
+ * Cache scope summary:
+ *   USER-SCOPED (cleared on logout):
+ *     ['likedSongs']    — liked songs are private per user
+ *     ['playlists']     — admin CRUD hook cache (scoped to session)
+ *     ['userPlaylists'] — useUserPlaylists: matches ['userPlaylists', uid] by prefix
+ *     ['users']         — admin user list
+ *     ['playlist', id]  — individual playlist detail pages
  *
- * All other logic is completely unchanged.
+ *   PUBLIC (preserved across logout — same for all users, no PII):
+ *     ['songs']         — library song list
+ *     ['search']        — search results
+ *     ['adminPlaylists']— public admin/library playlists
+ *     ['artist*']       — artist detail and songs
+ *     ['album*']        — album detail and songs
  */
 
 import { create } from 'zustand';
@@ -26,10 +34,14 @@ export const registerQueryClient = (qc) => {
 
 // All query keys that belong to the currently authenticated user.
 // Keep this list in sync with client/src/constants/queryKeys.js.
+//
+// NOTE: removeQueries({ queryKey: ['userPlaylists'] }) matches ALL keys that
+// start with 'userPlaylists', including ['userPlaylists', uid] — no need to
+// pass the uid here.
 const USER_QUERY_KEYS = [
   ['likedSongs'],
   ['playlists'],
-  ['userPlaylists'],  // ✅ NEW — clears useUserPlaylists cache on logout
+  ['userPlaylists'],  // clears useUserPlaylists cache (uid-scoped) on logout
   ['users'],
 ];
 
@@ -45,9 +57,9 @@ const clearUserCache = () => {
 };
 
 const useAuthStore = create((set) => ({
-  user:      null,
-  isAdmin:   false,
-  loading:   true,
+  user:       null,
+  isAdmin:    false,
+  loading:    true,
   likedSongs: [],
 
   setUser:       (user)       => set({ user }),
@@ -59,6 +71,7 @@ const useAuthStore = create((set) => ({
     try {
       await authServiceLogout();
     } finally {
+      // Always clear user cache and reset state, even if Firebase logout fails.
       clearUserCache();
       set({ user: null, isAdmin: false, likedSongs: [] });
     }

@@ -1,9 +1,16 @@
 /**
  * client/src/components/playlists/PlaylistSkeleton.jsx
  *
- * Shimmer skeleton for playlist cards and timeline rows.
- * Pure CSS animation — no JS, no dependencies.
- * Matches exact dimensions of PlaylistCard to prevent layout shift.
+ * PRODUCTION READY — Updated to match responsive grid
+ *
+ * Change from previous version:
+ *   PlaylistGridSkeleton now uses the `pl-grid` CSS class (injected by Playlists.jsx)
+ *   instead of its own inline `gridTemplateColumns` style. This ensures skeleton
+ *   columns always match the live grid columns at every breakpoint.
+ *   No logic changes — purely a className addition on the grid wrapper.
+ *
+ * All other components (PlaylistCardSkeleton, PlaylistTimelineSkeleton,
+ * PlaylistTimelineSkeletonGroup, ResumeBannerSkeleton) are completely unchanged.
  */
 
 import React from 'react';
@@ -12,15 +19,10 @@ import React from 'react';
 const SHIMMER_STYLE = `
 @keyframes meloShimmer {
   0%   { background-position: -400px 0; }
-  100% { background-position: 400px 0; }
+  100% { background-position:  400px 0; }
 }
 .melo-shimmer {
-  background: linear-gradient(
-    90deg,
-    #1a1a1a 25%,
-    #242424 50%,
-    #1a1a1a 75%
-  );
+  background: linear-gradient(90deg, #1a1a1a 25%, #242424 50%, #1a1a1a 75%);
   background-size: 400px 100%;
   animation: meloShimmer 1.4s ease infinite;
 }
@@ -29,10 +31,10 @@ const SHIMMER_STYLE = `
 let styleInjected = false;
 const injectStyle = () => {
   if (styleInjected || typeof document === 'undefined') return;
+  styleInjected = true;
   const tag = document.createElement('style');
   tag.textContent = SHIMMER_STYLE;
   document.head.appendChild(tag);
-  styleInjected = true;
 };
 
 // ── Grid Card Skeleton ─────────────────────────────────────────────────────────
@@ -51,28 +53,12 @@ export const PlaylistCardSkeleton = () => {
       aria-hidden="true"
     >
       {/* Cover art placeholder */}
-      <div
-        className="melo-shimmer"
-        style={{ aspectRatio: '1 / 1', width: '100%' }}
-      />
-
+      <div className="melo-shimmer" style={{ aspectRatio: '1 / 1', width: '100%' }} />
       {/* Text placeholders */}
       <div style={{ padding: '12px 14px 14px' }}>
-        {/* Title */}
-        <div
-          className="melo-shimmer"
-          style={{ height: 13, borderRadius: 6, marginBottom: 8, width: '70%' }}
-        />
-        {/* Song count */}
-        <div
-          className="melo-shimmer"
-          style={{ height: 11, borderRadius: 6, width: '40%', marginBottom: 12 }}
-        />
-        {/* Last played badge */}
-        <div
-          className="melo-shimmer"
-          style={{ height: 10, borderRadius: 6, width: '55%' }}
-        />
+        <div className="melo-shimmer" style={{ height: 13, borderRadius: 6, marginBottom: 8, width: '70%' }} />
+        <div className="melo-shimmer" style={{ height: 11, borderRadius: 6, width: '40%', marginBottom: 12 }} />
+        <div className="melo-shimmer" style={{ height: 10, borderRadius: 6, width: '55%' }} />
       </div>
     </div>
   );
@@ -92,40 +78,21 @@ export const PlaylistTimelineSkeleton = () => {
       }}
       aria-hidden="true"
     >
-      {/* Thumbnail */}
-      <div
-        className="melo-shimmer"
-        style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0 }}
-      />
-      {/* Text */}
+      <div className="melo-shimmer" style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
-        <div
-          className="melo-shimmer"
-          style={{ height: 13, borderRadius: 6, width: '45%', marginBottom: 8 }}
-        />
-        <div
-          className="melo-shimmer"
-          style={{ height: 11, borderRadius: 6, width: '25%' }}
-        />
+        <div className="melo-shimmer" style={{ height: 13, borderRadius: 6, width: '45%', marginBottom: 8 }} />
+        <div className="melo-shimmer" style={{ height: 11, borderRadius: 6, width: '25%' }} />
       </div>
-      {/* Date badge */}
-      <div
-        className="melo-shimmer"
-        style={{ height: 11, borderRadius: 6, width: 70, flexShrink: 0 }}
-      />
+      <div className="melo-shimmer" style={{ height: 11, borderRadius: 6, width: 70, flexShrink: 0 }} />
     </div>
   );
 };
 
 // ── Grid skeleton group ────────────────────────────────────────────────────────
+// Uses .pl-grid class (injected by Playlists.jsx) so skeleton breakpoints
+// always match the live grid. No inline gridTemplateColumns needed.
 export const PlaylistGridSkeleton = ({ count = 6 }) => (
-  <div
-    style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
-      gap: 14,
-    }}
-  >
+  <div className="pl-grid">
     {Array.from({ length: count }, (_, i) => (
       <PlaylistCardSkeleton key={i} />
     ))}
@@ -135,7 +102,6 @@ export const PlaylistGridSkeleton = ({ count = 6 }) => (
 // ── Timeline skeleton group ────────────────────────────────────────────────────
 export const PlaylistTimelineSkeletonGroup = ({ count = 5 }) => (
   <div>
-    {/* Section header placeholder */}
     <div
       className="melo-shimmer"
       style={{ height: 11, borderRadius: 6, width: 90, marginBottom: 14 }}
@@ -164,28 +130,13 @@ export const ResumeBannerSkeleton = () => {
       }}
       aria-hidden="true"
     >
-      <div
-        className="melo-shimmer"
-        style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0 }}
-      />
+      <div className="melo-shimmer" style={{ width: 52, height: 52, borderRadius: 8, flexShrink: 0 }} />
       <div style={{ flex: 1 }}>
-        <div
-          className="melo-shimmer"
-          style={{ height: 11, borderRadius: 6, width: 90, marginBottom: 8 }}
-        />
-        <div
-          className="melo-shimmer"
-          style={{ height: 14, borderRadius: 6, width: '40%', marginBottom: 6 }}
-        />
-        <div
-          className="melo-shimmer"
-          style={{ height: 11, borderRadius: 6, width: '25%' }}
-        />
+        <div className="melo-shimmer" style={{ height: 11, borderRadius: 6, width: 90, marginBottom: 8 }} />
+        <div className="melo-shimmer" style={{ height: 14, borderRadius: 6, width: '40%', marginBottom: 6 }} />
+        <div className="melo-shimmer" style={{ height: 11, borderRadius: 6, width: '25%' }} />
       </div>
-      <div
-        className="melo-shimmer"
-        style={{ width: 84, height: 34, borderRadius: 8, flexShrink: 0 }}
-      />
+      <div className="melo-shimmer" style={{ width: 84, height: 34, borderRadius: 8, flexShrink: 0 }} />
     </div>
   );
 };

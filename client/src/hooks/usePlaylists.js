@@ -1,45 +1,36 @@
 /**
  * client/src/hooks/usePlaylists.js
  *
- * PRODUCTION FIX — Request storm eliminated
+ * PRODUCTION READY
  *
- * ROOT CAUSE (two bugs):
+ * Changes from previous version:
  *
- *   BUG 1 — usePlaylists() had NO staleTime (React Query default = 0ms).
- *     staleTime:0 = data immediately stale after every fetch.
- *     Every refetchOnWindowFocus (tab switch, window click) triggered a new
- *     POST /playlists request. Sidebar.jsx calls usePlaylists() on every
- *     mount, compounding the storm with the songs storm to produce the
- *     repeated 500 + 429 pattern visible in DevTools.
+ *   useUserPlaylists:
+ *     - Added `retry: 1`          — one automatic retry on network blip
+ *     - Added `refetchOnWindowFocus: false` — prevents request storm on tab switch
+ *     - Exposed `error` and `isError` in return — Sidebar shows "Couldn't load"
+ *       instead of silently showing "No playlists yet." on fetch failure
  *
- *   BUG 2 — Sidebar.jsx was calling usePlaylists(uid) which is the ADMIN
- *     CRUD hook. usePlaylists() ignores its argument (it has no uid param),
- *     fetches ALL playlists via GET /api/playlists (admin route), and has
- *     no cache policy. Sidebar should call useUserPlaylists() instead.
- *     (Fix for Sidebar is in Sidebar.jsx — see that file.)
+ *   useAdminPlaylists:
+ *     - Added `retry: 1` and `refetchOnWindowFocus: false` — same reason
  *
- * FIX applied here:
- *   Added staleTime + gcTime to usePlaylists (admin CRUD hook) so even if
- *   it's called from a non-admin context it doesn't storm the server.
+ *   usePlaylists (admin CRUD hook):
+ *     - Added `refetchOnWindowFocus: false` — already had staleTime, this
+ *       removes the remaining window-focus refetch vector
  *
- *   staleTime: 2 minutes — admin playlists rarely change mid-session.
- *   gcTime:    10 minutes — keeps data across navigations.
- *
- * WHAT DID NOT CHANGE:
- *   - useUserPlaylists — already had staleTime: 30s (correct, untouched)
- *   - useAdminPlaylists — already had staleTime: 5min (correct, untouched)
- *   - usePlaylistMutations — untouched
- *   - All mutation functions — untouched
- *   - All return shapes — untouched
+ *   usePlaylistMutations — completely unchanged.
+ *   All mutation functions — completely unchanged.
+ *   All return shapes unchanged except useUserPlaylists which now also
+ *   returns { error, isError }.
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getPlaylists,
-  createPlaylist   as createPlaylistREST,
-  updatePlaylist   as updatePlaylistREST,
-  deletePlaylist   as deletePlaylistREST,
-  addSongToPlaylist    as addSongREST,
+  createPlaylist        as createPlaylistREST,
+  updatePlaylist        as updatePlaylistREST,
+  deletePlaylist        as deletePlaylistREST,
+  addSongToPlaylist     as addSongREST,
   removeSongFromPlaylist as removeSongREST,
   fetchAdminPlaylists,
   fetchUserPlaylists,
@@ -62,24 +53,24 @@ import { useAuthStore } from '../store/authStore';
 // ── usePlaylists — REST-backed admin CRUD ─────────────────────────────────────
 //
 // Used by admin pages to manage playlists (create/update/delete/addSong/removeSong).
-// FIXED: added staleTime + gcTime to stop request storm on window focus.
 export const usePlaylists = () => {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: [QUERY_KEYS.PLAYLISTS] });
 
   const playlistsQuery = useQuery({
-    queryKey: [QUERY_KEYS.PLAYLISTS],
-    queryFn:  getPlaylists,
-    // ── FIXED: was missing — default staleTime:0 caused refetch storm ────────
-    staleTime: 2 * 60_000,   // 2 minutes — admin playlists rarely change mid-session
-    gcTime:    10 * 60_000,  // 10 minutes in-memory cache
+    queryKey:             [QUERY_KEYS.PLAYLISTS],
+    queryFn:              getPlaylists,
+    staleTime:            2 * 60_000,   // 2 minutes
+    gcTime:               10 * 60_000,  // 10 minutes
+    retry:                1,
+    refetchOnWindowFocus: false,
   });
 
-  const create     = useMutation({ mutationFn: createPlaylistREST,                                             onSuccess: invalidate });
-  const update     = useMutation({ mutationFn: ({ id, data }) => updatePlaylistREST(id, data),                 onSuccess: invalidate });
-  const remove     = useMutation({ mutationFn: deletePlaylistREST,                                             onSuccess: invalidate });
-  const addSong    = useMutation({ mutationFn: ({ playlistId, songId }) => addSongREST(playlistId, songId),    onSuccess: invalidate });
-  const removeSong = useMutation({ mutationFn: ({ playlistId, songId }) => removeSongREST(playlistId, songId), onSuccess: invalidate });
+  const create     = useMutation({ mutationFn: createPlaylistREST,                                              onSuccess: invalidate });
+  const update     = useMutation({ mutationFn: ({ id, data }) => updatePlaylistREST(id, data),                  onSuccess: invalidate });
+  const remove     = useMutation({ mutationFn: deletePlaylistREST,                                              onSuccess: invalidate });
+  const addSong    = useMutation({ mutationFn: ({ playlistId, songId }) => addSongREST(playlistId, songId),     onSuccess: invalidate });
+  const removeSong = useMutation({ mutationFn: ({ playlistId, songId }) => removeSongREST(playlistId, songId),  onSuccess: invalidate });
 
   return {
     playlists:              playlistsQuery.data ?? [],
@@ -95,36 +86,46 @@ export const usePlaylists = () => {
 // ── useUserPlaylists — REST via React Query ───────────────────────────────────
 //
 // Fetches GET /api/users/:uid/playlists.
-// staleTime: 30s — already correct, untouched.
-// This is what Sidebar.jsx should call (fixed in Sidebar.jsx).
+// Called by Sidebar to render the user's playlist list.
+//
+// Returns: { playlists, loading, error, isError }
+//   - playlists: always an array (never undefined)
+//   - loading:   true only on the initial fetch (no prior cache)
+//   - isError:   true if the fetch failed after all retries
+//   - error:     the raw Error object (for logging); never shown to users directly
 export const useUserPlaylists = () => {
   const { user } = useAuthStore();
   const uid      = user?.uid ?? null;
 
   const query = useQuery({
-    queryKey: [QUERY_KEYS.USER_PLAYLISTS, uid],
-    queryFn:  () => fetchUserPlaylists(uid),
-    enabled:  !!uid,
-    staleTime: 30_000,       // 30 seconds — correct, untouched
-    gcTime:    5 * 60_000,   // 5 minutes in-memory cache
+    queryKey:             [QUERY_KEYS.USER_PLAYLISTS, uid],
+    queryFn:              () => fetchUserPlaylists(uid),
+    enabled:              !!uid,
+    staleTime:            30_000,      // 30 seconds
+    gcTime:               5 * 60_000,  // 5 minutes
+    retry:                1,           // one retry on network blip, then surface error
+    refetchOnWindowFocus: false,       // prevents request storm on tab switch
   });
 
   return {
     playlists: query.data ?? [],
     loading:   query.isLoading,
+    error:     query.error   ?? null,  // raw Error — for dev logging only
+    isError:   query.isError,          // boolean — drives Sidebar error state
   };
 };
 
 // ── useAdminPlaylists — REST via React Query ──────────────────────────────────
 //
-// Fetches GET /api/playlists/admin.
-// staleTime: 5min — already correct, untouched.
+// Fetches GET /api/playlists/admin (public endpoint).
 export const useAdminPlaylists = () => {
   const query = useQuery({
-    queryKey: [QUERY_KEYS.ADMIN_PLAYLISTS],
-    queryFn:  fetchAdminPlaylists,
-    staleTime: 5 * 60_000,   // 5 minutes — admin playlists rarely change
-    gcTime:    10 * 60_000,  // 10 minutes in memory cache
+    queryKey:             [QUERY_KEYS.ADMIN_PLAYLISTS],
+    queryFn:              fetchAdminPlaylists,
+    staleTime:            5 * 60_000,   // 5 minutes
+    gcTime:               10 * 60_000,  // 10 minutes
+    retry:                1,
+    refetchOnWindowFocus: false,
   });
 
   return {
@@ -135,7 +136,7 @@ export const useAdminPlaylists = () => {
 
 // ── usePlaylistMutations — direct Firestore writes + cache invalidation ───────
 //
-// Completely untouched. Write operations are one-shot, no persistent listeners.
+// Completely unchanged. Write operations are one-shot, no persistent listeners.
 export const usePlaylistMutations = () => {
   const { user: currentUser } = useAuthStore();
   const qc = useQueryClient();

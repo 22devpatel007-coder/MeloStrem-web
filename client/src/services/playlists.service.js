@@ -1,18 +1,28 @@
 /**
  * client/src/services/playlists.service.js
  *
- * SCALABLE FIX — Two new service functions added:
+ * PRODUCTION READY
  *
- *   fetchAdminPlaylists()        → GET /api/playlists/admin  (public)
- *   fetchUserPlaylists(uid)      → GET /api/users/:uid/playlists (protected)
+ * Changes from previous version:
+ *   - fetchUserPlaylists: added try/catch with console.error so failures are
+ *     visible in DevTools rather than surfacing as an opaque empty array.
+ *     The error is re-thrown so React Query's `isError` / `error` fire correctly
+ *     and the Sidebar can show "Couldn't load playlists." instead of
+ *     silently showing "No playlists yet."
  *
- * These are called by the updated useAdminPlaylists and useUserPlaylists hooks.
- * All existing functions are preserved exactly — zero breaking changes.
+ *   - fetchAdminPlaylists: same try/catch + re-throw pattern.
+ *
+ *   All other functions — completely unchanged.
  */
 
 import api from './api';
 
 // ─── Helper: safely extract an array from varying response shapes ─────────────
+//
+// Handles three backend envelope shapes defensively:
+//   { data: { data: [...] } }   →  Axios wraps { success, data: [...] }
+//   { data: [...] }             →  Axios wraps a raw array
+//   anything else               →  []
 function extractArray(res) {
   if (Array.isArray(res?.data?.data)) return res.data.data;
   if (Array.isArray(res?.data))       return res.data;
@@ -75,35 +85,33 @@ export const getPlaylistSongs = async (songIds) => {
   }
 };
 
-// ─── NEW: REST replacements for Firestore onSnapshot listeners ────────────────
-
-/**
- * Fetches all public admin/library playlists.
- * Replaces useAdminPlaylists Firestore onSnapshot.
- * Calls GET /api/playlists/admin — public endpoint, no auth header needed
- * (Axios interceptor still attaches it if present, which is harmless).
- *
- * Returns Playlist[] — always an array, never undefined.
- *
- * @returns {Promise<Playlist[]>}
- */
+// ─── fetchAdminPlaylists — GET /api/playlists/admin ──────────────────────────
+//
+// Public endpoint — no uid required.
+// Re-throws on failure so React Query isError fires and UI can show error state.
 export const fetchAdminPlaylists = async () => {
-  const res = await api.get('/playlists/admin');
-  return extractArray(res);
+  try {
+    const res = await api.get('/playlists/admin');
+    return extractArray(res);
+  } catch (err) {
+    console.error('[playlists.service] fetchAdminPlaylists error:', err.message);
+    throw err;
+  }
 };
 
-/**
- * Fetches all playlists owned by the given user.
- * Replaces useUserPlaylists Firestore onSnapshot.
- * Calls GET /api/users/:uid/playlists — protected, token required.
- *
- * Returns Playlist[] — always an array, never undefined.
- *
- * @param {string} uid
- * @returns {Promise<Playlist[]>}
- */
+// ─── fetchUserPlaylists — GET /api/users/:uid/playlists ──────────────────────
+//
+// Protected — Axios interceptor attaches the Firebase ID token automatically.
+// Returns [] immediately if uid is falsy (user not yet authenticated).
+// Re-throws on failure so React Query isError fires and Sidebar shows the
+// "Couldn't load playlists." error message instead of silent empty state.
 export const fetchUserPlaylists = async (uid) => {
   if (!uid) return [];
-  const res = await api.get(`/users/${uid}/playlists`);
-  return extractArray(res);
+  try {
+    const res = await api.get(`/users/${uid}/playlists`);
+    return extractArray(res);
+  } catch (err) {
+    console.error('[playlists.service] fetchUserPlaylists error:', err.message);
+    throw err;   // ← critical: must re-throw so React Query sets isError=true
+  }
 };
