@@ -1,36 +1,52 @@
 /**
  * client/src/hooks/usePlaylists.js
  *
- * PRODUCTION READY
+ * Task 2.4 — Hook Return Contract Standardization
  *
- * Changes from previous version:
+ * CHANGES FROM PREVIOUS VERSION:
+ *
+ *   usePlaylists (admin CRUD):
+ *     + isError   — boolean (was missing)
+ *     + error     — raw Error object (was missing)
+ *     + refetch   — exposed from query (was missing)
+ *     + useErrorHandler — auto-toasts on fetch failure
  *
  *   useUserPlaylists:
- *     - Added `retry: 1`          — one automatic retry on network blip
- *     - Added `refetchOnWindowFocus: false` — prevents request storm on tab switch
- *     - Exposed `error` and `isError` in return — Sidebar shows "Couldn't load"
- *       instead of silently showing "No playlists yet." on fetch failure
+ *     + isLoading — alias for `loading` (KEPT `loading` for backward compat)
+ *     + refetch   — exposed from query (was missing)
+ *     + useErrorHandler — auto-toasts on fetch failure
+ *     NOTE: `loading` is kept alongside `isLoading` so existing Sidebar.jsx
+ *     callers do not need to be updated simultaneously. Remove `loading` in
+ *     a follow-up cleanup PR once all callers migrate to `isLoading`.
  *
  *   useAdminPlaylists:
- *     - Added `retry: 1` and `refetchOnWindowFocus: false` — same reason
+ *     + isLoading — alias for `loading` (KEPT `loading` for backward compat)
+ *     + isError   — boolean (was missing)
+ *     + error     — raw Error object (was missing)
+ *     + refetch   — exposed from query (was missing)
+ *     + useErrorHandler — auto-toasts on fetch failure
+ *     NOTE: Same `loading` backward compat note as useUserPlaylists.
  *
- *   usePlaylists (admin CRUD hook):
- *     - Added `refetchOnWindowFocus: false` — already had staleTime, this
- *       removes the remaining window-focus refetch vector
+ *   usePlaylistMutations:
+ *     COMPLETELY UNCHANGED — direct Firestore writes, not React Query.
  *
- *   usePlaylistMutations — completely unchanged.
- *   All mutation functions — completely unchanged.
- *   All return shapes unchanged except useUserPlaylists which now also
- *   returns { error, isError }.
+ * UNCHANGED ACROSS ALL EXPORTS:
+ *   - All React Query options (staleTime, gcTime, retry, refetchOnWindowFocus)
+ *   - All mutation functions and their Firestore logic
+ *   - queryKey structures
+ *   - Defensive defaults ([])
+ *   - cache invalidation patterns
+ *
+ * @module usePlaylists
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   getPlaylists,
-  createPlaylist        as createPlaylistREST,
-  updatePlaylist        as updatePlaylistREST,
-  deletePlaylist        as deletePlaylistREST,
-  addSongToPlaylist     as addSongREST,
+  createPlaylist         as createPlaylistREST,
+  updatePlaylist         as updatePlaylistREST,
+  deletePlaylist         as deletePlaylistREST,
+  addSongToPlaylist      as addSongREST,
   removeSongFromPlaylist as removeSongREST,
   fetchAdminPlaylists,
   fetchUserPlaylists,
@@ -49,10 +65,24 @@ import {
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useAuthStore } from '../store/authStore';
+import { useErrorHandler } from './useErrorHandler';
 
 // ── usePlaylists — REST-backed admin CRUD ─────────────────────────────────────
 //
 // Used by admin pages to manage playlists (create/update/delete/addSong/removeSong).
+//
+// @returns {{
+//   playlists:              import('../types/playlist').Playlist[],
+//   isLoading:              boolean,
+//   isError:                boolean,
+//   error:                  Error | null,
+//   refetch:                () => void,
+//   createPlaylist:         (data: object) => void,
+//   updatePlaylist:         ({ id: string, data: object }) => void,
+//   deletePlaylist:         (id: string) => void,
+//   addSongToPlaylist:      ({ playlistId: string, songId: string }) => void,
+//   removeSongFromPlaylist: ({ playlistId: string, songId: string }) => void,
+// }}
 export const usePlaylists = () => {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: [QUERY_KEYS.PLAYLISTS] });
@@ -60,21 +90,31 @@ export const usePlaylists = () => {
   const playlistsQuery = useQuery({
     queryKey:             [QUERY_KEYS.PLAYLISTS],
     queryFn:              getPlaylists,
-    staleTime:            2 * 60_000,   // 2 minutes
-    gcTime:               10 * 60_000,  // 10 minutes
+    staleTime:            2 * 60_000,
+    gcTime:               10 * 60_000,
     retry:                1,
     refetchOnWindowFocus: false,
   });
 
-  const create     = useMutation({ mutationFn: createPlaylistREST,                                              onSuccess: invalidate });
-  const update     = useMutation({ mutationFn: ({ id, data }) => updatePlaylistREST(id, data),                  onSuccess: invalidate });
-  const remove     = useMutation({ mutationFn: deletePlaylistREST,                                              onSuccess: invalidate });
-  const addSong    = useMutation({ mutationFn: ({ playlistId, songId }) => addSongREST(playlistId, songId),     onSuccess: invalidate });
-  const removeSong = useMutation({ mutationFn: ({ playlistId, songId }) => removeSongREST(playlistId, songId),  onSuccess: invalidate });
+  // Auto-toast on fetch failure
+  useErrorHandler({
+    error:    playlistsQuery.error,
+    isError:  playlistsQuery.isError,
+    context:  'loading playlists',
+  });
+
+  const create     = useMutation({ mutationFn: createPlaylistREST,                                             onSuccess: invalidate });
+  const update     = useMutation({ mutationFn: ({ id, data }) => updatePlaylistREST(id, data),                 onSuccess: invalidate });
+  const remove     = useMutation({ mutationFn: deletePlaylistREST,                                             onSuccess: invalidate });
+  const addSong    = useMutation({ mutationFn: ({ playlistId, songId }) => addSongREST(playlistId, songId),    onSuccess: invalidate });
+  const removeSong = useMutation({ mutationFn: ({ playlistId, songId }) => removeSongREST(playlistId, songId), onSuccess: invalidate });
 
   return {
     playlists:              playlistsQuery.data ?? [],
     isLoading:              playlistsQuery.isLoading,
+    isError:                playlistsQuery.isError,           // ← NEW
+    error:                  playlistsQuery.error   ?? null,   // ← NEW
+    refetch:                playlistsQuery.refetch,            // ← NEW
     createPlaylist:         create.mutate,
     updatePlaylist:         update.mutate,
     deletePlaylist:         remove.mutate,
@@ -88,11 +128,14 @@ export const usePlaylists = () => {
 // Fetches GET /api/users/:uid/playlists.
 // Called by Sidebar to render the user's playlist list.
 //
-// Returns: { playlists, loading, error, isError }
-//   - playlists: always an array (never undefined)
-//   - loading:   true only on the initial fetch (no prior cache)
-//   - isError:   true if the fetch failed after all retries
-//   - error:     the raw Error object (for logging); never shown to users directly
+// @returns {{
+//   playlists: import('../types/playlist').Playlist[],
+//   isLoading: boolean,
+//   loading:   boolean,    ← KEPT for backward compat — remove in cleanup PR
+//   isError:   boolean,
+//   error:     Error | null,
+//   refetch:   () => void,
+// }}
 export const useUserPlaylists = () => {
   const { user } = useAuthStore();
   const uid      = user?.uid ?? null;
@@ -101,42 +144,73 @@ export const useUserPlaylists = () => {
     queryKey:             [QUERY_KEYS.USER_PLAYLISTS, uid],
     queryFn:              () => fetchUserPlaylists(uid),
     enabled:              !!uid,
-    staleTime:            30_000,      // 30 seconds
-    gcTime:               5 * 60_000,  // 5 minutes
-    retry:                1,           // one retry on network blip, then surface error
-    refetchOnWindowFocus: false,       // prevents request storm on tab switch
+    staleTime:            30_000,
+    gcTime:               5 * 60_000,
+    retry:                1,
+    refetchOnWindowFocus: false,
+  });
+
+  // Auto-toast on fetch failure
+  useErrorHandler({
+    error:   query.error,
+    isError: query.isError,
+    context: 'loading playlists',
   });
 
   return {
-    playlists: query.data ?? [],
-    loading:   query.isLoading,
-    error:     query.error   ?? null,  // raw Error — for dev logging only
-    isError:   query.isError,          // boolean — drives Sidebar error state
+    playlists: query.data  ?? [],
+    isLoading: query.isLoading,              // ← NEW (standardized name)
+    loading:   query.isLoading,              //    KEPT for backward compat
+    isError:   query.isError,
+    error:     query.error  ?? null,
+    refetch:   query.refetch,                // ← NEW
   };
 };
 
 // ── useAdminPlaylists — REST via React Query ──────────────────────────────────
 //
-// Fetches GET /api/playlists/admin (public endpoint).
+// Fetches GET /api/playlists/admin (public endpoint, dedicated rate limiter).
+//
+// @returns {{
+//   adminPlaylists: import('../types/playlist').Playlist[],
+//   isLoading:      boolean,
+//   loading:        boolean,  ← KEPT for backward compat — remove in cleanup PR
+//   isError:        boolean,
+//   error:          Error | null,
+//   refetch:        () => void,
+// }}
 export const useAdminPlaylists = () => {
   const query = useQuery({
     queryKey:             [QUERY_KEYS.ADMIN_PLAYLISTS],
     queryFn:              fetchAdminPlaylists,
-    staleTime:            5 * 60_000,   // 5 minutes
-    gcTime:               10 * 60_000,  // 10 minutes
+    staleTime:            5 * 60_000,
+    gcTime:               10 * 60_000,
     retry:                1,
     refetchOnWindowFocus: false,
   });
 
+  // Auto-toast on fetch failure
+  useErrorHandler({
+    error:   query.error,
+    isError: query.isError,
+    context: 'loading playlists',
+  });
+
   return {
-    adminPlaylists: query.data ?? [],
-    loading:        query.isLoading,
+    adminPlaylists: query.data  ?? [],
+    isLoading:      query.isLoading,          // ← NEW (standardized name)
+    loading:        query.isLoading,          //    KEPT for backward compat
+    isError:        query.isError,            // ← NEW
+    error:          query.error   ?? null,    // ← NEW
+    refetch:        query.refetch,             // ← NEW
   };
 };
 
 // ── usePlaylistMutations — direct Firestore writes + cache invalidation ───────
 //
-// Completely unchanged. Write operations are one-shot, no persistent listeners.
+// COMPLETELY UNCHANGED. Write operations are one-shot, no persistent listeners.
+// This hook does not use React Query and therefore does not need standardization.
+// ─────────────────────────────────────────────────────────────────────────────
 export const usePlaylistMutations = () => {
   const { user: currentUser } = useAuthStore();
   const qc = useQueryClient();

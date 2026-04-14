@@ -1,179 +1,212 @@
-// ─── client/src/utils/errorMessages.js ───────────────────────────────────────
-//
-// Single source of truth for every user-facing error string in MeloStream.
-//
-// Rules:
-//   • All messages must be safe to display — never expose Firebase codes,
-//     Axios internals, stack traces, or server technical details.
-//   • Messages should tell the user what happened AND what to do next.
-//   • To change error copy for any error in the app, edit ONLY this file.
-//   • Keys are the backend error.code strings from shared/constants/errorCodes.js
-//     plus frontend-only codes (NETWORK_ERROR, UNKNOWN, etc.).
-//
-// USAGE:
-//   import { getErrorMessage } from '../utils/errorMessages';
-//   const msg = getErrorMessage('AUTH_TOKEN_EXPIRED'); // → 'Your session expired...'
-//
-//   // With action context for generic fallbacks:
-//   const msg = getErrorMessage('UNKNOWN', { action: 'loading songs' });
-//   // → 'Something went wrong while loading songs. Please try again.'
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * client/src/utils/errorMessages.js
+ *
+ * Task 2.4 — Error Code → User Message Map
+ *
+ * SINGLE SOURCE OF TRUTH for all user-facing error strings.
+ *
+ * HOW IT WORKS:
+ *   1. Backend returns { success: false, error: { code, message } }
+ *   2. Axios service layer catches this and the code lands in error.response.data.error.code
+ *   3. getErrorMessage() reads that code and returns the right user string
+ *   4. If no code match → context-based fallback → generic fallback
+ *
+ * ADDING NEW ERRORS:
+ *   Add a new entry to ERROR_MESSAGES below. The key is the error code
+ *   string from shared/constants/errorCodes.js. The value is what users see.
+ *   Never use technical language in user messages.
+ *
+ * ERROR SEVERITY:
+ *   ERROR   — action failed, user needs to know (red toast, 8s)
+ *   WARNING — action partially succeeded or user input issue (amber toast, 6s)
+ *   INFO    — informational, non-blocking (blue toast, 4s)
+ *   SUCCESS — positive confirmation (green toast, 3s)
+ */
 
-// ── Error message map ─────────────────────────────────────────────────────────
-// Keys match backend error codes from shared/constants/errorCodes.js.
-// Add new entries here whenever a new error code is added to the backend.
-
-const ERROR_MESSAGES = {
-  // ── Auth errors (401) ──────────────────────────────────────────────────────
-  AUTH_TOKEN_MISSING:
-    'You need to be signed in to do that. Please log in and try again.',
-  AUTH_TOKEN_INVALID:
-    'Your session is invalid. Please log out and sign in again.',
-  AUTH_TOKEN_EXPIRED:
-    'Your session has expired. Please log in again to continue.',
-  AUTH_TOKEN_REVOKED:
-    'Your session was ended from another device. Please log in again.',
-  AUTH_USER_NOT_FOUND:
-    'We couldn\'t find your account. Please log in again.',
-
-  // ── Authorisation errors (403) ────────────────────────────────────────────
-  FORBIDDEN:
-    'You don\'t have permission to do that.',
-  ADMIN_REQUIRED:
-    'This action requires admin access.',
-
-  // ── Not found errors (404) ────────────────────────────────────────────────
-  NOT_FOUND:
-    'We couldn\'t find what you were looking for.',
-  SONG_NOT_FOUND:
-    'This song is no longer available.',
-  ARTIST_NOT_FOUND:
-    'This artist page is no longer available.',
-  ALBUM_NOT_FOUND:
-    'This album is no longer available.',
-  PLAYLIST_NOT_FOUND:
-    'This playlist is no longer available.',
-  USER_NOT_FOUND:
-    'User not found.',
-
-  // ── Conflict errors (409) ─────────────────────────────────────────────────
-  CONFLICT:
-    'This action couldn\'t be completed because of a conflict. Please refresh and try again.',
-  DUPLICATE_SONG:
-    'This song already exists in the library.',
-  PLAYLIST_NAME_TAKEN:
-    'A playlist with that name already exists.',
-
-  // ── Validation errors (400) ───────────────────────────────────────────────
-  VALIDATION_ERROR:
-    'Some information is missing or invalid. Please check your input and try again.',
-  INVALID_PAYLOAD:
-    'The request couldn\'t be processed. Please try again.',
-  MISSING_REQUIRED_FIELD:
-    'Please fill in all required fields.',
-  FILE_TOO_LARGE:
-    'The file you selected is too large. Please choose a smaller file.',
-  INVALID_FILE_TYPE:
-    'That file type isn\'t supported. Please select a valid audio or image file.',
-
-  // ── Rate limit errors (429) ───────────────────────────────────────────────
-  RATE_LIMIT_EXCEEDED:
-    'You\'re doing that too quickly. Please wait a moment and try again.',
-  TOO_MANY_REQUESTS:
-    'Too many requests. Please slow down and try again in a minute.',
-
-  // ── Server / service errors (5xx) ─────────────────────────────────────────
-  INTERNAL_ERROR:
-    'Something went wrong on our end. Please try again in a moment.',
-  SERVICE_UNAVAILABLE:
-    'MeloStream is temporarily unavailable. Please try again shortly.',
-  DATABASE_ERROR:
-    'We\'re having trouble accessing data right now. Please try again.',
-  UPLOAD_FAILED:
-    'The upload failed. Please check your connection and try again.',
-  CLOUDINARY_ERROR:
-    'Media upload failed. Please try again.',
-
-  // ── Network / connectivity errors (client-side) ───────────────────────────
-  NETWORK_ERROR:
-    'Unable to reach the server. Please check your connection and try again.',
-  TIMEOUT:
-    'The request timed out. Please check your connection and try again.',
-  ERR_CANCELED:
-    '', // Silent — cancelled requests are never shown to users
-
-  // ── Liked songs ───────────────────────────────────────────────────────────
-  LIKE_FAILED:
-    'Couldn\'t update your liked songs. Please try again.',
-
-  // ── Playlist operations ───────────────────────────────────────────────────
-  PLAYLIST_CREATE_FAILED:
-    'Couldn\'t create the playlist. Please try again.',
-  PLAYLIST_UPDATE_FAILED:
-    'Couldn\'t update the playlist. Please try again.',
-  PLAYLIST_DELETE_FAILED:
-    'Couldn\'t delete the playlist. Please try again.',
-  PLAYLIST_ADD_SONG_FAILED:
-    'Couldn\'t add the song to the playlist. Please try again.',
-  PLAYLIST_REMOVE_SONG_FAILED:
-    'Couldn\'t remove the song from the playlist. Please try again.',
-
-  // ── Search ────────────────────────────────────────────────────────────────
-  SEARCH_FAILED:
-    'Search is temporarily unavailable. Please try again.',
-
-  // ── Generic fallback — must always be last ────────────────────────────────
-  UNKNOWN:
-    'Something went wrong. Please try again.',
+// ── Severity constants ────────────────────────────────────────────────────────
+export const ERROR_SEVERITY = {
+  ERROR:   'error',
+  WARNING: 'warning',
+  INFO:    'info',
+  SUCCESS: 'success',
 };
 
-// ── getErrorMessage ───────────────────────────────────────────────────────────
+// ── Error code → user-safe message map ───────────────────────────────────────
+// Keys must match the `code` field in shared/constants/errorCodes.js exactly.
+const ERROR_MESSAGES = {
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  AUTH_TOKEN_MISSING:    'Please log in to continue.',
+  AUTH_TOKEN_INVALID:    'Your session is invalid. Please log in again.',
+  AUTH_TOKEN_EXPIRED:    'Your session has expired. Please log in again.',
+  AUTH_TOKEN_REVOKED:    'Your session was ended. Please log in again.',
+  AUTH_FORBIDDEN:        'You don\'t have permission to do that.',
+  AUTH_ADMIN_REQUIRED:   'This action requires admin access.',
+
+  // ── Songs ─────────────────────────────────────────────────────────────────
+  SONG_NOT_FOUND:        'This song could not be found.',
+  SONG_DUPLICATE:        'A song with this title and artist already exists.',
+  SONG_UPLOAD_FAILED:    'Song upload failed. Please try again.',
+  SONG_DELETE_FAILED:    'Could not delete this song. Please try again.',
+  SONG_UPDATE_FAILED:    'Could not update this song. Please try again.',
+  SONGS_LOAD_FAILED:     'Could not load songs. Please refresh the page.',
+  SONGS_BATCH_FAILED:    'Could not load some songs. Please refresh.',
+
+  // ── Playlists ─────────────────────────────────────────────────────────────
+  PLAYLIST_NOT_FOUND:    'This playlist could not be found.',
+  PLAYLIST_CREATE_FAILED:'Could not create playlist. Please try again.',
+  PLAYLIST_UPDATE_FAILED:'Could not update playlist. Please try again.',
+  PLAYLIST_DELETE_FAILED:'Could not delete playlist. Please try again.',
+  PLAYLIST_LOAD_FAILED:  'Could not load playlists. Please refresh.',
+  PLAYLIST_ADD_SONG_FAILED:    'Could not add song to playlist.',
+  PLAYLIST_REMOVE_SONG_FAILED: 'Could not remove song from playlist.',
+
+  // ── Liked songs ───────────────────────────────────────────────────────────
+  LIKED_SONGS_LOAD_FAILED:   'Could not load your liked songs.',
+  LIKED_SONGS_TOGGLE_FAILED: 'Could not update liked song. Please try again.',
+
+  // ── Artists / Albums ──────────────────────────────────────────────────────
+  ARTIST_NOT_FOUND:      'This artist could not be found.',
+  ARTIST_LOAD_FAILED:    'Could not load artist. Please try again.',
+  ALBUM_NOT_FOUND:       'This album could not be found.',
+  ALBUM_LOAD_FAILED:     'Could not load album. Please try again.',
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  SEARCH_FAILED:         'Search is temporarily unavailable. Please try again.',
+
+  // ── Rate limiting ─────────────────────────────────────────────────────────
+  RATE_LIMIT_EXCEEDED:   'You\'re doing that too fast. Please wait a moment.',
+  RATE_LIMIT_SEARCH:     'Search limit reached. Please wait a moment.',
+
+  // ── Network / Server ──────────────────────────────────────────────────────
+  NETWORK_ERROR:         'Connection failed. Please check your internet and try again.',
+  SERVER_ERROR:          'Something went wrong on our end. Please try again.',
+  SERVICE_UNAVAILABLE:   'Service is temporarily unavailable. Please try again shortly.',
+  TIMEOUT:               'The request timed out. Please try again.',
+
+  // ── Validation ────────────────────────────────────────────────────────────
+  VALIDATION_FAILED:     'Please check your input and try again.',
+  INVALID_INPUT:         'Some fields contain invalid values.',
+
+  // ── Users ─────────────────────────────────────────────────────────────────
+  USER_NOT_FOUND:        'User could not be found.',
+  SESSION_PICKS_FAILED:  'Listening data could not be saved.',
+
+  // ── Firebase-specific codes ───────────────────────────────────────────────
+  // These appear in error.code when Firebase client SDK throws directly
+  'auth/user-not-found':     'No account found with this email.',
+  'auth/wrong-password':     'Incorrect password.',
+  'auth/email-already-in-use': 'An account with this email already exists.',
+  'auth/too-many-requests':  'Too many attempts. Please wait and try again.',
+  'auth/network-request-failed': 'Connection failed. Please check your internet.',
+  'auth/invalid-email':      'Please enter a valid email address.',
+  'auth/weak-password':      'Password must be at least 6 characters.',
+  'auth/user-disabled':      'This account has been disabled.',
+  'auth/popup-closed-by-user': 'Sign-in was cancelled.',
+};
+
+// ── Context-based fallback messages ──────────────────────────────────────────
+// When the error code is unknown, we fall back to a context-aware string.
+// Context is the human-readable action string passed by the caller.
+const CONTEXT_FALLBACKS = {
+  'loading songs':          'Could not load songs. Please refresh.',
+  'loading liked songs':    'Could not load your liked songs.',
+  'loading playlists':      'Could not load playlists. Please refresh.',
+  'loading artist':         'Could not load artist. Please try again.',
+  'loading album':          'Could not load album. Please try again.',
+  'loading search results': 'Search failed. Please try again.',
+  'saving playlist':        'Could not save playlist. Please try again.',
+  'deleting playlist':      'Could not delete playlist. Please try again.',
+  'liking track':           'Could not update liked song. Please try again.',
+  'uploading song':         'Upload failed. Please try again.',
+};
+
+// ── Generic fallback ──────────────────────────────────────────────────────────
+const GENERIC_FALLBACK = 'Something went wrong. Please try again.';
+
+// ── HTTP status → message map (last resort) ───────────────────────────────────
+const HTTP_STATUS_MESSAGES = {
+  400: 'Invalid request. Please check your input.',
+  401: 'Please log in to continue.',
+  403: 'You don\'t have permission to do that.',
+  404: 'The requested item could not be found.',
+  409: 'This item already exists.',
+  429: 'You\'re doing that too fast. Please wait a moment.',
+  500: 'Something went wrong on our end. Please try again.',
+  502: 'Service temporarily unavailable. Please try again.',
+  503: 'Service is down for maintenance. Please try again shortly.',
+};
+
+// ── Main export ───────────────────────────────────────────────────────────────
 
 /**
- * Returns a user-friendly string for the given error code.
+ * Maps any error object to a user-safe display string.
  *
- * Falls back gracefully:
- *   1. Exact code match → return its message
- *   2. Unknown code + action context → "Something went wrong while <action>."
- *   3. Network error → network message
- *   4. Hard fallback → generic "Something went wrong."
+ * Priority order:
+ *   1. Backend error code  (error.response.data.error.code)
+ *   2. Firebase client error code  (error.code)
+ *   3. HTTP status code  (error.response.status)
+ *   4. Context-based fallback
+ *   5. Generic fallback
  *
- * @param {string}  code                    - Backend error code (e.g. 'AUTH_TOKEN_EXPIRED')
- * @param {object}  [options]
- * @param {string}  [options.action]        - Context string: 'loading songs', 'liking track'
- * @param {boolean} [options.isNetworkError] - True when the server was unreachable
+ * NEVER returns a technical string. NEVER exposes stack traces.
+ * NEVER returns undefined.
+ *
+ * @param {Error|null|unknown} error
+ * @param {string} [context]  - e.g. 'loading songs', 'saving playlist'
  * @returns {string}
  */
-export function getErrorMessage(code, options = {}) {
-  const { action = '', isNetworkError = false } = options;
+export const getErrorMessage = (error, context = '') => {
+  if (!error) return GENERIC_FALLBACK;
 
-  // Network errors always get the network message regardless of code
-  if (isNetworkError || code === 'NETWORK_ERROR') {
-    return ERROR_MESSAGES.NETWORK_ERROR;
+  try {
+    // ── 1. Backend { success: false, error: { code } } shape ─────────────────
+    const backendCode = error?.response?.data?.error?.code;
+    if (backendCode && ERROR_MESSAGES[backendCode]) {
+      return ERROR_MESSAGES[backendCode];
+    }
+
+    // ── 2. Firebase client SDK error code ────────────────────────────────────
+    const firebaseCode = error?.code;
+    if (firebaseCode && ERROR_MESSAGES[firebaseCode]) {
+      return ERROR_MESSAGES[firebaseCode];
+    }
+
+    // ── 3. HTTP status code ───────────────────────────────────────────────────
+    const httpStatus = error?.response?.status;
+    if (httpStatus && HTTP_STATUS_MESSAGES[httpStatus]) {
+      return HTTP_STATUS_MESSAGES[httpStatus];
+    }
+
+    // ── 4. Network error (no response at all) ─────────────────────────────────
+    if (error?.code === 'ERR_NETWORK' || error?.message === 'Network Error') {
+      return ERROR_MESSAGES.NETWORK_ERROR;
+    }
+
+    // ── 5. Context-based fallback ─────────────────────────────────────────────
+    const normalizedContext = context.toLowerCase().trim();
+    if (normalizedContext && CONTEXT_FALLBACKS[normalizedContext]) {
+      return CONTEXT_FALLBACKS[normalizedContext];
+    }
+
+    // ── 6. Generic fallback ───────────────────────────────────────────────────
+    return GENERIC_FALLBACK;
+  } catch {
+    // getErrorMessage itself must never throw
+    return GENERIC_FALLBACK;
   }
-
-  // Exact code match
-  const mapped = ERROR_MESSAGES[code];
-  if (mapped !== undefined) return mapped;
-
-  // Unknown code with action context → contextual fallback
-  if (action) {
-    return `Something went wrong while ${action}. Please try again.`;
-  }
-
-  // Hard fallback
-  return ERROR_MESSAGES.UNKNOWN;
-}
+};
 
 /**
- * Returns true if the given code has a dedicated message entry.
- * Useful for tests and Phase 4 error reporting to detect unmapped codes.
+ * Returns true if this error should be retried automatically.
+ * 4xx errors (except 429) are not transient — no point retrying.
  *
- * @param {string} code
+ * @param {Error} error
  * @returns {boolean}
  */
-export function isKnownErrorCode(code) {
-  return Object.prototype.hasOwnProperty.call(ERROR_MESSAGES, code);
-}
-
-export default ERROR_MESSAGES;
+export const isRetryableError = (error) => {
+  const status = error?.response?.status;
+  if (!status) return true;               // network error — worth retrying
+  if (status === 429) return true;        // rate limit — retry after backoff
+  if (status >= 500) return true;         // server error — transient
+  return false;                           // 4xx client errors — do not retry
+};

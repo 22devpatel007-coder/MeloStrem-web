@@ -1,25 +1,54 @@
 /**
  * client/src/hooks/useArtist.js
  *
- * React Query hook for Artist detail data.
+ * Task 2.4 — Hook Return Contract Standardization
  *
- * Follows the exact same pattern as useSongs.js:
- * - useQuery for the single artist document
- * - useInfiniteQuery for the artist's paginated song list
- * - Defensive defaults on every value (null, [], false)
- * - Stable query keys scoped to QUERY_KEYS constants
+ * CHANGES FROM PREVIOUS VERSION:
+ *   + isError          — unified boolean (artistQuery.isError || songsQuery.isError)
+ *   + refetch          — unified convenience alias (refetches both in parallel)
+ *   + useErrorHandler  — auto-watches isError and toasts user-safe message
  *
- * Usage:
- *   const { artist, songs, fetchNextPage, hasNextPage, isLoading, error } = useArtist(artistId);
+ * UNCHANGED:
+ *   - All React Query options (staleTime, retry, enabled, getNextPageParam) — untouched
+ *   - useInfiniteQuery for songs (paginated) — untouched
+ *   - songs flatMap across pages — untouched
+ *   - Granular states (isSongsLoading, isFetchingNextPage, songsError) — kept
+ *   - Granular refetch helpers (refetchArtist, refetchSongs) — kept
+ *   - songLimit option — kept
+ *   - Defensive defaults (null, [], false) — untouched
  *
- * Returns null artist (not an error) when artistId is falsy — callers should
- * guard on isLoading before rendering, then show a 404 state if artist is null
- * after loading completes.
+ * RETURN SHAPE (now fully standard):
+ *   {
+ *     // Data
+ *     artist:             Artist | null,
+ *     songs:              Song[],
+ *
+ *     // Standard contract (matches every other hook)
+ *     isLoading:          boolean,   // true while artist doc is in flight
+ *     isError:            boolean,   // true if either query failed
+ *     error:              Error | null,
+ *     refetch:            () => void,
+ *
+ *     // Pagination (infinite query specific)
+ *     fetchNextPage:      () => void,
+ *     hasNextPage:        boolean,
+ *     isFetchingNextPage: boolean,
+ *
+ *     // Granular
+ *     isSongsLoading:     boolean,
+ *     songsError:         Error | null,
+ *     refetchArtist:      () => void,
+ *     refetchSongs:       () => void,
+ *   }
+ *
+ * @module useArtist
  */
 
 import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import { getArtist, getArtistSongs } from '../services/artists.service';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useErrorHandler } from './useErrorHandler';
 
 const SONGS_PER_PAGE = 30;
 
@@ -27,51 +56,86 @@ const SONGS_PER_PAGE = 30;
  * @param {string | null | undefined} artistId
  * @param {object} [options]
  * @param {number} [options.songLimit=30]  songs per page
+ *
+ * @returns {{
+ *   artist: import('../types/song').Artist | null,
+ *   songs: import('../types/song').Song[],
+ *   isLoading: boolean,
+ *   isError: boolean,
+ *   error: Error | null,
+ *   refetch: () => void,
+ *   fetchNextPage: () => void,
+ *   hasNextPage: boolean,
+ *   isFetchingNextPage: boolean,
+ *   isSongsLoading: boolean,
+ *   songsError: Error | null,
+ *   refetchArtist: () => void,
+ *   refetchSongs: () => void,
+ * }}
  */
 export const useArtist = (artistId, { songLimit = SONGS_PER_PAGE } = {}) => {
-  // ── Artist document ────────────────────────────────────────────────────
+  const isValidId = !!artistId && typeof artistId === 'string';
+
+  // ── Artist document ────────────────────────────────────────────────────────
   const artistQuery = useQuery({
     queryKey:  [QUERY_KEYS.ARTIST, artistId],
     queryFn:   () => getArtist(artistId),
-    // Only run when artistId is a non-empty string
-    enabled:   !!artistId && typeof artistId === 'string',
-    // Artist metadata rarely changes — cache for 5 minutes
+    enabled:   isValidId,
     staleTime: 5 * 60 * 1000,
-    // Return null on 404 rather than throwing — component shows empty state
     retry: (failureCount, error) => {
+      // 404 = artist does not exist — component shows empty state, not error
       if (error?.response?.status === 404) return false;
       return failureCount < 2;
     },
   });
 
-  // ── Artist songs (infinite / paginated) ───────────────────────────────
+  // ── Artist songs (infinite / paginated) ────────────────────────────────────
   const songsQuery = useInfiniteQuery({
-    queryKey:        [QUERY_KEYS.ARTIST_SONGS, artistId],
-    queryFn:         ({ pageParam }) => getArtistSongs(artistId, songLimit, pageParam),
-    getNextPageParam: (lastPage) => lastPage.hasMore ? lastPage.nextCursor : undefined,
+    queryKey:         [QUERY_KEYS.ARTIST_SONGS, artistId],
+    queryFn:          ({ pageParam }) => getArtistSongs(artistId, songLimit, pageParam),
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
     initialPageParam: null,
-    enabled:          !!artistId && typeof artistId === 'string',
+    enabled:          isValidId,
     staleTime:        2 * 60 * 1000,
   });
 
-  // Flatten paginated pages into a single songs array — same pattern as useSongs
+  // ── Flatten paginated pages ────────────────────────────────────────────────
   const songs = songsQuery.data?.pages.flatMap((p) => p.songs) ?? [];
 
-  return {
-    // Artist document
-    artist:    artistQuery.data ?? null,
-    isLoading: artistQuery.isLoading,
-    error:     artistQuery.error ?? null,
+  // ── Unified error — artist error takes priority ────────────────────────────
+  const error   = artistQuery.error ?? songsQuery.error ?? null;
+  const isError = artistQuery.isError || songsQuery.isError;
 
-    // Artist songs
+  // ── Auto-toast on error ────────────────────────────────────────────────────
+  useErrorHandler({ error, isError, context: 'loading artist' });
+
+  // ── Unified refetch — fires both in parallel ───────────────────────────────
+  const refetch = useCallback(() => {
+    artistQuery.refetch();
+    songsQuery.refetch();
+  }, [artistQuery, songsQuery]);
+
+  return {
+    // ── Data ─────────────────────────────────────────────────────────────────
+    artist: artistQuery.data ?? null,
     songs,
+
+    // ── Standard contract ─────────────────────────────────────────────────────
+    isLoading: artistQuery.isLoading,
+    isError,
+    error,
+    refetch,
+
+    // ── Infinite query pagination ─────────────────────────────────────────────
     fetchNextPage:      songsQuery.fetchNextPage,
     hasNextPage:        songsQuery.hasNextPage ?? false,
     isFetchingNextPage: songsQuery.isFetchingNextPage,
-    isSongsLoading:     songsQuery.isLoading,
-    songsError:         songsQuery.error ?? null,
 
-    // Refetch helpers
+    // ── Granular states ───────────────────────────────────────────────────────
+    isSongsLoading: songsQuery.isLoading,
+    songsError:     songsQuery.error ?? null,
+
+    // ── Granular refetch helpers ──────────────────────────────────────────────
     refetchArtist: artistQuery.refetch,
     refetchSongs:  songsQuery.refetch,
   };
