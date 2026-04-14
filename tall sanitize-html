@@ -1,0 +1,289 @@
+[33mcommit 11f0423e67fc2019b397ce605461225d1310f90a[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mweb-app[m[33m, [m[1;31morigin/web-app[m[33m)[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Tue Apr 14 06:06:54 2026 -0330
+
+    errorHandling/security
+
+[33mcommit 2a82592b0025b86ea6f2c0674c353e2ccb41b84e[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Tue Apr 14 05:04:21 2026 -0330
+
+    changes
+
+[33mcommit f36b6a980bc1587844c6db92b96cc42a693a23e7[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 13 10:36:17 2026 -0330
+
+    remove extra thing
+
+[33mcommit f46a4b9e88f6ebbb862469feb2f4723df64a6db9[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 13 10:32:19 2026 -0330
+
+    adding feture and fixing bug
+
+[33mcommit 0c7accf37ccc60061a82b4939e46e6540c0c5b9b[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 12 17:38:59 2026 -0400
+
+    fixing login bug and redesign login and ragister /adding forgetpassword
+
+[33mcommit 989e99ec3432cc96f9abb8065494b75360b8d872[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 12 15:50:41 2026 -0400
+
+    fixing create playlist
+
+[33mcommit 002806e93226ba9d6c0e6c7c01d6bc3754db75ab[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 12 14:51:27 2026 -0400
+
+    adding farmer motion and fixing bugs.
+
+[33mcommit 4fdd49811f15bb5c2a86aae510e010a74c5d1c7b[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 12 14:30:26 2026 -0400
+
+    refactor playlist menu
+
+[33mcommit b3efdc24ed8b912f3ea127c12df6c48c640f5e93[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 11 12:50:40 2026 -0400
+
+    adding skeleton
+
+[33mcommit c15de82ea4fe01eaff986c2adbcf7b60d71a5f74[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 11 08:03:52 2026 -0400
+
+    adding skeleton and fixing bugs
+
+[33mcommit cb47660efabe5b5b88ae83eb828d7343b727261b[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 11 05:27:46 2026 -0400
+
+    fixing bugs
+
+[33mcommit 14bc86c9cf2d6e6be44c978441a54cebb9c5e123[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 10 17:19:16 2026 -0400
+
+    upgrade serch and fix bug
+
+[33mcommit a9a248e4f020e0a1c67d54a3256858a3b08bc09a[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 10 14:29:12 2026 -0400
+
+    fixing preview bug
+
+[33mcommit f61059010af84efef19aba0436ed7386386500e1[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 10 09:37:27 2026 -0400
+
+    addind feture in search
+
+[33mcommit 31ac1910d9a437af989470002335411fca15746d[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 10 07:28:54 2026 -0400
+
+    clening pages code
+
+[33mcommit 7a9f8e757a7090822bd1dc3c40e9601c6a0adc50[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Thu Apr 9 03:23:30 2026 -0400
+
+    remove unused import and and ping in backend
+
+[33mcommit 85290d4c9b3312dd864e4df2053eff75829a835e[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Wed Apr 8 17:42:56 2026 -0400
+
+    adding artits and albums feture , upgrade home page ui and adding sidebar
+
+[33mcommit 87c11b456189537b97b5760954d8bada23596832[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Wed Apr 8 15:11:23 2026 -0400
+
+    update file
+
+[33mcommit 92fde4dbd2ce1d9b0368446836fe515e0ad938b0[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Wed Apr 8 14:50:31 2026 -0400
+
+    fixing bug
+
+[33mcommit 327d1e0df9ef82f22e363f0284dbf425fa07a1db[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Wed Apr 8 14:20:55 2026 -0400
+
+    fixing preview bug
+
+[33mcommit 36f1f8dc44298ecec4097c1c991e0190e56b4048[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Wed Apr 8 14:08:56 2026 -0400
+
+    adding fullscreenplayer and some player feture
+
+[33mcommit 8580d998a303ac38e47d7342d0fdafc2d91f25bd[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Wed Apr 8 01:01:37 2026 -0400
+
+    fixing cors error
+
+[33mcommit 5f9acc4cda4eda74b77886ab828480af16c5c776[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Tue Apr 7 14:38:29 2026 -0400
+
+    fixing bug
+
+[33mcommit 8bd8beedccf95f3cad82620bc63cd953b3f9ecba[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Tue Apr 7 14:31:30 2026 -0400
+
+    adding feture in playlist
+
+[33mcommit 049139c080e6ad0cc034a316ab422c2c15c60ec5[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Tue Apr 7 01:42:28 2026 -0400
+
+    adding suffle algorithm
+
+[33mcommit 63a10c78dbfff3a5d385f48b0e1e7fc16951d0bf[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Tue Apr 7 01:22:03 2026 -0400
+
+    fixing liked song
+
+[33mcommit 7dd279f53c21747dbaa48d472cee7c9cd571ad9c[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 6 15:04:48 2026 -0400
+
+    fixing uploadplaylist route
+
+[33mcommit 77ba2d36cdb4c8f83856d7d91d0907062f2c2ca2[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 6 14:13:22 2026 -0400
+
+    fixing admin route
+
+[33mcommit c42b1e24dcead9b549067b118013537a08f95224[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 6 05:17:48 2026 -0400
+
+    fixing userlist
+
+[33mcommit 40860d7e9f98c98f7de69f0b552ee9231502640b[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 6 05:10:15 2026 -0400
+
+    fixing admindashboard issue
+
+[33mcommit 5360ac8c2afde0de43035f35b5e785193b971670[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Mon Apr 6 04:51:43 2026 -0400
+
+    fixing song fetch
+
+[33mcommit f95c0d59e502dee9571234510f3a8c0a40c6a41d[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 5 17:10:50 2026 -0400
+
+    fixing admindashboard
+
+[33mcommit 49d7f260ab7fc509f1852dfc0e8fda499afeb4de[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 5 16:39:56 2026 -0400
+
+    fixing loading logic
+
+[33mcommit 9025376f015e4ed5aeeeaaff201707f26ee168a0[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 5 16:23:22 2026 -0400
+
+    fixing playre bugs
+
+[33mcommit 2231c41302f62c564f493376570fac248b7151f1[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 5 16:12:56 2026 -0400
+
+    fixing bugs
+
+[33mcommit 42d3fa7b6db4e2dcb840b49a866ec9f9be4d9bbb[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 5 15:46:01 2026 -0400
+
+    fixing issue after recftor
+
+[33mcommit 07b4817db48306848cc37b798c0bcdaddedac127[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sun Apr 5 14:47:38 2026 -0400
+
+    adding url
+
+[33mcommit abbf8896f00291ee261d27de6e3e08a31c2428f3[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 4 16:38:11 2026 -0400
+
+    fixing playsong and baseurl
+
+[33mcommit 73dc7aec0f9bec3428502d7f3071a9d0416f05b5[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 4 16:23:31 2026 -0400
+
+    sec-refactor of struture
+
+[33mcommit 969e686c273393091dd0a3b35fd430537f8fd938[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 4 04:50:17 2026 -0400
+
+    fixing playlist-upload
+
+[33mcommit 776ec553a2facf8584b9b959c9eedeb79b654b32[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Sat Apr 4 04:20:52 2026 -0400
+
+    refactor entire struture
+
+[33mcommit 74dad0571c36759b0f8a046b9787b7652c539634[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 3 17:14:20 2026 -0400
+
+    fixing RE-reanders
+
+[33mcommit fda4edfcdde2c83b1254bb0600f9fa1e86806993[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 3 16:26:19 2026 -0400
+
+    fixing search logic
+
+[33mcommit c9b54b2402ad14df13513e675609b48e977e0502[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Fri Apr 3 16:09:36 2026 -0400
+
+    adding loading logic
+
+[33mcommit a2ec1bc43551a7985be7f26101c517ccb8c6eb5c[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Thu Apr 2 16:20:22 2026 -0400
+
+    fixing bug
+
+[33mcommit 3db36397e956ad9eed2b971e7cd8968ef4c3cca4[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Thu Apr 2 15:36:40 2026 -0400
+
+    saprate serach in home
+
+[33mcommit c760611e0da2c3f249ef8f3eea0defd714d1b2c2[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Thu Apr 2 15:23:34 2026 -0400
+
+    fixing home page bug
+
+[33mcommit df744b47dbaa7502a02d166759d0fd6824fa980b[m
+Author: Dev Patel <22devpatel007@gmail.com>
+Date:   Thu Apr 2 12:15:31 2026 -0400
+
+    adding logic in serach
+
+[33mcommit 6a6e04460
