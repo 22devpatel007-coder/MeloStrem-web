@@ -68,7 +68,7 @@ exports.getSongsBatch = async (req, res) => {
     return res.status(400).json({ success: false, message: 'ids must be a non-empty array' });
   }
 
-  const MAX_BATCH = 500;
+  const MAX_BATCH = 50;
   if (ids.length > MAX_BATCH) {
     return res.status(400).json({
       success: false,

@@ -87,6 +87,7 @@ exports.getPublicAdminPlaylists = async (req, res, next) => {
         .where('isAdmin',  '==', true)
         .where('isPublic', '==', true)
         .orderBy('createdAt', 'desc')
+        .limit(100)
         .get(),
       { label: 'getPublicAdminPlaylists' },
     );
@@ -120,6 +121,7 @@ exports.getUserPlaylists = async (req, res, next) => {
         .collection('playlists')
         .where('ownerId', '==', uid)
         .orderBy('createdAt', 'desc')
+        .limit(200)
         .get(),
       { label: 'getUserPlaylists' },
     );
