@@ -1,5 +1,51 @@
 {
   "indexes": [
+
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "titleLower",  "order": "ASCENDING" },
+        { "fieldPath": "artistLower", "order": "ASCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "artistId",  "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "artistId",    "order": "ASCENDING" },
+        { "fieldPath": "trackNumber", "order": "ASCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "albumId",     "order": "ASCENDING" },
+        { "fieldPath": "trackNumber", "order": "ASCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "songs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "albumId",   "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+
     {
       "collectionGroup": "playlists",
       "queryScope": "COLLECTION",
@@ -9,6 +55,7 @@
         { "fieldPath": "createdAt",  "order": "DESCENDING" }
       ]
     },
+
     {
       "collectionGroup": "playlists",
       "queryScope": "COLLECTION",
@@ -17,6 +64,7 @@
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
+
     {
       "collectionGroup": "playlists",
       "queryScope": "COLLECTION",
@@ -25,6 +73,7 @@
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
+
     {
       "collectionGroup": "playlists",
       "queryScope": "COLLECTION",
@@ -34,6 +83,7 @@
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
+
     {
       "collectionGroup": "playlists",
       "queryScope": "COLLECTION",
@@ -42,31 +92,35 @@
         { "fieldPath": "isAdmin",   "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "songs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "titleLower",  "order": "ASCENDING" },
-        { "fieldPath": "artistLower", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "songs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "artistId",  "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "songs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "albumId",     "order": "ASCENDING" },
-        { "fieldPath": "trackNumber", "order": "ASCENDING" }
-      ]
     }
+
   ],
-  "fieldOverrides": []
+
+  "fieldOverrides": [
+    {
+      "collectionGroup": "songs",
+      "fieldPath": "audioUrl",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "songs",
+      "fieldPath": "coverUrl",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "songs",
+      "fieldPath": "playCount",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "songs",
+      "fieldPath": "duration",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "users",
+      "fieldPath": "likedSongIds",
+      "indexes": []
+    }
+  ]
 }
