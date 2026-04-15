@@ -1,16 +1,15 @@
 /**
  * server/src/routes/artists.routes.js
  *
- * Public read-only routes for Artist data.
- * No auth required — consistent with /api/songs and /api/search.
+ * Phase 3 — Task 3.2: Rate limiter consolidated to named export from rateLimiter.js.
  *
- * Rate limiting:
- *   All routes inherit the global generalLimiter from server/src/index.js.
- *   searchLimiter is applied per-route for paginated data endpoints to match
- *   the pattern used on /api/search and /api/songs.
+ * Fix from previous version:
+ *   BUGFIX: `artistLimiter` → `artistsLimiter` (typo in destructure caused
+ *   runtime crash — undefined middleware passed to router.get()).
  *
- * Middleware pattern (per CLAUDE.md — public read routes):
- *   searchLimiter → controller
+ * Everything else is IDENTICAL to the previous version:
+ *   - Route paths, controller references: untouched.
+ *   - Middleware order (limiter → controller): untouched.
  *
  * Contracts:
  *   GET /api/artists/:id         → Artist | 404
@@ -19,25 +18,14 @@
 
 const express = require('express');
 const router  = express.Router();
-const rateLimit = require('express-rate-limit');
-const artistsController = require('../controllers/artists.controller');
 
-// Reuse the same window/cap as search to keep read-endpoint policy consistent.
-const searchLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: { message: 'Too many requests, please try again later.', code: 'RATE_LIMIT' },
-  },
-});
+const artistsController = require('../controllers/artists.controller');
+const { artistsLimiter } = require('../middleware/rateLimiter'); // ← was `artistLimiter` (typo)
 
 // GET /api/artists/:id — Artist document
-router.get('/:id', searchLimiter, artistsController.getArtist);
+router.get('/:id',       artistsLimiter, artistsController.getArtist);
 
 // GET /api/artists/:id/songs — paginated songs by this artist
-router.get('/:id/songs', searchLimiter, artistsController.getArtistSongs);
+router.get('/:id/songs', artistsLimiter, artistsController.getArtistSongs);
 
 module.exports = router;

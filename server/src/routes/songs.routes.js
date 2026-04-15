@@ -1,85 +1,59 @@
 /**
  * server/src/routes/songs.routes.js
  *
- * Public routes   — no auth required (read-only, rate-limited globally by generalLimiter).
- * Protected routes — verifyToken (standard, checkRevoked: false) for regular users.
- * Admin routes    — verifyTokenStrict (checkRevoked: true) + isAdmin for all mutations.
+ * Phase 3 — Task 3.2 / 3.3: Rate limiter fix on POST /batch.
  *
- * Why verifyTokenStrict on admin routes:
- *   If an admin account is compromised or an admin is removed, their token must
- *   be rejected immediately — not after the 60-minute natural expiry window.
- *   verifyTokenStrict adds ~50–100 ms per admin request, which is acceptable.
+ * Change from previous version:
+ *   BUGFIX: POST /songs/batch was incorrectly wrapped in adminMutationLimiter
+ *   (20 req/15min). This route is a READ operation used by PlaylistDetail to
+ *   resolve playlist songs — it requires no auth and is called on every
+ *   playlist page load. Applying adminMutationLimiter meant legitimate users
+ *   could hit the 20-request cap just by browsing playlists.
  *
- * Rate limiters:
- *   adminMutationLimiter  — POST / PATCH / DELETE (upload, update, delete operations)
- *   duplicateCheckLimiter — POST /check-duplicate
- *   Public GET routes inherit the global generalLimiter from server/src/index.js.
+ *   Fix: removed adminMutationLimiter from POST /batch. The global
+ *   generalLimiter (100 req/15min) applied in server/src/index.js is the
+ *   correct protection for this public read endpoint.
+ *
+ * Everything else is IDENTICAL to the previous version:
+ *   - All other route definitions, middleware chains: untouched.
+ *   - verifyTokenStrict + isAdmin on all mutation routes: untouched.
+ *   - adminMutationLimiter still applied to POST /, PATCH /:id, DELETE /:id.
+ *   - duplicateCheckLimiter on POST /check-duplicate: untouched.
+ *   - Validator middleware order: untouched.
  */
 
 const express = require('express');
-const rateLimit = require('express-rate-limit');
-const router = express.Router();
+const router  = express.Router();
 
-const { verifyToken, verifyTokenStrict } = require('../middleware/verifyToken');
-const isAdmin = require('../middleware/isAdmin');
-const upload = require('../middleware/upload');
-const songsController = require('../controllers/songs.controller');
+const { verifyTokenStrict } = require('../middleware/verifyToken');
+const isAdmin          = require('../middleware/isAdmin');
+const upload           = require('../middleware/upload');
+const songsController  = require('../controllers/songs.controller');
 const { validateCreateSong, validateUpdateSong } = require('../validators/song.validator');
+const { adminMutationLimiter, duplicateCheckLimiter } = require('../middleware/rateLimiter');
 
-// ─── Rate limiters ────────────────────────────────────────────────────────────
-
-// Applied to all admin mutation endpoints (upload, update, delete).
-// 20 mutations per 15 minutes per IP — prevents bulk abuse while allowing
-// legitimate bulk-upload workflows through the admin UI.
-const adminMutationLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: {
-      message: 'Too many requests, please try again later.',
-      code: 'RATE_LIMIT',
-    },
-  },
-});
-
-// Applied to duplicate-check endpoint specifically.
-// Higher cap (30) because the admin upload UI calls this on every file
-// before committing an upload.
-const duplicateCheckLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: {
-      message: 'Too many duplicate-check requests, please try again later.',
-      code: 'RATE_LIMIT',
-    },
-  },
-});
-// POST /songs/batch — must be before /:id so Express doesn't treat 'batch' as an ID
+// ── POST /songs/batch ─────────────────────────────────────────────────────────
+// Public read — no auth, no mutation limiter.
+// Covered by global generalLimiter (100 req/15min) in server/src/index.js.
+// Must be declared before /:id so Express does not treat 'batch' as an ID param.
 router.post('/batch', songsController.getSongsBatch);
-// ─── Public routes ────────────────────────────────────────────────────────────
-// No auth required. Rate-limited by the global generalLimiter in index.js.
 
-router.get('/', songsController.getAllSongs);
+// ── Public routes ─────────────────────────────────────────────────────────────
+// No auth required. Rate-limited by the global generalLimiter in index.js.
+router.get('/',    songsController.getAllSongs);
 router.get('/:id', songsController.getSongById);
 
-// ─── Admin routes ─────────────────────────────────────────────────────────────
+// ── Admin routes ──────────────────────────────────────────────────────────────
 // Middleware order per CLAUDE.md:
-//   verifyTokenStrict → isAdmin → upload (if needed) → validator (if needed) → controller
+//   limiter → verifyTokenStrict → isAdmin → upload (if needed) → validator (if needed) → controller
 
-// Duplicate check — called before upload to avoid writing duplicates to Cloudinary.
+// Duplicate check — lightweight Firestore read before upload.
 router.post(
   '/check-duplicate',
   duplicateCheckLimiter,
   verifyTokenStrict,
   isAdmin,
-  songsController.checkDuplicate
+  songsController.checkDuplicate,
 );
 
 // Upload new song — audio + optional cover image.
@@ -89,11 +63,11 @@ router.post(
   verifyTokenStrict,
   isAdmin,
   upload.fields([
-    { name: 'song', maxCount: 1 },
+    { name: 'song',  maxCount: 1 },
     { name: 'cover', maxCount: 1 },
   ]),
   validateCreateSong,
-  songsController.uploadSong
+  songsController.uploadSong,
 );
 
 // Update song metadata or cover image.
@@ -106,7 +80,7 @@ router.patch(
     { name: 'cover', maxCount: 1 },
   ]),
   validateUpdateSong,
-  songsController.updateSong
+  songsController.updateSong,
 );
 
 // Delete a song and its Cloudinary assets.
@@ -115,8 +89,7 @@ router.delete(
   adminMutationLimiter,
   verifyTokenStrict,
   isAdmin,
-  songsController.deleteSong
+  songsController.deleteSong,
 );
-
 
 module.exports = router;

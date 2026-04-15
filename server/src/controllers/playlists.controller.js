@@ -1,15 +1,39 @@
 /**
  * server/src/controllers/playlists.controller.js
  *
- * PERMANENT FIX — getUserPlaylists was silently returning empty array.
- * See original file comment for full root-cause analysis. That fix is preserved.
+ * PHASE 3 — TASK 3.1: In-Memory Cache with TTL
  *
- * PHASE 1 — TASK 1.1 changes:
- *   - All inline res.status(4xx/5xx).json() error calls replaced with AppError throws.
- *   - sendError() calls replaced with next(new AppErrorSubclass()).
- *   - sendSuccess() calls preserved exactly where they were.
- *   - All business logic, Firestore queries, Cloudinary calls, serializeDoc,
- *     retryFirestore usage: completely untouched.
+ * Changes from previous version (ONLY cache logic added — nothing else touched):
+ *
+ *   getPublicAdminPlaylists — cache GET before Firestore; cache SET after fetch.
+ *                             Cache key: playlists:admin:public  TTL: 120s (2 min)
+ *                             This is the public endpoint hit by every user who
+ *                             opens the library/playlist browse page. Same result
+ *                             for ALL users — ideal cache candidate.
+ *
+ *   createAdminPlaylist         — after successful create, invalidate playlists:admin:public
+ *   createAdminPlaylistWithCover — same invalidation
+ *   deleteAdminPlaylist          — same invalidation
+ *
+ * NOT cached (deliberately):
+ *   getUserPlaylists  — user-scoped data (ownerId filter). Caching would require
+ *                       per-user keys and per-user invalidation on every playlist
+ *                       mutation. The overhead outweighs the benefit for user lists
+ *                       which are typically small (< 50 playlists per user).
+ *   getAdminPlaylists — admin-only endpoint used during active admin sessions.
+ *                       Admins need to see their mutations reflected immediately.
+ *   uploadPlaylistSong — mutation, no cache.
+ *
+ * Unchanged from previous version:
+ *   - All error handling (AppError subclasses from Task 1.1): preserved.
+ *   - All success response shapes: identical.
+ *   - getUserPlaylists isAdmin filter logic: untouched.
+ *   - retryFirestore usage: untouched.
+ *   - serializeDoc / serializeSnap helpers: untouched.
+ *   - All Cloudinary, createPlaylist, deletePlaylist calls: untouched.
+ *
+ * Cache safety contract:
+ *   - Every cache call is isolated — failure is a miss/no-op, never a crash.
  */
 
 'use strict';
@@ -20,9 +44,14 @@ const { uploadAudio, uploadCover, deleteAsset }        = require('../services/cl
 const { createSong }                                   = require('../services/firebase.service');
 const { sendSuccess }                                  = require('../utils/apiResponse');
 const { retryFirestore }                               = require('../utils/retryFirestore');
+const cache                                            = require('../services/cache.service');
 const logger                                           = require('../utils/logger');
 const { db }                                           = require('../config/firebase');
 const { ValidationError, ForbiddenError, NotFoundError, InternalError } = require('../errors');
+
+// ── Cache key ─────────────────────────────────────────────────────────────────
+// Single key — no variants needed, result is the same for every caller.
+const ADMIN_PUBLIC_KEY = 'playlists:admin:public';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function serializeDoc(id, data) {
@@ -39,8 +68,19 @@ function serializeSnap(snap) {
 }
 
 // ── GET /api/playlists/admin (public, no auth) ────────────────────────────────
+// Cache: playlists:admin:public  TTL: 120s
+// Public endpoint — same response for every user, every request.
+// At 1000 concurrent users opening the library, this is hit thousands of
+// times per minute. 2-minute cache reduces that to 1 Firestore read per 2 min.
 exports.getPublicAdminPlaylists = async (req, res, next) => {
   try {
+    // ── Cache read ──────────────────────────────────────────────────────────
+    const cached = cache.get(ADMIN_PUBLIC_KEY);
+    if (cached !== null) {
+      return sendSuccess(res, cached);
+    }
+
+    // ── Cache miss → Firestore ──────────────────────────────────────────────
     const snap = await retryFirestore(
       () => db
         .collection('playlists')
@@ -50,7 +90,15 @@ exports.getPublicAdminPlaylists = async (req, res, next) => {
         .get(),
       { label: 'getPublicAdminPlaylists' },
     );
-    return sendSuccess(res, serializeSnap(snap));
+
+    const playlists = serializeSnap(snap);
+
+    // ── Cache write ─────────────────────────────────────────────────────────
+    // Cache even when empty — an empty admin playlist list is a valid state.
+    // Mutations (create/delete) always invalidate this key immediately.
+    cache.set(ADMIN_PUBLIC_KEY, playlists, cache.TTL.PLAYLISTS);
+
+    return sendSuccess(res, playlists);
   } catch (err) {
     logger.error('getPublicAdminPlaylists error:', { error: err.message, code: err.code });
     return next(new InternalError('Could not load library playlists. Please try again.', 'PLAYLISTS_FETCH_ERROR', { originalError: err.message }));
@@ -58,9 +106,7 @@ exports.getPublicAdminPlaylists = async (req, res, next) => {
 };
 
 // ── GET /api/users/:uid/playlists (protected, verifyToken) ───────────────────
-//
-// FIXED: Removed .where('isAdmin', '==', false) from the Firestore query.
-// See full explanation in original file header comment.
+// No cache — user-scoped, must always reflect latest state.
 exports.getUserPlaylists = async (req, res, next) => {
   const { uid } = req.params;
 
@@ -78,10 +124,6 @@ exports.getUserPlaylists = async (req, res, next) => {
       { label: 'getUserPlaylists' },
     );
 
-    // Filter out admin-owned playlists in application code.
-    // isAdmin:true  → admin library playlist, not shown in user sidebar.
-    // isAdmin:false → user playlist.
-    // isAdmin:undefined/missing → created by older code path; treat as user playlist.
     const playlists = snap.docs
       .filter((d) => d.data().isAdmin !== true)
       .map((d) => serializeDoc(d.id, d.data()));
@@ -94,6 +136,7 @@ exports.getUserPlaylists = async (req, res, next) => {
 };
 
 // ── POST /api/playlists/admin/upload-song ─────────────────────────────────────
+// No cache interaction — this uploads a song, not a playlist.
 exports.uploadPlaylistSong = async (req, res, next) => {
   try {
     const { title, artist, genre, duration } = req.body;
@@ -148,6 +191,7 @@ exports.uploadPlaylistSong = async (req, res, next) => {
 };
 
 // ── POST /api/playlists/admin ─────────────────────────────────────────────────
+// Cache invalidation: new admin playlist → public listing is stale.
 exports.createAdminPlaylist = async (req, res, next) => {
   try {
     const { name, description, songIds, coverUrl, coverStoragePath } = req.body;
@@ -176,6 +220,10 @@ exports.createAdminPlaylist = async (req, res, next) => {
     const newPlaylist = await createPlaylist(playlistData);
     newPlaylist.createdAt = playlistData.createdAt.toISOString();
     newPlaylist.updatedAt = playlistData.updatedAt.toISOString();
+
+    // ── Cache invalidation ────────────────────────────────────────────────
+    cache.del(ADMIN_PUBLIC_KEY);
+
     return res.status(201).json(newPlaylist);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
@@ -185,6 +233,7 @@ exports.createAdminPlaylist = async (req, res, next) => {
 };
 
 // ── POST /api/playlists/admin/with-cover ──────────────────────────────────────
+// Cache invalidation: new admin playlist with cover → public listing is stale.
 exports.createAdminPlaylistWithCover = async (req, res, next) => {
   try {
     const { name, description, songIds } = req.body;
@@ -223,6 +272,10 @@ exports.createAdminPlaylistWithCover = async (req, res, next) => {
     const newPlaylist = await createPlaylist(playlistData);
     newPlaylist.createdAt = playlistData.createdAt.toISOString();
     newPlaylist.updatedAt = playlistData.updatedAt.toISOString();
+
+    // ── Cache invalidation ────────────────────────────────────────────────
+    cache.del(ADMIN_PUBLIC_KEY);
+
     return res.status(201).json(newPlaylist);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
@@ -232,6 +285,8 @@ exports.createAdminPlaylistWithCover = async (req, res, next) => {
 };
 
 // ── GET /api/playlists/admin/all (protected, admin-only) ─────────────────────
+// No cache — admin endpoint used during active admin sessions where mutations
+// must be immediately visible.
 exports.getAdminPlaylists = async (req, res, next) => {
   try {
     const snap = await retryFirestore(
@@ -246,6 +301,7 @@ exports.getAdminPlaylists = async (req, res, next) => {
 };
 
 // ── DELETE /api/playlists/admin/:id ──────────────────────────────────────────
+// Cache invalidation: deleted playlist → public listing is stale.
 exports.deleteAdminPlaylist = async (req, res, next) => {
   try {
     const docSnap = await retryFirestore(
@@ -264,6 +320,10 @@ exports.deleteAdminPlaylist = async (req, res, next) => {
     if (coverStoragePath) await deleteAsset(coverStoragePath, { resource_type: 'image' });
 
     await deletePlaylist(req.params.id);
+
+    // ── Cache invalidation ────────────────────────────────────────────────
+    cache.del(ADMIN_PUBLIC_KEY);
+
     return res.json({ message: 'Playlist deleted successfully' });
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);

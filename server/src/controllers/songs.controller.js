@@ -1,48 +1,66 @@
 /**
  * server/src/controllers/songs.controller.js
  *
- * Phase 1 — Task 1.2: Input Sanitization applied to uploadSong + updateSong.
+ * PHASE 3 — TASK 3.1: In-Memory Cache with TTL
  *
- * Changes from previous version (ONLY these two locations changed):
+ * Changes from previous version (ONLY cache logic added — nothing else touched):
  *
- *   uploadSong  — sanitizeSongMeta() called immediately after destructuring
- *                 req.body, before the duplicate check and Firestore write.
- *                 The sanitized values replace title/artist/genre/album for
- *                 all downstream use in this function.
+ *   getAllSongs  — cache GET before Firestore; cache SET after successful fetch.
+ *                 Cache key: songs:list:<limit>:<cursor|"start">  TTL: 60s
  *
- *   updateSong  — sanitizeSongMeta() called immediately after destructuring
- *                 req.body, before any updates object assignment.
- *                 The sanitized values replace the destructured locals for
- *                 all downstream use in this function.
+ *   getSongById — cache GET before Firestore; cache SET after successful fetch.
+ *                 Cache key: songs:id:<id>  TTL: 300s
  *
- * Everything else is IDENTICAL to the previous version:
- *   - getSongsBatch, getAllSongs, getSongById, checkDuplicate: no change
- *   - deleteSong: no change
- *   - All success responses, business logic, Cloudinary calls,
- *     findOrCreateArtist, findOrCreateAlbum, retryFirestore usage: untouched
- *   - Error paths already updated in Task 1.1 (AppError subclasses):
- *     those changes are preserved as they were after Task 1.1.
+ *   uploadSong  — after successful Firestore write, invalidate songs:list:* pattern
+ *                 so the next library load reflects the new song immediately.
  *
- * IMPORTANT: This file shows the sanitize integration in the context of the
- * ORIGINAL error style (res.status calls) so it can be applied cleanly on
- * top of whichever state your repo is in. If Task 1.1 has already landed,
- * the error lines below will already say `throw new XxxError(...)` — do NOT
- * revert those. Only the two sanitize call sites are new here.
+ *   updateSong  — after successful update, invalidate songs:list:* pattern
+ *                 AND the specific songs:id:<id> entry.
+ *
+ *   deleteSong  — after successful delete, invalidate songs:list:* pattern
+ *                 AND the specific songs:id:<id> entry.
+ *
+ * Unchanged from previous version:
+ *   - getSongsBatch: no cache — batch endpoint is admin/playlist tool that needs
+ *     fresh data; cached batch results would cause stale playlist renders.
+ *   - checkDuplicate: no cache — must always read latest Firestore state.
+ *   - All success response shapes: identical.
+ *   - All error handling: identical (preserved from Tasks 1.1 + 1.2).
+ *   - All business logic, Cloudinary calls, findOrCreateArtist/Album: untouched.
+ *
+ * Cache safety contract:
+ *   - Every cache call is isolated in try/catch inside the cache.service.
+ *   - A cache read failure = cache miss → falls through to Firestore normally.
+ *   - A cache write/invalidation failure = logged, never throws, never blocks.
+ *   - Response shape from cache is identical to response shape from Firestore.
  */
 
-const { getSongs, getSongById, createSong, updateSong, deleteSong } = require('../services/firebase.service');
-const { uploadAudio, uploadCover, deleteAsset } = require('../services/cloudinary.service');
-const { checkDuplicateSong } = require('../utils/duplicateCheck');
-const { findOrCreateArtist } = require('../services/artist.service');
-const { findOrCreateAlbum } = require('../services/album.service');
-const { sanitizeSongMeta } = require('../utils/sanitize'); // ← Task 1.2
-const logger = require('../utils/logger');
+'use strict';
 
-const { db } = require('../config/firebase');
+const { getSongs, getSongById, createSong, updateSong, deleteSong } = require('../services/firebase.service');
+const { uploadAudio, uploadCover, deleteAsset }                     = require('../services/cloudinary.service');
+const { checkDuplicateSong }                                        = require('../utils/duplicateCheck');
+const { findOrCreateArtist }                                        = require('../services/artist.service');
+const { findOrCreateAlbum }                                         = require('../services/album.service');
+const { sanitizeSongMeta }                                          = require('../utils/sanitize');
+const cache                                                         = require('../services/cache.service');
+const logger                                                        = require('../utils/logger');
+const { db }                                                        = require('../config/firebase');
 
 const INTERNAL_ERROR = 'Something went wrong. Please try again.';
 
+// ── Cache key builders ────────────────────────────────────────────────────────
+// Centralised here so key format is consistent across get/set/invalidate.
+// If the format ever changes, update only these two functions.
+const cacheKeys = {
+  songsList: (limit, cursor) => `songs:list:${limit}:${cursor || 'start'}`,
+  songById:  (id)            => `songs:id:${id}`,
+};
+
 // ── POST /songs/batch ──────────────────────────────────────────────────────
+// No cache — batch lookup is used by playlist pages that need current song data.
+// Caching batch results would require invalidating on every song mutation, which
+// is expensive and error-prone given arbitrary id combinations.
 exports.getSongsBatch = async (req, res) => {
   const { ids } = req.body;
 
@@ -81,11 +99,33 @@ exports.getSongsBatch = async (req, res) => {
   }
 };
 
+// ── GET /songs ─────────────────────────────────────────────────────────────
+// Cache: songs:list:<limit>:<cursor|"start">  TTL: 60s
+// At 1000 concurrent users, the first page (no cursor, limit=30) is the hottest
+// read in the entire system. 60s cache means ≤1 Firestore read per minute for
+// the most common request, regardless of how many users load the library.
 exports.getAllSongs = async (req, res) => {
+  const limit  = Math.min(parseInt(req.query.limit) || 30, 50);
+  const cursor = req.query.cursor || null;
+  const key    = cacheKeys.songsList(limit, cursor);
+
   try {
-    const limit  = Math.min(parseInt(req.query.limit) || 30, 50);
-    const cursor = req.query.cursor || null;
+    // ── Cache read ──────────────────────────────────────────────────────────
+    const cached = cache.get(key);
+    if (cached !== null) {
+      return res.json(cached);
+    }
+
+    // ── Cache miss → Firestore ──────────────────────────────────────────────
     const result = await getSongs(limit, cursor);
+
+    // ── Cache write ─────────────────────────────────────────────────────────
+    // Only cache when result has songs — empty results may be transient
+    // (cold start, emulator, or pagination past the end of the library).
+    if (result && Array.isArray(result.songs) && result.songs.length > 0) {
+      cache.set(key, result, cache.TTL.SONGS_LIST);
+    }
+
     return res.json(result);
   } catch (err) {
     logger.error('getAllSongs error:', { error: err.message });
@@ -93,10 +133,28 @@ exports.getAllSongs = async (req, res) => {
   }
 };
 
+// ── GET /songs/:id ─────────────────────────────────────────────────────────
+// Cache: songs:id:<id>  TTL: 300s
+// Individual song fetches happen on every song row render that needs full
+// metadata. 5-minute TTL is safe — song metadata rarely changes mid-session.
 exports.getSongById = async (req, res) => {
+  const { id } = req.params;
+  const key    = cacheKeys.songById(id);
+
   try {
-    const song = await getSongById(req.params.id);
+    // ── Cache read ──────────────────────────────────────────────────────────
+    const cached = cache.get(key);
+    if (cached !== null) {
+      return res.json(cached);
+    }
+
+    // ── Cache miss → Firestore ──────────────────────────────────────────────
+    const song = await getSongById(id);
     if (!song) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
+
+    // ── Cache write ─────────────────────────────────────────────────────────
+    cache.set(key, song, cache.TTL.SONG);
+
     return res.json(song);
   } catch (err) {
     logger.error('getSongById error:', { error: err.message });
@@ -104,6 +162,10 @@ exports.getSongById = async (req, res) => {
   }
 };
 
+// ── POST /songs/check-duplicate ────────────────────────────────────────────
+// No cache — duplicate check must always read the latest Firestore state.
+// Caching a "no duplicate" result could allow a second admin to upload the
+// same song within the TTL window without the duplicate check catching it.
 exports.checkDuplicate = async (req, res) => {
   try {
     const { title, artist, excludeId } = req.body;
@@ -121,19 +183,17 @@ exports.checkDuplicate = async (req, res) => {
   }
 };
 
+// ── POST /songs (admin upload) ─────────────────────────────────────────────
+// Cache invalidation: after a successful upload, all songs:list:* pages are
+// stale because the new song will appear in the library. We clear every
+// cached page so the next GET /api/songs fetches fresh data from Firestore.
 exports.uploadSong = async (req, res) => {
   try {
-    // ── Task 1.2: Sanitize all string metadata fields before any use ─────────
-    // sanitizeSongMeta returns a shallow copy; req.body is never mutated.
-    // Destructure from the sanitized copy so every downstream reference
-    // (duplicate check, Firestore write, titleLower, artistLower) uses
-    // the clean values automatically.
     const sanitized = sanitizeSongMeta(req.body);
     const { title, artist, genre, duration, albumName, trackNumber } = {
-      ...req.body,      // preserve non-sanitized fields (duration, trackNumber, etc.)
-      ...sanitized,     // overwrite string fields with sanitized values
+      ...req.body,
+      ...sanitized,
     };
-    // ─────────────────────────────────────────────────────────────────────────
 
     if (!title || !artist || !genre) {
       return res.status(400).json({ error: 'title, artist and genre are required', code: 'VALIDATION_ERROR' });
@@ -165,7 +225,6 @@ exports.uploadSong = async (req, res) => {
       }),
     ]);
 
-    // ── Artist / Album linking (best-effort — never blocks upload) ────────────
     const artistResult = await findOrCreateArtist(artist);
 
     let albumResult = null;
@@ -179,7 +238,6 @@ exports.uploadSong = async (req, res) => {
         year:       0,
       });
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
     const songData = {
       title,
@@ -197,8 +255,8 @@ exports.uploadSong = async (req, res) => {
       uploadedBy:       req.user.uid,
       createdAt:        new Date(),
       updatedAt:        new Date(),
-      artistId:         artistResult ? artistResult.artistId   : null,
-      albumId:          albumResult  ? albumResult.albumId     : null,
+      artistId:         artistResult ? artistResult.artistId    : null,
+      albumId:          albumResult  ? albumResult.albumId      : null,
       album:            albumName    ? String(albumName).trim() : '',
       trackNumber:      trackNumber  ? Number(trackNumber) || null : null,
     };
@@ -207,6 +265,15 @@ exports.uploadSong = async (req, res) => {
     newSong.createdAt = songData.createdAt.toISOString();
     newSong.updatedAt = songData.updatedAt.toISOString();
 
+    // ── Cache invalidation ──────────────────────────────────────────────────
+    // New song means every cached song list page is stale.
+    // delPattern clears all keys starting with "songs:list:" atomically.
+    // Artist songs cache for this artist is also stale.
+    cache.delPattern('songs:list:');
+    if (artistResult?.artistId) {
+      cache.delPattern(`artists:songs:${artistResult.artistId}:`);
+    }
+
     return res.status(201).json(newSong);
   } catch (err) {
     logger.error('uploadSong error:', { error: err.message });
@@ -214,22 +281,20 @@ exports.uploadSong = async (req, res) => {
   }
 };
 
+// ── PATCH /songs/:id (admin update) ───────────────────────────────────────
+// Cache invalidation: clear the specific song's cached entry AND all list
+// pages (because the song appears in the list and its data has changed).
 exports.updateSong = async (req, res) => {
   try {
     const songId       = req.params.id;
     const existingSong = await getSongById(songId);
     if (!existingSong) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
 
-    // ── Task 1.2: Sanitize all string metadata fields before any use ─────────
-    // sanitizeSongMeta returns a shallow copy; req.body is never mutated.
-    // Destructure from the merged object so every downstream reference
-    // uses the clean values automatically.
     const sanitized = sanitizeSongMeta(req.body);
     const { title, artist, genre, duration, featured, albumName, trackNumber } = {
-      ...req.body,    // preserve non-sanitized fields (duration, featured, trackNumber)
-      ...sanitized,   // overwrite string fields with sanitized values
+      ...req.body,
+      ...sanitized,
     };
-    // ─────────────────────────────────────────────────────────────────────────
 
     const updates = {};
 
@@ -252,7 +317,6 @@ exports.updateSong = async (req, res) => {
     if (duration !== undefined)   updates.duration = Number(duration) || 0;
     if (featured !== undefined)   updates.featured = Boolean(featured);
 
-    // ── Artist / Album re-linking on edit (best-effort) ───────────────────────
     const effectiveArtist = updates.artist || existingSong.artist;
 
     if (artist !== undefined && updates.artist !== existingSong.artist) {
@@ -305,7 +369,6 @@ exports.updateSong = async (req, res) => {
     if (trackNumber !== undefined) {
       updates.trackNumber = trackNumber ? Number(trackNumber) || null : null;
     }
-    // ─────────────────────────────────────────────────────────────────────────
 
     const coverFile = req.files?.['cover']?.[0];
     if (coverFile) {
@@ -328,6 +391,22 @@ exports.updateSong = async (req, res) => {
     merged.updatedAt = updates.updatedAt.toISOString();
     merged.createdAt = existingSong.createdAt;
 
+    // ── Cache invalidation ──────────────────────────────────────────────────
+    // Song data changed: clear the specific song cache entry.
+    // List pages are also stale because they embed song metadata.
+    cache.del(cacheKeys.songById(songId));
+    cache.delPattern('songs:list:');
+    // If albumId changed, album songs cache is stale too.
+    const affectedAlbumId = updates.albumId || existingSong.albumId;
+    if (affectedAlbumId) {
+      cache.del(`albums:songs:${affectedAlbumId}`);
+    }
+    // If artistId changed, artist songs cache is stale.
+    const affectedArtistId = updates.artistId || existingSong.artistId;
+    if (affectedArtistId) {
+      cache.delPattern(`artists:songs:${affectedArtistId}:`);
+    }
+
     return res.json(merged);
   } catch (err) {
     logger.error('updateSong error:', { error: err.message });
@@ -335,13 +414,15 @@ exports.updateSong = async (req, res) => {
   }
 };
 
+// ── DELETE /songs/:id (admin delete) ──────────────────────────────────────
+// Cache invalidation: remove the song entry and all list pages.
 exports.deleteSong = async (req, res) => {
   try {
     const songId = req.params.id;
     const song   = await getSongById(songId);
     if (!song) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
 
-    const { storagePath, coverStoragePath } = song;
+    const { storagePath, coverStoragePath, artistId, albumId } = song;
 
     await Promise.allSettled([
       storagePath      ? deleteAsset(storagePath,      { resource_type: 'video' }) : Promise.resolve(),
@@ -349,6 +430,19 @@ exports.deleteSong = async (req, res) => {
     ]);
 
     await deleteSong(songId);
+
+    // ── Cache invalidation ──────────────────────────────────────────────────
+    cache.del(cacheKeys.songById(songId));
+    cache.delPattern('songs:list:');
+    // Clear album songs cache if this song belonged to an album.
+    if (albumId) {
+      cache.del(`albums:songs:${albumId}`);
+    }
+    // Clear artist songs cache if this song belonged to an artist.
+    if (artistId) {
+      cache.delPattern(`artists:songs:${artistId}:`);
+    }
+
     return res.json({ message: 'Song deleted successfully' });
   } catch (err) {
     logger.error('deleteSong error:', { error: err.message });

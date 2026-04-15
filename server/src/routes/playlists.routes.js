@@ -1,14 +1,3 @@
-/**
- * server/src/routes/playlists.routes.js
- *
- * SCALABLE FIX — Public route added BEFORE verifyToken + isAdmin middleware:
- *
- *   GET /api/playlists/admin  → getPublicAdminPlaylists (no auth, rate-limited)
- *
- * All existing admin-protected routes unchanged.
- * GET /api/users/:uid/playlists is in users.routes.js (verifyToken only).
- */
-
 const express     = require('express');
 const router      = express.Router();
 const rateLimit   = require('express-rate-limit');
