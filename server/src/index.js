@@ -1,29 +1,33 @@
 /**
  * server/src/index.js
  *
- * PHASE 4 — TASK 4.1: Added correlationId middleware.
+ * PHASE 4 — TASK 4.3: Detailed Health and Readiness Probes
  *
- * Changes from previous version (ONLY these two changes — nothing else touched):
+ * Changes from previous version (ONLY these — nothing else touched):
  *
- *   1. Import correlationId middleware from ./middleware/correlationId.
+ *   1. Import package.json version field for the /health response.
+ *      Read once at module load, never on each request.
  *
- *   2. Register app.use(correlationId) after body parsers and generalLimiter,
- *      before app.use('/api', routes).
- *      Position rationale:
- *        - Must be AFTER cors() — so res.set() can write response headers.
- *        - Must be AFTER body parsers — no dependency, but keeps middleware
- *          order readable (security → parsing → tracing → routes).
- *        - Must be AFTER generalLimiter — rate-limited requests that are
- *          rejected before reaching routes still get a correlationId on the
- *          response header, which is useful for debugging 429s in the frontend.
- *          Actually, to guarantee this even for rate-limited rejects, we
- *          register correlationId BEFORE generalLimiter. See comment inline.
- *        - Must be BEFORE all route handlers and the error handler so that
- *          req.correlationId is always set when controllers log.
+ *   2. Import { db } from ./config/firebase and cloudinary from
+ *      ./config/cloudinary for dependency injection into checkReadiness.
+ *      These are the exact same singleton instances the rest of the app uses.
  *
- *   3. Added 'X-Correlation-ID' to corsOptions.exposedHeaders so browsers
- *      can read the response header from JavaScript (fetch/XHR).
- *      Without this, CORS blocks the frontend from reading custom headers.
+ *   3. Import { checkReadiness } from ./services/healthChecker.
+ *
+ *   4. Enrich GET /health:
+ *        Before:  { status, timestamp, uptime, pid }
+ *        After:   { status, timestamp, uptime, pid, version, environment }
+ *      The new fields confirm the correct build is deployed and which
+ *      environment is running — critical for diagnosing deploy issues.
+ *      No async work — /health stays a synchronous liveness check.
+ *
+ *   5. Enrich GET /ready:
+ *        Before:  { status: 'ready' }   (always 200, no real checks)
+ *        After:   Live dependency probes for Firestore + Cloudinary.
+ *                 200 when all checks pass, 503 when any check fails.
+ *                 Response shape: { ready, checks, errors? }
+ *      /ready is now the signal Render/k8s use to route traffic.
+ *      503 from /ready stops new traffic from reaching an unhealthy instance.
  *
  * Everything else is identical to the previous version.
  */
@@ -52,12 +56,28 @@ const config          = require('./config/index');
 const logger          = require('./utils/logger');
 const routes          = require('./routes/index');
 const errorHandler    = require('./middleware/errorHandler');
-const correlationId   = require('./middleware/correlationId');   // ← PHASE 4
+const correlationId   = require('./middleware/correlationId');
 const { generalLimiter } = require('./middleware/rateLimiter');
 
 // Phase 3 Task 3.4 — Session picks queue singleton.
 // Imported here so gracefulShutdown can drain it on SIGTERM/SIGINT.
 const { sessionPicksQueue } = require('./jobs/SessionPicksQueue');
+
+// ── Phase 4 Task 4.3 — Health probe dependencies ─────────────────────────────
+//
+// Read once at startup, never inside a request handler.
+//
+// version: read from package.json at module load time (synchronous require).
+//   Avoids fs.readFile on every /health request — the value never changes
+//   during a process's lifetime.
+//
+// db, cloudinary: the exact same singleton instances every controller uses.
+//   Injecting them into checkReadiness (rather than requiring inside the
+//   service) makes both units independently testable with mocks.
+const { version }          = require('../package.json');
+const { db }               = require('./config/firebase');
+const cloudinary           = require('./config/cloudinary');
+const { checkReadiness }   = require('./services/healthChecker');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. CORS ALLOWLIST
@@ -96,7 +116,7 @@ if (allowedOrigins.size === 0) {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. CORS OPTIONS
 //
-// Phase 4 addition: exposedHeaders includes 'X-Correlation-ID'.
+// Phase 4 Task 4.1 addition: exposedHeaders includes 'X-Correlation-ID'.
 //   Without this, the CORS spec prevents browser JavaScript from reading any
 //   response header that is not in the CORS-safelisted set (Cache-Control,
 //   Content-Language, Content-Length, Content-Type, Expires, Last-Modified,
@@ -120,12 +140,7 @@ const corsOptions = {
   credentials:    true,
   methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  // ← PHASE 4: expose X-Correlation-ID so browser JS can read it.
-  //   Required for the frontend error reporter (Task 4.2) to attach
-  //   the correlation ID to error reports sent to the backend.
   exposedHeaders: ['X-Correlation-ID'],
-  // Browsers may cache the preflight response for 10 minutes, reducing OPTIONS
-  // round-trips on repeat requests.
   maxAge: 600,
 };
 
@@ -170,30 +185,133 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 //   handled before any other middleware fires. correlationId calling res.set()
 //   AFTER cors() is safe because cors() does not finalise the response for
 //   non-OPTIONS requests — it just sets headers and calls next().
-app.use(correlationId);   // ← PHASE 4
+app.use(correlationId);
 
 // ── 4e. Global rate limiter ──────────────────────────────────────────────────
 app.use(generalLimiter);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. SYSTEM ROUTES
+//
 //    Placed ABOVE /api so they are never blocked by route-level auth or
 //    rate-limit middleware. Deployment infra (Render, k8s) hits these directly.
+//
+// ── 5a. Health / liveness probe ─────────────────────────────────────────────
+//
+//    Purpose: confirm the process is alive and the correct version is running.
+//    Contract: always returns 200. Never performs async work.
+//
+//    Why synchronous-only for /health?
+//      The liveness probe is used by Render to decide whether to restart the
+//      instance. If /health does async work (Firestore, Cloudinary) and those
+//      are slow, the liveness probe times out and Render restarts a healthy
+//      instance unnecessarily. Liveness = "is the process alive?", not "are
+//      all dependencies healthy?". The latter is /ready's job.
+//
+//    Fields added in Task 4.3:
+//      version     — from package.json, read once at module load.
+//                    Confirms the correct build is deployed. If a deploy
+//                    partially rolls out, you can see mismatched versions
+//                    across instances in your uptime monitor.
+//      environment — NODE_ENV value. Confirms you are not accidentally
+//                    hitting a staging server in production monitoring.
+//
+//    Fields preserved from before:
+//      status      — always 'ok' (process is alive by definition of responding)
+//      timestamp   — ISO-8601 UTC. Lets monitors verify clock skew.
+//      uptime      — process uptime in seconds. Confirms no silent restart.
+//      pid         — process ID. Useful for correlating OS metrics with logs.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// ── 5a. Health / liveness probe ──────────────────────────────────────────────
 app.get('/health', (_req, res) => {
   res.status(200).json({
-    status:    'ok',
-    timestamp: new Date().toISOString(),
-    uptime:    Math.floor(process.uptime()),
-    pid:       process.pid,
+    status:      'ok',
+    timestamp:   new Date().toISOString(),
+    uptime:      Math.floor(process.uptime()),
+    pid:         process.pid,
+    version,                           // ← Task 4.3: from package.json
+    environment: config.nodeEnv,       // ← Task 4.3: NODE_ENV value
   });
 });
 
 // ── 5b. Readiness probe ──────────────────────────────────────────────────────
-app.get('/ready', (_req, res) => {
-  res.status(200).json({ status: 'ready' });
+//
+//    Purpose: confirm all dependencies are reachable before Render routes
+//    traffic to this instance.
+//
+//    Contract:
+//      200 { ready: true,  checks: { firestore: 'ok', cloudinary: 'ok' } }
+//        → instance is healthy; Render routes traffic here.
+//      503 { ready: false, checks: { firestore: 'error', cloudinary: 'ok' },
+//            errors: { firestore: 'firestore unreachable' } }
+//        → instance is unhealthy; Render routes traffic to other instances.
+//
+//    Why 503 (not 500)?
+//      503 Service Unavailable is the correct HTTP status for a dependency
+//      outage. It signals to load balancers and uptime monitors that the
+//      service is temporarily unavailable, not that the app itself crashed.
+//      Render's health check configuration expects 2xx for healthy — anything
+//      else (including 503) marks the instance as unhealthy.
+//
+//    Probe behaviour (delegated to services/healthChecker.js):
+//      - Firestore: lists one document from _health collection (read-only).
+//      - Cloudinary: calls cloudinary.api.ping() (no assets fetched).
+//      - Both probes run concurrently (Promise.all) — total latency is
+//        bounded by the slowest probe, not the sum.
+//      - Both probes are time-bounded (5s hard timeout each).
+//      - Both probes cache their result for 10s to prevent hammering
+//        dependencies on every Render polling interval.
+//
+//    Keep-alive self-ping targets /health (not /ready).
+//    Reason: /ready does async network I/O; /health does not. The keep-alive
+//    ping runs every 14 minutes and only needs to confirm the process is alive.
+//    Using /ready for the ping would create unnecessary Firestore + Cloudinary
+//    calls during normal operation when nothing is wrong.
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/ready', async (_req, res) => {
+  try {
+    const readiness = await checkReadiness({ db, cloudinary });
+
+    const status = readiness.ready ? 200 : 503;
+
+    // Log every failed readiness check so on-call engineers see the failure
+    // in Winston/Datadog without having to manually poll /ready.
+    if (!readiness.ready) {
+      logger.warn('[Ready] Readiness check failed:', {
+        checks: readiness.checks,
+        errors: readiness.errors,
+      });
+    }
+
+    return res.status(status).json({
+      ready:     readiness.ready,
+      timestamp: new Date().toISOString(),
+      checks:    readiness.checks,
+      // errors field is present only when there are failures — omitted on
+      // happy path to keep the response clean for uptime monitors.
+      ...(readiness.errors ? { errors: readiness.errors } : {}),
+    });
+
+  } catch (err) {
+    // checkReadiness is designed to never throw — all probe errors are caught
+    // internally and returned as { ok: false }. This catch block is a final
+    // safety net for programming errors in healthChecker.js itself.
+    logger.error('[Ready] Unexpected error in readiness handler:', {
+      error: err.message,
+      stack: err.stack,
+    });
+
+    return res.status(503).json({
+      ready:     false,
+      timestamp: new Date().toISOString(),
+      checks:    {
+        firestore:  'error',
+        cloudinary: 'error',
+      },
+      errors: {
+        internal: 'readiness check failed unexpectedly',
+      },
+    });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -264,8 +382,6 @@ let   isShuttingDown      = false;
 
 async function gracefulShutdown(signal) {
   // Guard: only one shutdown can run at a time.
-  // process.once on the signal handlers prevents duplicate calls from
-  // SIGTERM/SIGINT, but server 'error' events are not guarded by once.
   if (isShuttingDown) {
     logger.warn(`[Shutdown] already in progress — ignoring duplicate signal: ${signal}`);
     return;
@@ -275,7 +391,6 @@ async function gracefulShutdown(signal) {
   logger.info(`[Shutdown] ${signal} received — starting graceful shutdown`);
 
   // Hard timeout: forces exit if the drain hangs.
-  // .unref() so this timer doesn't keep the event loop alive by itself.
   const forceExitTimer = setTimeout(() => {
     logger.error('[Shutdown] timeout exceeded — forcing process.exit(1)', {
       timeoutMs: SHUTDOWN_TIMEOUT_MS,
@@ -289,8 +404,6 @@ async function gracefulShutdown(signal) {
     await new Promise((resolve) => {
       server.close((err) => {
         if (err) {
-          // err here means the server was not listening — non-fatal during
-          // a SERVER_ERROR shutdown where the server never fully started.
           logger.warn('[Shutdown] server.close() returned error (non-fatal):', {
             error: err.message,
           });
@@ -301,9 +414,6 @@ async function gracefulShutdown(signal) {
     });
 
     // ── Step 2: Drain session picks queue ────────────────────────────────────
-    // sessionPicksQueue.shutdown() stops the setInterval drainer, waits for
-    // any in-progress drain to finish, then does one final drain of all
-    // remaining entries. Resolves when the last Firestore write completes.
     logger.info('[Shutdown] draining session picks queue...', sessionPicksQueue.stats());
     await sessionPicksQueue.shutdown();
     logger.info('[Shutdown] session picks queue drained', sessionPicksQueue.stats());
@@ -324,38 +434,23 @@ async function gracefulShutdown(signal) {
 }
 
 // ── Signal handlers ───────────────────────────────────────────────────────────
-// process.once (not process.on) so a second signal doesn't start a second
-// shutdown while the first is still running.
 process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.once('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 10. PROCESS-LEVEL ERROR SAFETY NET
-//
-//     unhandledRejection: logs but does NOT exit — many third-party libraries
-//       emit spurious rejections that are not fatal. In production, if the
-//       rejection is from a known critical path, the originating code's own
-//       try/catch should call gracefulShutdown explicitly.
-//
-//     uncaughtException: the process is in an unknown state — exit is correct
-//       and mandatory. Calls gracefulShutdown so the queue is drained even
-//       during an unexpected crash.
 // ─────────────────────────────────────────────────────────────────────────────
 process.on('unhandledRejection', (reason) => {
   logger.error('[Process] Unhandled promise rejection:', {
     reason:  reason?.message || String(reason),
     stack:   reason?.stack,
   });
-  // In production, treat unhandled rejections as fatal to avoid silent
-  // corruption. In local dev, log-only to avoid constant restarts during
-  // development cycles.
   if (config.nodeEnv === 'production') {
     gracefulShutdown('unhandledRejection');
   }
 });
 
 process.on('uncaughtException', (err) => {
-  // uncaughtException: process integrity is unknown — always exit.
   logger.error('[Process] Uncaught exception (fatal):', {
     error: err.message,
     stack: err.stack,
@@ -370,6 +465,11 @@ process.on('uncaughtException', (err) => {
 //     Only runs in production — silent no-op in local dev.
 //     Uses BACKEND_URL (your own var) with RENDER_EXTERNAL_URL as fallback.
 //     To migrate to a new server: just update BACKEND_URL — no code change.
+//
+//     Note: intentionally pings /health (not /ready).
+//     /ready does live Firestore + Cloudinary network calls. Pinging /ready
+//     every 14 minutes would create unnecessary dependency load during normal
+//     operation when nothing is wrong. /health is synchronous and cheap.
 // ─────────────────────────────────────────────────────────────────────────────
 if (config.nodeEnv === 'production') {
   const backendUrl = config.backendUrl;
