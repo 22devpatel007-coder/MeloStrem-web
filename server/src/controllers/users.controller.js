@@ -10,80 +10,74 @@
  *   - All success responses, business logic, retryFirestore calls, and session
  *     pick fire-and-forget pattern: completely untouched.
  *
- * PHASE 3 — TASK 3.3: Zero Full-Collection Scans
+ * PHASE 3 — TASK 3.3 changes (preserved):
+ *   - getLikedSongs: MAX_LIKED_SONGS_FETCH cap (500) on db.getAll() IDs.
+ *   - toggleLikedSong: LIKED_SONGS_WARN_THRESHOLD soft warning log.
+ *   - getAllUsers: delegates to firebase.service.getAllUsers (capped).
+ *
+ * PHASE 3 — TASK 3.4: Background Job Queue for Session Picks
  * ─────────────────────────────────────────────────────────────────────────────
- * Changes from previous version (ONLY unbounded-query gaps closed):
+ * Changes from previous version (ONLY logSessionPicks changed):
  *
- *   getLikedSongs  — added cap: only the first MAX_LIKED_SONGS_FETCH (500)
- *                    IDs from the likedSongs array are fetched via db.getAll().
- *                    The likedSongs array is stored on the user document.
- *                    Firestore documents have a 1 MB size limit, which means
- *                    a likedSongs array can theoretically hold ~10,000–50,000
- *                    song ID strings before hitting the doc limit. db.getAll()
- *                    with thousands of refs sends thousands of parallel read
- *                    requests in one call — risk of connection saturation.
- *                    500 is the safe operational cap:
- *                      • Most users have < 500 liked songs.
- *                      • 500 parallel doc reads is within Firestore's batch
- *                        get throughput without connection pool pressure.
- *                      • If a user exceeds 500 liked songs, the UI should
- *                        implement cursor-based liked song pagination anyway.
- *                    A warning is logged when truncation occurs so engineers
- *                    know when real users are hitting the cap.
+ *   logSessionPicks — replaces the direct retryFirestore Firestore write with
+ *                     sessionPicksQueue.enqueue(). Everything else is identical:
+ *                     - Auth ownership check:  IDENTICAL (req.user.uid !== uid)
+ *                     - picks validation:      IDENTICAL (Array check, 50 cap)
+ *                     - res.json({ success: true }): IDENTICAL — still fires
+ *                       before any write, before enqueue
+ *                     - sanitize / sessionId logic: IDENTICAL — same fields,
+ *                       same contextType whitelist, same clientTs fallback
+ *                     - Error handling for enqueue: not needed — enqueue() is
+ *                       synchronous and never throws. If the queue is shut down,
+ *                       it logs and discards silently (correct behaviour).
  *
- *   toggleLikedSong — added soft warning when likedSongs array exceeds
- *                     LIKED_SONGS_WARN_THRESHOLD (500). Does NOT block the
- *                     like action — toggling still works. The warning surfaces
- *                     in logs so engineers know when pagination is needed.
- *                     Hard block would break UX; soft warning informs ops.
+ * WHY enqueue() NEVER needs try/catch:
+ *   enqueue() is a synchronous Map.set() with no I/O. It cannot throw an
+ *   uncaught async error. The only failure modes (uid cap, shutdown) are
+ *   handled inside SessionPicksQueue with logger.warn — not exceptions.
+ *   The controller has already sent res.json({ success: true }) before calling
+ *   enqueue, so there is no HTTP response to fail regardless.
  *
  * Unchanged from previous version:
- *   - getAllUsers: delegates to firebase.service.getAllUsers which now has
- *     its own MAX_USERS_LIMIT cap (Task 3.3 in firebase.service.js).
- *   - toggleLikedSong transaction logic: untouched — only a log warning added.
- *   - logSessionPicks: untouched — already has MAX_PICKS_PER_BATCH = 50 cap.
- *   - All error handling (AppError from Task 1.1): preserved.
- *   - All retryFirestore wrapping: preserved.
- *   - All response shapes: { success, data } — identical.
+ *   - getAllUsers:     completely untouched
+ *   - getLikedSongs:  completely untouched
+ *   - toggleLikedSong: completely untouched
+ *   - All AppError imports and usage: preserved
+ *   - All retryFirestore imports and usage: preserved (still used in liked songs)
  */
 
-"use strict";
+'use strict';
 
-const { db }             = require("../config/firebase");
-const { getAllUsers }    = require("../services/firebase.service");
-const { retryFirestore } = require("../utils/retryFirestore");
-const logger             = require("../utils/logger");
-const { ForbiddenError, ValidationError, InternalError } = require("../errors");
+const { db }              = require('../config/firebase');
+const { getAllUsers }     = require('../services/firebase.service');
+const { retryFirestore }  = require('../utils/retryFirestore');
+const { sessionPicksQueue } = require('../jobs/SessionPicksQueue'); // ← Task 3.4
+const logger              = require('../utils/logger');
+const { ForbiddenError, ValidationError, InternalError } = require('../errors');
 
 // ── Liked songs caps ──────────────────────────────────────────────────────────
 //
 // MAX_LIKED_SONGS_FETCH: maximum number of liked song IDs resolved via
-//   db.getAll() in a single getLikedSongs request. IDs beyond this cap are
-//   silently omitted from the response (a warning is logged). When real users
-//   hit this cap consistently, the liked songs feature needs cursor pagination.
+//   db.getAll() in a single getLikedSongs request.
 //
 // LIKED_SONGS_WARN_THRESHOLD: log a warning when a user's liked songs array
-//   grows past this size. Does NOT block the toggle action. Signals that
-//   pagination is needed before the array causes performance issues.
+//   grows past this size. Does NOT block the toggle action.
 //
-// Both constants match so the warning fires before truncation is reached.
 const MAX_LIKED_SONGS_FETCH      = 500;
 const LIKED_SONGS_WARN_THRESHOLD = 500;
 
 // ── GET /users ────────────────────────────────────────────────────────────────
-// getAllUsers in firebase.service.js now has MAX_USERS_LIMIT = 500 cap.
-// No changes needed here — the service layer enforces the cap.
 exports.getAllUsers = async (req, res, next) => {
   try {
     let users = await getAllUsers();
     users = users.map((u) => ({ ...u, likedSongs: undefined }));
     return res.json({ success: true, data: users });
   } catch (err) {
-    logger.error("getAllUsers error:", { error: err.message });
+    logger.error('getAllUsers error:', { error: err.message });
     return next(
       new InternalError(
-        "Failed to fetch users. Please try again.",
-        "INTERNAL_ERROR",
+        'Failed to fetch users. Please try again.',
+        'INTERNAL_ERROR',
         { originalError: err.message },
       ),
     );
@@ -95,13 +89,13 @@ exports.getLikedSongs = async (req, res, next) => {
   const { uid } = req.params;
 
   if (req.user.uid !== uid) {
-    return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
   }
 
   try {
     const userDoc = await retryFirestore(
-      () => db.collection("users").doc(uid).get(),
-      { label: "getLikedSongs:userDoc" },
+      () => db.collection('users').doc(uid).get(),
+      { label: 'getLikedSongs:userDoc' },
     );
 
     if (!userDoc.exists) {
@@ -114,29 +108,20 @@ exports.getLikedSongs = async (req, res, next) => {
       return res.json({ success: true, data: [] });
     }
 
-    // Task 3.3: cap the number of IDs sent to db.getAll().
-    // db.getAll() with thousands of refs sends thousands of parallel Firestore
-    // reads in one call — risk of exhausting the Firebase Admin SDK connection
-    // pool under concurrent load.
-    // If the array exceeds MAX_LIKED_SONGS_FETCH, log a warning and truncate.
-    // The truncation is applied to the MOST RECENT liked songs (array head)
-    // because likedSongs is appended — newest songs are at the end.
-    // We reverse-slice to get the most recently liked 500.
     let likedSongIds = allLikedSongIds;
     if (allLikedSongIds.length > MAX_LIKED_SONGS_FETCH) {
-      logger.warn("getLikedSongs: user has more liked songs than fetch cap", {
+      logger.warn('getLikedSongs: user has more liked songs than fetch cap', {
         uid,
-        total:    allLikedSongIds.length,
-        cap:      MAX_LIKED_SONGS_FETCH,
-        action:   "truncating to most recent songs — liked songs pagination needed",
+        total:  allLikedSongIds.length,
+        cap:    MAX_LIKED_SONGS_FETCH,
+        action: 'truncating to most recent songs — liked songs pagination needed',
       });
-      // Slice the most recently liked songs (tail of the array = most recent).
       likedSongIds = allLikedSongIds.slice(-MAX_LIKED_SONGS_FETCH);
     }
 
-    const refs  = likedSongIds.map((id) => db.collection("songs").doc(id));
+    const refs  = likedSongIds.map((id) => db.collection('songs').doc(id));
     const snaps = await retryFirestore(() => db.getAll(...refs), {
-      label: "getLikedSongs:getAll",
+      label: 'getLikedSongs:getAll',
     });
 
     const songs = snaps
@@ -157,11 +142,11 @@ exports.getLikedSongs = async (req, res, next) => {
 
     return res.json({ success: true, data: songs });
   } catch (err) {
-    logger.error("getLikedSongs error:", { uid, error: err.message });
+    logger.error('getLikedSongs error:', { uid, error: err.message });
     return next(
       new InternalError(
-        "Failed to fetch liked songs. Please try again.",
-        "INTERNAL_ERROR",
+        'Failed to fetch liked songs. Please try again.',
+        'INTERNAL_ERROR',
         { originalError: err.message },
       ),
     );
@@ -173,34 +158,28 @@ exports.toggleLikedSong = async (req, res, next) => {
   const { uid, songId } = req.params;
 
   if (req.user.uid !== uid) {
-    return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
   }
 
   if (!songId) {
-    return next(new ValidationError("songId is required", "VALIDATION_ERROR"));
+    return next(new ValidationError('songId is required', 'VALIDATION_ERROR'));
   }
 
   try {
-    const userRef = db.collection("users").doc(uid);
+    const userRef = db.collection('users').doc(uid);
 
-    // Firestore transactions are atomic and idempotent on retry — safe to wrap.
     const updatedList = await retryFirestore(
       () =>
         db.runTransaction(async (tx) => {
           const snap       = await tx.get(userRef);
           const likedSongs = snap.exists ? (snap.data().likedSongs ?? []) : [];
 
-          // Task 3.3: soft warning when array grows past the fetch cap.
-          // We do NOT block the like action — that would break UX.
-          // The warning tells engineers that this user needs pagination support.
-          // Hard limit would be appropriate only if the Firestore document
-          // approaches its 1 MB size limit (typically > 50,000 song IDs).
           if (likedSongs.length >= LIKED_SONGS_WARN_THRESHOLD) {
-            logger.warn("toggleLikedSong: user liked songs array at or above warn threshold", {
+            logger.warn('toggleLikedSong: user liked songs array at or above warn threshold', {
               uid,
-              count:  likedSongs.length,
+              count:     likedSongs.length,
               threshold: LIKED_SONGS_WARN_THRESHOLD,
-              action: "liked songs pagination should be implemented",
+              action:    'liked songs pagination should be implemented',
             });
           }
 
@@ -211,16 +190,16 @@ exports.toggleLikedSong = async (req, res, next) => {
           tx.set(userRef, { likedSongs: nextList }, { merge: true });
           return nextList;
         }),
-      { label: "toggleLikedSong" },
+      { label: 'toggleLikedSong' },
     );
 
     return res.json({ success: true, data: updatedList });
   } catch (err) {
-    logger.error("toggleLikedSong error:", { uid, songId, error: err.message });
+    logger.error('toggleLikedSong error:', { uid, songId, error: err.message });
     return next(
       new InternalError(
-        "Failed to update liked songs. Please try again.",
-        "INTERNAL_ERROR",
+        'Failed to update liked songs. Please try again.',
+        'INTERNAL_ERROR',
         { originalError: err.message },
       ),
     );
@@ -228,21 +207,39 @@ exports.toggleLikedSong = async (req, res, next) => {
 };
 
 // ── POST /users/:uid/session-picks ────────────────────────────────────────────
-// Unchanged — already has MAX_PICKS_PER_BATCH = 50 cap (Task 3.3 compliant).
+//
+// PHASE 3 TASK 3.4: Direct Firestore write replaced with sessionPicksQueue.enqueue().
+//
+// What stays IDENTICAL to the previous version:
+//   ✓ Ownership check:         req.user.uid !== uid → ForbiddenError
+//   ✓ picks validation:        Array check + empty check → ValidationError
+//   ✓ MAX_PICKS_PER_BATCH cap: 50 → ValidationError
+//   ✓ Response timing:         res.json({ success: true }) fires FIRST
+//                              before any write or enqueue
+//   ✓ sanitize logic:          identical field mapping, whitelist, fallbacks
+//   ✓ sessionId format:        `${uid}_${YYYY-MM-DD}` unchanged
+//   ✓ sanitized.length guard:  if sanitized is empty after filtering, early return
+//
+// What changed:
+//   ✗ Removed:  direct retryFirestore + db.collection('sessionPicks').add()
+//   ✓ Added:    sessionPicksQueue.enqueue(uid, sanitized, sessionId)
+//
 exports.logSessionPicks = async (req, res, next) => {
   const { uid } = req.params;
 
+  // ── Ownership check (unchanged) ───────────────────────────────────────────
   if (req.user.uid !== uid) {
-    return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
   }
 
   const { picks } = req.body;
 
+  // ── Input validation (unchanged) ─────────────────────────────────────────
   if (!Array.isArray(picks) || picks.length === 0) {
     return next(
       new ValidationError(
-        "picks must be a non-empty array",
-        "VALIDATION_ERROR",
+        'picks must be a non-empty array',
+        'VALIDATION_ERROR',
       ),
     );
   }
@@ -252,48 +249,41 @@ exports.logSessionPicks = async (req, res, next) => {
     return next(
       new ValidationError(
         `picks batch too large — max ${MAX_PICKS_PER_BATCH} per request`,
-        "VALIDATION_ERROR",
+        'VALIDATION_ERROR',
       ),
     );
   }
 
-  // Respond immediately — telemetry write is non-blocking from client's perspective.
+  // ── Respond immediately (unchanged) ──────────────────────────────────────
+  // Client receives { success: true } before any write or enqueue.
+  // This preserves the fire-and-forget contract.
   res.json({ success: true });
 
+  // ── Sanitize picks (unchanged logic) ─────────────────────────────────────
   const sanitized = picks
-    .filter((p) => p && typeof p.songId === "string" && p.songId.trim())
+    .filter((p) => p && typeof p.songId === 'string' && p.songId.trim())
     .map((p) => ({
       songId: p.songId.trim(),
       previousSongId:
-        typeof p.previousSongId === "string" ? p.previousSongId.trim() : null,
-      contextType: ["library", "playlist", "liked", "dynamic"].includes(
-        p.contextType,
-      )
+        typeof p.previousSongId === 'string' ? p.previousSongId.trim() : null,
+      contextType: ['library', 'playlist', 'liked', 'dynamic'].includes(p.contextType)
         ? p.contextType
-        : "library",
-      contextId: typeof p.contextId === "string" ? p.contextId.trim() : null,
-      clientTs: typeof p.ts === "number" ? p.ts : Date.now(),
+        : 'library',
+      contextId: typeof p.contextId === 'string' ? p.contextId.trim() : null,
+      clientTs:  typeof p.ts === 'number' ? p.ts : Date.now(),
     }));
 
+  // Guard: if all picks were filtered out as invalid, nothing to enqueue
   if (!sanitized.length) return;
 
-  const today     = new Date().toISOString().slice(0, 10);
+  // ── Build sessionId (unchanged) ───────────────────────────────────────────
+  const today     = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const sessionId = `${uid}_${today}`;
 
-  try {
-    // maxAttempts:2 — fire-and-forget telemetry; one retry is enough.
-    // Client already received { success: true } above.
-    await retryFirestore(
-      () =>
-        db
-          .collection("users")
-          .doc(uid)
-          .collection("sessionPicks")
-          .add({ sessionId, picks: sanitized, pickedAt: new Date() }),
-      { maxAttempts: 2, label: "logSessionPicks" },
-    );
-  } catch (err) {
-    // Non-blocking — client already got success. Log and move on.
-    logger.error("logSessionPicks write error:", { uid, error: err.message });
-  }
+  // ── Enqueue — replaces direct Firestore write ─────────────────────────────
+  // enqueue() is synchronous (Map.set) and never throws.
+  // The SessionPicksQueue drainer writes to Firestore every 5 seconds,
+  // batching all pending picks for each uid into one .add() call.
+  // Failed writes are retried up to MAX_RETRIES (3) before dead-lettering.
+  sessionPicksQueue.enqueue(uid, sanitized, sessionId);
 };

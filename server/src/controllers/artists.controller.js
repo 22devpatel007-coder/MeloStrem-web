@@ -25,14 +25,14 @@
  *   - Every cache call is isolated — failure is a miss, never a crash.
  */
 
-'use strict';
+"use strict";
 
-const { db }    = require('../config/firebase');
-const cache     = require('../services/cache.service');
-const logger    = require('../utils/logger');
-const { ValidationError, NotFoundError, InternalError } = require('../errors');
+const { db } = require("../config/firebase");
+const cache = require("../services/cache.service");
+const logger = require("../utils/logger");
+const { ValidationError, NotFoundError, InternalError } = require("../errors");
 
-const SONGS_PER_PAGE  = 30;
+const SONGS_PER_PAGE = 30;
 const MAX_SONGS_LIMIT = 50;
 
 // ── GET /api/artists/:id ───────────────────────────────────────────────────
@@ -41,12 +41,12 @@ exports.getArtist = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    if (!id || typeof id !== 'string' || !id.trim()) {
-      throw new ValidationError('Invalid artist ID', 'VALIDATION_ERROR');
+    if (!id || typeof id !== "string" || !id.trim()) {
+      throw new ValidationError("Invalid artist ID", "VALIDATION_ERROR");
     }
 
     const artistId = id.trim();
-    const key      = `artists:id:${artistId}`;
+    const key = `artists:id:${artistId}`;
 
     // ── Cache read ────────────────────────────────────────────────────────
     const cached = cache.get(key);
@@ -55,18 +55,22 @@ exports.getArtist = async (req, res, next) => {
     }
 
     // ── Cache miss → Firestore ────────────────────────────────────────────
-    const snap = await db.collection('artists').doc(artistId).get();
+    const snap = await db.collection("artists").doc(artistId).get();
 
     if (!snap.exists) {
-      throw new NotFoundError('Artist not found', 'NOT_FOUND');
+      throw new NotFoundError("Artist not found", "NOT_FOUND");
     }
 
-    const data   = snap.data();
+    const data = snap.data();
     const result = {
-      id:        snap.id,
+      id: snap.id,
       ...data,
-      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
-      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
+      createdAt: data.createdAt?.toDate
+        ? data.createdAt.toDate().toISOString()
+        : (data.createdAt ?? null),
+      updatedAt: data.updatedAt?.toDate
+        ? data.updatedAt.toDate().toISOString()
+        : (data.updatedAt ?? null),
     };
 
     // ── Cache write ───────────────────────────────────────────────────────
@@ -75,8 +79,17 @@ exports.getArtist = async (req, res, next) => {
     return res.json(result);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
-    logger.error('getArtist unexpected error:', { error: err.message, artistId: req.params.id });
-    return next(new InternalError('Something went wrong. Please try again.', 'INTERNAL_ERROR', { originalError: err.message }));
+    logger.error("getArtist unexpected error:", {
+      error: err.message,
+      artistId: req.params.id,
+    });
+    return next(
+      new InternalError(
+        "Something went wrong. Please try again.",
+        "INTERNAL_ERROR",
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
@@ -88,14 +101,17 @@ exports.getArtistSongs = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    if (!id || typeof id !== 'string' || !id.trim()) {
-      throw new ValidationError('Invalid artist ID', 'VALIDATION_ERROR');
+    if (!id || typeof id !== "string" || !id.trim()) {
+      throw new ValidationError("Invalid artist ID", "VALIDATION_ERROR");
     }
 
     const artistId = id.trim();
-    const limit    = Math.min(parseInt(req.query.limit) || SONGS_PER_PAGE, MAX_SONGS_LIMIT);
-    const cursor   = req.query.cursor || null;
-    const key      = `artists:songs:${artistId}:${limit}:${cursor || 'start'}`;
+    const limit = Math.min(
+      parseInt(req.query.limit) || SONGS_PER_PAGE,
+      MAX_SONGS_LIMIT,
+    );
+    const cursor = req.query.cursor || null;
+    const key = `artists:songs:${artistId}:${limit}:${cursor || "start"}`;
 
     // ── Cache read ────────────────────────────────────────────────────────
     const cached = cache.get(key);
@@ -105,37 +121,41 @@ exports.getArtistSongs = async (req, res, next) => {
 
     // ── Cache miss → Firestore ────────────────────────────────────────────
     // Verify artist exists first — return 404 rather than empty songs list.
-    const artistSnap = await db.collection('artists').doc(artistId).get();
+    const artistSnap = await db.collection("artists").doc(artistId).get();
     if (!artistSnap.exists) {
-      throw new NotFoundError('Artist not found', 'NOT_FOUND');
+      throw new NotFoundError("Artist not found", "NOT_FOUND");
     }
 
     let query = db
-      .collection('songs')
-      .where('artistId', '==', artistId)
-      .orderBy('createdAt', 'desc')
+      .collection("songs")
+      .where("artistId", "==", artistId)
+      .orderBy("createdAt", "desc")
       .limit(limit + 1);
 
     if (cursor) {
-      const cursorSnap = await db.collection('songs').doc(cursor).get();
+      const cursorSnap = await db.collection("songs").doc(cursor).get();
       if (cursorSnap.exists) {
         query = query.startAfter(cursorSnap);
       }
     }
 
-    const snaps    = await query.get();
-    const docs     = snaps.docs;
-    const hasMore  = docs.length > limit;
+    const snaps = await query.get();
+    const docs = snaps.docs;
+    const hasMore = docs.length > limit;
     const pageDocs = hasMore ? docs.slice(0, limit) : docs;
     const nextCursor = hasMore ? pageDocs[pageDocs.length - 1].id : null;
 
     const songs = pageDocs.map((snap) => {
       const data = snap.data();
       return {
-        id:        snap.id,
+        id: snap.id,
         ...data,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
-        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
+        createdAt: data.createdAt?.toDate
+          ? data.createdAt.toDate().toISOString()
+          : (data.createdAt ?? null),
+        updatedAt: data.updatedAt?.toDate
+          ? data.updatedAt.toDate().toISOString()
+          : (data.updatedAt ?? null),
       };
     });
 
@@ -150,7 +170,16 @@ exports.getArtistSongs = async (req, res, next) => {
     return res.json(result);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
-    logger.error('getArtistSongs unexpected error:', { error: err.message, artistId: req.params.id });
-    return next(new InternalError('Something went wrong. Please try again.', 'INTERNAL_ERROR', { originalError: err.message }));
+    logger.error("getArtistSongs unexpected error:", {
+      error: err.message,
+      artistId: req.params.id,
+    });
+    return next(
+      new InternalError(
+        "Something went wrong. Please try again.",
+        "INTERNAL_ERROR",
+        { originalError: err.message },
+      ),
+    );
   }
 };

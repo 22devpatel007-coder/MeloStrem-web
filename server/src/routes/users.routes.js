@@ -1,20 +1,3 @@
-/**
- * server/src/routes/users.routes.js
- *
- * PRODUCTION READY — No changes from previous version.
- *
- * All routes sit behind router.use(verifyToken) — every request must carry
- * a valid Firebase ID token.
- *
- * Route ownership:
- *   GET  /                          → admin only (isAdmin guard)
- *   GET  /:uid/liked-songs          → controller enforces uid === req.user.uid
- *   POST /:uid/liked-songs/:songId  → controller enforces uid === req.user.uid
- *   POST /:uid/session-picks        → controller enforces uid === req.user.uid
- *   GET  /:uid/playlists            → playlistsCtrl.getUserPlaylists
- *                                     (controller enforces uid === req.user.uid)
- */
-
 const express        = require('express');
 const router         = express.Router();
 const { verifyToken }   = require('../middleware/verifyToken');
