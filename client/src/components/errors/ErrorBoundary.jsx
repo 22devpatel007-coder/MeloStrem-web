@@ -2,6 +2,7 @@
  * client/src/components/errors/ErrorBoundary.jsx
  *
  * PHASE 1 — TASK 1.3: Three-Level Error Boundary Strategy
+ * PHASE 4 — TASK 4.2: componentDidCatch now calls errorReporter.report()
  *
  * WHY THIS EXISTS:
  *   React 18 without error boundaries unmounts the entire component tree
@@ -30,11 +31,15 @@
  *   this.setState({ hasError: false, error: null }) — no full page refresh.
  *   React will re-attempt rendering the subtree from scratch.
  *
- * LOGGING:
- *   componentDidCatch logs structured info to console.error now.
- *   When Phase 4 (Task 4.2) adds errorReporter.js, replace the
- *   console.error call in componentDidCatch with errorReporter.report().
- *   The signature is already prepared — no other changes needed.
+ * ERROR REPORTING (Task 4.2):
+ *   componentDidCatch calls errorReporter.report() with:
+ *     - the thrown error object
+ *     - React's componentStack (which component in the tree threw)
+ *     - the boundary name (AppErrorBoundary / PlayerErrorBoundary / PageErrorBoundary)
+ *     - the current page URL path
+ *   The reporter batches and ships these to POST /api/errors/report.
+ *   The X-Correlation-ID from the most recent API response is attached
+ *   automatically inside errorReporter so the backend log can be matched.
  *
  * WHAT DOES NOT CHANGE:
  *   - No existing component is modified here — only App.jsx and
@@ -47,6 +52,7 @@
 
 import { Component } from 'react';
 import ErrorState from './ErrorState';
+import { report as reportError } from '../../services/errorReporter';
 
 // ─── Base ErrorBoundary class ─────────────────────────────────────────────────
 //
@@ -71,16 +77,24 @@ class ErrorBoundary extends Component {
   componentDidCatch(error, errorInfo) {
     const { onError } = this.props;
 
-    // Structured log for developer diagnosis.
-    // Phase 4 Task 4.2: replace console.error with errorReporter.report({...})
-    console.error('[ErrorBoundary]', {
-      boundary:     this.constructor.name,
-      message:      error?.message,
-      stack:        error?.stack,
-      componentStack: errorInfo?.componentStack,
+    // ── Phase 4 Task 4.2: structured error reporting ──────────────────────
+    // reportError() is fire-and-forget — it queues the payload internally
+    // and never throws. The boundary's fallback render is unaffected even
+    // if the reporter itself encounters an issue.
+    //
+    // meta fields:
+    //   boundary       — which boundary caught this (for server-side grouping)
+    //   componentStack — the React component stack from errorInfo
+    //   action         — fixed label so backend can filter boundary events
+    //
+    reportError(error, {
+      boundary:       this.constructor.name,
+      componentStack: errorInfo?.componentStack ?? null,
+      action:         'react-error-boundary',
     });
 
-    // Allow parent to hook in (used by Phase 4 errorReporter integration).
+    // Allow parent to hook in with the raw error + errorInfo if needed.
+    // Used by tests and any future parent-level monitoring wrappers.
     if (typeof onError === 'function') {
       onError(error, errorInfo);
     }

@@ -1,7 +1,17 @@
 // ─── client/src/services/api.js ───────────────────────────────────────────────
+//
+// PHASE 4 — TASK 4.2 addition:
+//   Response interceptor now calls setLastCorrelationId() on every successful
+//   response so errorReporter.js can attach the X-Correlation-ID to any error
+//   report that fires after that response.
+//
+//   Import is at the bottom of the import block and marked clearly so future
+//   readers understand why it exists.
+//
 import axios from 'axios';
 import { auth } from '../firebase';
 import { API_BASE_URL, IS_PRODUCTION } from '../config/index';
+import { setLastCorrelationId } from './errorReporter';
 
 // ── Axios instance ────────────────────────────────────────────────────────────
 // API_BASE_URL = "https://your-backend.onrender.com"  (no /api suffix)
@@ -144,8 +154,41 @@ const _forceLogout = (reason = 'Session expired. Please log in again.') => {
   return Promise.reject(new Error(reason));
 };
 
-// ── Response interceptor — error normalisation + retry ────────────────────────
+// ── Response interceptor — correlation ID capture + error handling ────────────
+//
+// TASK 4.2 ADDITION — correlationId capture:
+//   On every successful response (2xx), read the X-Correlation-ID header and
+//   pass it to errorReporter via setLastCorrelationId(). This means any error
+//   that fires after this response — whether a React render crash, an
+//   unhandled rejection, or an error boundary catch — will include the ID of
+//   the most recent API call that preceded it.
+//
+//   The header name matches what the backend correlationId middleware sets
+//   (Phase 4 Task 4.1): res.setHeader('X-Correlation-ID', req.correlationId).
+//
+//   WHY ON SUCCESS AND NOT ON ERROR:
+//   We capture the ID from the last *successful* response because that is the
+//   last known-good server interaction. An error response's correlationId is
+//   also captured (see the error handler path below) but the success path
+//   ensures we always have a recent ID even when the crash is a pure client-
+//   side render error unrelated to any failing API call.
+//
+const handleResponseSuccess = (response) => {
+  const correlationId = response.headers?.['x-correlation-id'];
+  if (correlationId) {
+    setLastCorrelationId(correlationId);
+  }
+  return response;
+};
+
 const handleResponseError = async (error) => {
+  // Capture correlationId from error responses too — useful when the crash
+  // is directly triggered by a 4xx/5xx and we want to match the server log.
+  const correlationId = error.response?.headers?.['x-correlation-id'];
+  if (correlationId) {
+    setLastCorrelationId(correlationId);
+  }
+
   // ── Network / CORS / server-down error ────────────────────────────────────
   // error.response is undefined when:
   //   a) Backend is down (521, connection refused)
@@ -281,7 +324,7 @@ const handleResponseError = async (error) => {
   return Promise.reject(err);
 };
 
-api.interceptors.response.use((response) => response, handleResponseError);
+api.interceptors.response.use(handleResponseSuccess, handleResponseError);
 
 // ── Upload instance (longer timeout for large file uploads) ───────────────────
 export const axiosUpload = axios.create({
@@ -306,7 +349,15 @@ axiosUpload.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-axiosUpload.interceptors.response.use((response) => response, handleResponseError);
+// axiosUpload also captures correlation IDs for error tracing.
+axiosUpload.interceptors.response.use(
+  (response) => {
+    const correlationId = response.headers?.['x-correlation-id'];
+    if (correlationId) setLastCorrelationId(correlationId);
+    return response;
+  },
+  handleResponseError
+);
 
 // ── Normalisation helpers ─────────────────────────────────────────────────────
 // Always use these instead of accessing .songs / .data directly.
