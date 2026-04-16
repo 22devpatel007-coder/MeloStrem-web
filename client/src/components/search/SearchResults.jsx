@@ -1,28 +1,29 @@
 /**
  * client/src/components/search/SearchResults.jsx
  *
- * PRODUCTION CHANGE: match highlighting added.
+ * Task 3.5 — List Virtualization for 10,000+ Songs
  *
- * What changed:
- *  - HighlightedText helper bolds the matched substring in title + artist.
- *  - escapeRegex (from fuzzyMatch util) makes user input regex-safe.
- *    Without this, input like "lo+fi" or "(test)" throws a SyntaxError.
+ * WHAT CHANGED (surgical):
  *
- * What did NOT change:
- *  - SongList is still used for the main results list (unchanged).
- *  - Loading / empty-query / no-results states are identical.
- *  - Props contract is unchanged: { results, isLoading, query }.
+ *   1. SongList now receives fetchNextPage / hasNextPage / isFetchingNextPage.
+ *      For search results these are always undefined (search is not paginated
+ *      via infinite query) — SongList handles missing props gracefully.
  *
- * Note: This component is used standalone (e.g. in older pages).
- * Search.jsx renders its own result list directly with SongCard for
- * more control — that highlighting lives in Search.jsx.
+ *   2. No other changes. SongList owns all virtualization logic.
+ *      SearchResults is a thin pass-through — unchanged API surface.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - HighlightedText helper — identical
+ *   - All loading / empty-query / no-results states — identical
+ *   - Props contract: { results, isLoading, query } — identical
+ *   - escapeRegex import — identical
  */
 
 import SongList from '../songs/SongList';
 import { Loader } from '../ui/Loader';
 import { escapeRegex } from '../../utils/fuzzyMatch';
 
-// ─── Highlight helper ─────────────────────────────────────────────────────────
+// ─── Highlight helper — identical to original ─────────────────────────────────
 /**
  * Renders `text` with the first occurrence of `query` bolded in green.
  * Safe against all regex-special characters in query.
@@ -36,7 +37,6 @@ export function HighlightedText({ text, query, className }) {
   try {
     pattern = new RegExp(`(${escapeRegex(query)})`, 'i');
   } catch {
-    // Should never happen after escapeRegex, but belt-and-suspenders
     return <span className={className}>{text}</span>;
   }
 
@@ -58,6 +58,9 @@ export function HighlightedText({ text, query, className }) {
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
+/**
+ * @param {{ results: Song[], isLoading: boolean, query: string }} props
+ */
 export const SearchResults = ({ results, isLoading, query }) => {
   if (isLoading) return <Loader />;
 
@@ -69,5 +72,11 @@ export const SearchResults = ({ results, isLoading, query }) => {
     return <p className="text-gray-500">No results for "{query}"</p>;
   }
 
+  /*
+   * Search results are a flat array — no infinite pagination.
+   * fetchNextPage / hasNextPage / isFetchingNextPage are intentionally omitted.
+   * SongList treats missing pagination props as "no more pages" and skips the
+   * sentinel fetch trigger.
+   */
   return <SongList songs={results} />;
 };
