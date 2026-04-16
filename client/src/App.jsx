@@ -52,7 +52,7 @@ import {
   AppErrorBoundary,
   PlayerErrorBoundary,
 } from './components/errors/ErrorBoundary';
-
+import NetworkErrorBanner from './components/errors/NetworkErrorBanner';
 // ─── React Query client ───────────────────────────────────────────────────────
 
 const queryClient = new QueryClient({
@@ -123,6 +123,7 @@ const App = () => {
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
+         <NetworkErrorBanner />
           <ToastProvider>
             {/*
               overflow:clip suppresses layout overflow (same as hidden)

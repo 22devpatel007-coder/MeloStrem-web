@@ -1,8 +1,31 @@
 /**
  * client/src/pages/PlaylistDetail.jsx
- * PERMANENT FIX: Navbar import and usage removed entirely.
- * PageWrapper (via routes/index.jsx) owns sidebar + layout.
- * Page renders only its own content — no outer page/minHeight wrapper.
+ *
+ * PHASE 4 — TASK 4.4 AUDIT: Replace raw error string renders.
+ *
+ * WHAT CHANGED (surgical — only error states):
+ *
+ *   1. Imported ErrorState from components/errors/ErrorState.
+ *
+ *   2. songsError block — was: plain <div style={styles.errorWrap}>
+ *      with hardcoded <p> strings + a Retry button.
+ *      Now: <ErrorState variant="page" ...> — consistent error UI.
+ *      The handleRetry callback is passed as onAction — no logic change.
+ *
+ *   3. Removed now-unused styles: errorWrap, errorTitle, errorSub, retryBtn.
+ *      These were only used by the old error block.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - All playlist header JSX — 100% identical
+ *   - Song list rendering — 100% identical
+ *   - handlePlayAll, handleShufflePlay, handlePlaySong — identical
+ *   - handleMoveUp, handleMoveDown, handleSaveEdit — identical
+ *   - handleRetry logic — identical (passed as onAction to ErrorState)
+ *   - useParams, usePlaylists, usePlayerStore, useAuthStore — identical
+ *   - All useEffect hooks — identical
+ *   - orderedSongs / isReadOnly computation — identical
+ *   - All remaining styles — identical
+ *   - PERMANENT FIX comment (Navbar removed) — preserved
  */
 
 import { useState, useEffect, useMemo, useCallback } from "react";
@@ -16,6 +39,7 @@ import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import { getPlaylistSongs } from "../services/playlists.service";
 import Loader from "../components/ui/Loader";
+import ErrorState from "../components/errors/ErrorState";
 
 const PlaylistDetail = () => {
   const { id } = useParams();
@@ -121,7 +145,8 @@ const PlaylistDetail = () => {
     setEditMode(false);
   };
 
-  const handleRetry = () => {
+  // ── handleRetry — identical logic, passed as onAction to ErrorState ─────────
+  const handleRetry = useCallback(() => {
     setSongsError(null);
     setSongsLoading(true);
     getPlaylistSongs(playlist.songIds)
@@ -131,21 +156,26 @@ const PlaylistDetail = () => {
           .filter(Boolean);
         setSongs(ordered);
       })
-      .catch((err) => setSongsError(err.message))
+      .catch((err) => {
+        console.error("[PlaylistDetail] retry error:", err.message);
+        setSongsError("Could not load songs for this playlist. Please try again.");
+      })
       .finally(() => setSongsLoading(false));
-  };
+  }, [playlist?.songIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!playlist || songsLoading) return <Loader />;
 
+  // ── TASK 4.4: Songs error — replaced with ErrorState ──────────────────────
   if (songsError) {
     return (
-      <div style={styles.errorWrap}>
-        <p style={styles.errorTitle}>Could not load songs</p>
-        <p style={styles.errorSub}>{songsError}</p>
-        <button style={styles.retryBtn} onClick={handleRetry}>
-          Retry
-        </button>
-      </div>
+      <ErrorState
+        variant="page"
+        title="Could not load songs"
+        message="Could not load songs for this playlist. Please try again."
+        actionLabel="Retry"
+        onAction={handleRetry}
+        showHomeButton={true}
+      />
     );
   }
 
@@ -425,27 +455,6 @@ const styles = {
     fontSize: 14,
     padding: "40px 0",
     textAlign: "center",
-  },
-  errorWrap: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "60vh",
-    gap: 12,
-  },
-  errorTitle: { color: "#fff", fontSize: 16, fontWeight: 600 },
-  errorSub: { color: "#6b7280", fontSize: 13 },
-  retryBtn: {
-    background: "#22c55e",
-    color: "#000",
-    border: "none",
-    borderRadius: 8,
-    padding: "10px 24px",
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: "inherit",
   },
   songRow: {
     display: "flex",

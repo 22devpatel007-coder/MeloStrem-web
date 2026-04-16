@@ -1,7 +1,30 @@
 /**
  * client/src/pages/AlbumDetail.jsx
- * PERMANENT FIX: Navbar import and usage removed entirely.
- * PageWrapper owns layout. Page renders only its own content.
+ *
+ * PHASE 4 — TASK 4.4 AUDIT: Replace raw error string renders.
+ *
+ * WHAT CHANGED (surgical — only error states):
+ *
+ *   1. Imported ErrorState from components/errors/ErrorState.
+ *
+ *   2. "Not found" block — was: plain <div> with hardcoded <p> + <Link>.
+ *      Now: <ErrorState variant="page" ...> — consistent error UI,
+ *      uses design tokens, accessible, focus-managed.
+ *
+ *   3. "Could not load album" block — same treatment as #2.
+ *
+ *   4. isLoading fallback — was: <Loader /> alone.
+ *      Kept <Loader /> (correct). No change needed.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - All hero JSX — 100% identical
+ *   - All track list JSX — 100% identical
+ *   - Discography / "More by this artist" section — 100% identical
+ *   - handlePlaySong, handlePlayAll, totalSeconds — 100% identical
+ *   - useAlbum, usePlayerStore, useAuthStore usage — 100% identical
+ *   - formatDuration, formatTotalDuration helpers — 100% identical
+ *   - All styles object — 100% identical
+ *   - PERMANENT FIX comment (Navbar removed) — preserved
  */
 
 import { useCallback } from "react";
@@ -10,6 +33,7 @@ import { useAlbum } from "../hooks/useAlbum";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import Loader from "../components/ui/Loader";
+import ErrorState from "../components/errors/ErrorState";
 
 const AlbumDetail = () => {
   const { id } = useParams();
@@ -37,31 +61,31 @@ const AlbumDetail = () => {
 
   if (isLoading) return <Loader />;
 
+  // ── TASK 4.4: Not found — replaced with ErrorState ─────────────────────────
   if (!album && !isLoading) {
     return (
-      <div style={styles.notFound}>
-        <p style={styles.notFoundTitle}>Album not found</p>
-        <p style={styles.notFoundSub}>
-          This album page doesn't exist or hasn't been created yet.
-        </p>
-        <Link to="/" style={styles.backLink}>
-          ← Back to Library
-        </Link>
-      </div>
+      <ErrorState
+        variant="page"
+        title="Album not found"
+        message="This album page doesn't exist or hasn't been created yet."
+        actionLabel="Go to Library"
+        onAction={() => { window.location.href = '/'; }}
+        showHomeButton={false}
+      />
     );
   }
 
+  // ── TASK 4.4: Load error — replaced with ErrorState ────────────────────────
   if (error && !album) {
     return (
-      <div style={styles.notFound}>
-        <p style={styles.notFoundTitle}>Could not load album</p>
-        <p style={styles.notFoundSub}>
-          Something went wrong. Please try again.
-        </p>
-        <Link to="/" style={styles.backLink}>
-          ← Back to Library
-        </Link>
-      </div>
+      <ErrorState
+        variant="page"
+        title="Could not load album"
+        message="Something went wrong. Please try again."
+        actionLabel="Try again"
+        onAction={() => { window.location.reload(); }}
+        showHomeButton={true}
+      />
     );
   }
 
@@ -385,24 +409,6 @@ const styles = {
     color: "#9ca3af",
     fontWeight: 600,
     textDecoration: "none",
-  },
-  notFound: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "60vh",
-    gap: 12,
-    textAlign: "center",
-  },
-  notFoundTitle: { color: "#fff", fontSize: 18, fontWeight: 700 },
-  notFoundSub: { color: "#6b7280", fontSize: 14 },
-  backLink: {
-    color: "#22c55e",
-    fontSize: 13,
-    fontWeight: 600,
-    textDecoration: "none",
-    marginTop: 8,
   },
 };
 

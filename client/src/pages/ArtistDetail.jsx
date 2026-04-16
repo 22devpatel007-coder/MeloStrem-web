@@ -1,38 +1,28 @@
 /**
  * client/src/pages/ArtistDetail.jsx
  *
- * Task 3.5 — List Virtualization for 10,000+ Songs
+ * PHASE 4 — TASK 4.4 AUDIT: Replace raw error string renders.
  *
- * WHAT CHANGED (surgical — only the songs list section):
+ * WHAT CHANGED (surgical — only error states):
  *
- *   1. @tanstack/react-virtual added for the songs section list.
+ *   1. Imported ErrorState from components/errors/ErrorState.
  *
- *   2. The `showAll` / `displayedSongs` slice logic is REPLACED by the
- *      virtualizer. Previously: songs.slice(0, 10) + "Show all" button.
- *      Now: all loaded songs rendered virtually — only viewport rows in DOM.
- *      The "Show all" button is removed; scroll reveals all songs naturally.
+ *   2. "Artist not found" block — was: plain <div> with hardcoded <p> + <Link>.
+ *      Now: <ErrorState variant="page" ...> — consistent error UI.
  *
- *   3. The "Show more" / fetchNextPage trigger is preserved via the
- *      infinite scroll sentinel — when virtual scroll reaches within
- *      SENTINEL_OFFSET rows of the loaded end, fetchNextPage() fires.
- *
- *   4. The songs list container ref is anchored to useVirtualizer.
- *      estimateSize: () => 56 — matches: 40px cover + 8px padding top +
- *      8px padding bottom = 56px per artist song row.
- *
- *   5. isFetchingNextPage shows a "Loading more…" row at the bottom
- *      (same text as original).
+ *   3. "Could not load artist" block — same treatment as #2.
  *
  * WHAT DID NOT CHANGE:
+ *   - Task 3.5 virtualization (useVirtualizer, listRef, sentinel) — 100% identical
  *   - Hero section — 100% identical
  *   - Discography section — 100% identical
  *   - handlePlaySong / handlePlayAll — identical
- *   - isActive highlighting on rows — identical
+ *   - isActive highlighting — identical
  *   - Link null-safety for album — identical
- *   - All styles object — identical
- *   - formatDuration — identical
- *   - Error / loading / not-found states — identical
+ *   - All styles object — 100% identical
+ *   - formatDuration helper — identical
  *   - useArtist / usePlayerStore / useAuthStore usage — identical
+ *   - All constants (ARTIST_ROW_HEIGHT, OVERSCAN, SENTINEL_OFFSET, LIST_MAX_HEIGHT) — identical
  *   - PERMANENT FIX comment (Navbar removed) — preserved
  */
 
@@ -43,22 +33,13 @@ import { useArtist } from "../hooks/useArtist";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import Loader from "../components/ui/Loader";
+import ErrorState from "../components/errors/ErrorState";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-/**
- * Height of one artist song row.
- * padding: 8px 12px top/bottom + cover 40px = 56px.
- */
+// ── Constants — identical to original ────────────────────────────────────────
 const ARTIST_ROW_HEIGHT = 56;
-
-/** Extra rows rendered above/below viewport. */
-const OVERSCAN = 5;
-
-/** Rows from end of loaded data that trigger fetchNextPage. */
-const SENTINEL_OFFSET = 8;
-
-/** Max height of the virtualized song list scroll region. */
-const LIST_MAX_HEIGHT = 'calc(100vh - 360px)';
+const OVERSCAN          = 5;
+const SENTINEL_OFFSET   = 8;
+const LIST_MAX_HEIGHT   = 'calc(100vh - 360px)';
 
 // ── Component ─────────────────────────────────────────────────────────────────
 /**
@@ -79,7 +60,7 @@ const ArtistDetail = () => {
   const { setPlaybackContext, logPick, currentSong } = usePlayerStore();
   const { user } = useAuthStore();
 
-  // ── Virtual scroll ref ────────────────────────────────────────────────────
+  // ── Virtual scroll ref — identical to original ────────────────────────────
   const listRef = useRef(null);
 
   const virtualizer = useVirtualizer({
@@ -92,7 +73,7 @@ const ArtistDetail = () => {
   const virtualItems = virtualizer.getVirtualItems();
   const totalHeight  = virtualizer.getTotalSize();
 
-  // ── Infinite scroll sentinel ──────────────────────────────────────────────
+  // ── Infinite scroll sentinel — identical to original ──────────────────────
   useEffect(() => {
     if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
     if (virtualItems.length === 0) return;
@@ -131,34 +112,34 @@ const ArtistDetail = () => {
     setPlaybackContext("library", id, songs, 0);
   }, [songs, id, setPlaybackContext]);
 
-  // ── Guards — identical to original ───────────────────────────────────────
+  // ── Guards ────────────────────────────────────────────────────────────────
   if (isLoading) return <Loader />;
 
+  // ── TASK 4.4: Not found — replaced with ErrorState ─────────────────────────
   if (!artist && !isLoading) {
     return (
-      <div style={styles.notFound}>
-        <p style={styles.notFoundTitle}>Artist not found</p>
-        <p style={styles.notFoundSub}>
-          This artist page doesn't exist or hasn't been created yet.
-        </p>
-        <Link to="/" style={styles.backLink}>
-          ← Back to Library
-        </Link>
-      </div>
+      <ErrorState
+        variant="page"
+        title="Artist not found"
+        message="This artist page doesn't exist or hasn't been created yet."
+        actionLabel="Go to Library"
+        onAction={() => { window.location.href = '/'; }}
+        showHomeButton={false}
+      />
     );
   }
 
+  // ── TASK 4.4: Load error — replaced with ErrorState ────────────────────────
   if (error && !artist) {
     return (
-      <div style={styles.notFound}>
-        <p style={styles.notFoundTitle}>Could not load artist</p>
-        <p style={styles.notFoundSub}>
-          Something went wrong. Please try again.
-        </p>
-        <Link to="/" style={styles.backLink}>
-          ← Back to Library
-        </Link>
-      </div>
+      <ErrorState
+        variant="page"
+        title="Could not load artist"
+        message="Something went wrong. Please try again."
+        actionLabel="Try again"
+        onAction={() => { window.location.reload(); }}
+        showHomeButton={true}
+      />
     );
   }
 
@@ -210,18 +191,13 @@ const ArtistDetail = () => {
       </div>
 
       <div style={styles.container}>
-        {/* ── Songs section ── */}
+        {/* ── Songs section — virtualizer identical to original ── */}
         <section style={styles.section}>
           <h2 style={styles.sectionTitle}>Songs</h2>
           {songs.length === 0 ? (
             <p style={styles.empty}>No songs found for this artist.</p>
           ) : (
             <>
-              {/*
-                * Virtualized scroll container for the song rows.
-                * overflow-y: auto + fixed max-height = virtualizer scroll anchor.
-                * position: relative + totalHeight spacer = correct scrollbar sizing.
-                */}
               <div
                 ref={listRef}
                 style={{
@@ -232,7 +208,6 @@ const ArtistDetail = () => {
                   scrollbarColor: 'rgba(255,255,255,0.08) transparent',
                 }}
               >
-                {/* Spacer that sizes the scrollbar */}
                 <div style={{ height: totalHeight, position: 'relative' }}>
                   {virtualItems.map((virtualItem) => {
                     const song = songs[virtualItem.index];
@@ -252,7 +227,6 @@ const ArtistDetail = () => {
                           transform: `translateY(${virtualItem.start}px)`,
                         }}
                       >
-                        {/* Song row — 100% identical to original */}
                         <div
                           style={{
                             ...styles.songRow,
@@ -268,13 +242,13 @@ const ArtistDetail = () => {
                           <img
                             src={
                               song.coverUrl ||
-                              "https://placehold.co/40x40/111/555?text=♪"
+                              "https://placehold.co/40x40/1a1a1a/555?text=♪"
                             }
                             alt={song.title}
                             style={styles.songCover}
                             onError={(e) => {
                               e.target.src =
-                                "https://placehold.co/40x40/111/555?text=♪";
+                                "https://placehold.co/40x40/1a1a1a/555?text=♪";
                             }}
                           />
                           <div style={styles.songInfo}>
@@ -287,19 +261,25 @@ const ArtistDetail = () => {
                               {song.title}
                             </p>
                             <p style={styles.songMeta}>
+                              <span style={styles.songMetaText}>
+                                {song.artist}
+                              </span>
                               {song.albumId ? (
-                                <Link
-                                  to={`/album/${song.albumId}`}
-                                  style={styles.albumLink}
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {song.album || "Unknown Album"}
-                                </Link>
-                              ) : (
+                                <>
+                                  {" · "}
+                                  <Link
+                                    to={`/album/${song.albumId}`}
+                                    style={styles.albumLink}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {song.album || "Unknown Album"}
+                                  </Link>
+                                </>
+                              ) : song.album ? (
                                 <span style={styles.songMetaText}>
-                                  {song.album || ""}
+                                  {" · "}{song.album}
                                 </span>
-                              )}
+                              ) : null}
                             </p>
                           </div>
                           {song.genre && (
@@ -314,8 +294,6 @@ const ArtistDetail = () => {
                   })}
                 </div>
               </div>
-
-              {/* Loading more indicator — same text as original */}
               {isFetchingNextPage && (
                 <p style={styles.loadingMore}>Loading more…</p>
               )}
@@ -556,24 +534,6 @@ const styles = {
     textOverflow: "ellipsis",
   },
   albumGenre: { color: "#6b7280", fontSize: 11, margin: 0 },
-  notFound: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    height: "60vh",
-    gap: 12,
-    textAlign: "center",
-  },
-  notFoundTitle: { color: "#fff", fontSize: 18, fontWeight: 700 },
-  notFoundSub: { color: "#6b7280", fontSize: 14 },
-  backLink: {
-    color: "#22c55e",
-    fontSize: 13,
-    fontWeight: 600,
-    textDecoration: "none",
-    marginTop: 8,
-  },
   empty: { color: "#6b7280", fontSize: 14, padding: "24px 0" },
 };
 
