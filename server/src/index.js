@@ -1,3 +1,33 @@
+/**
+ * server/src/index.js
+ *
+ * PHASE 4 — TASK 4.1: Added correlationId middleware.
+ *
+ * Changes from previous version (ONLY these two changes — nothing else touched):
+ *
+ *   1. Import correlationId middleware from ./middleware/correlationId.
+ *
+ *   2. Register app.use(correlationId) after body parsers and generalLimiter,
+ *      before app.use('/api', routes).
+ *      Position rationale:
+ *        - Must be AFTER cors() — so res.set() can write response headers.
+ *        - Must be AFTER body parsers — no dependency, but keeps middleware
+ *          order readable (security → parsing → tracing → routes).
+ *        - Must be AFTER generalLimiter — rate-limited requests that are
+ *          rejected before reaching routes still get a correlationId on the
+ *          response header, which is useful for debugging 429s in the frontend.
+ *          Actually, to guarantee this even for rate-limited rejects, we
+ *          register correlationId BEFORE generalLimiter. See comment inline.
+ *        - Must be BEFORE all route handlers and the error handler so that
+ *          req.correlationId is always set when controllers log.
+ *
+ *   3. Added 'X-Correlation-ID' to corsOptions.exposedHeaders so browsers
+ *      can read the response header from JavaScript (fetch/XHR).
+ *      Without this, CORS blocks the frontend from reading custom headers.
+ *
+ * Everything else is identical to the previous version.
+ */
+
 'use strict';
 
 const express = require('express');
@@ -22,6 +52,7 @@ const config          = require('./config/index');
 const logger          = require('./utils/logger');
 const routes          = require('./routes/index');
 const errorHandler    = require('./middleware/errorHandler');
+const correlationId   = require('./middleware/correlationId');   // ← PHASE 4
 const { generalLimiter } = require('./middleware/rateLimiter');
 
 // Phase 3 Task 3.4 — Session picks queue singleton.
@@ -64,6 +95,14 @@ if (allowedOrigins.size === 0) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. CORS OPTIONS
+//
+// Phase 4 addition: exposedHeaders includes 'X-Correlation-ID'.
+//   Without this, the CORS spec prevents browser JavaScript from reading any
+//   response header that is not in the CORS-safelisted set (Cache-Control,
+//   Content-Language, Content-Length, Content-Type, Expires, Last-Modified,
+//   Pragma). X-Correlation-ID is a custom header, so it must be explicitly
+//   exposed. The frontend error reporter (Task 4.2) reads this header to
+//   attach the correlation ID to error reports.
 // ─────────────────────────────────────────────────────────────────────────────
 const corsOptions = {
   origin(origin, callback) {
@@ -81,6 +120,10 @@ const corsOptions = {
   credentials:    true,
   methods:        ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  // ← PHASE 4: expose X-Correlation-ID so browser JS can read it.
+  //   Required for the frontend error reporter (Task 4.2) to attach
+  //   the correlation ID to error reports sent to the backend.
+  exposedHeaders: ['X-Correlation-ID'],
   // Browsers may cache the preflight response for 10 minutes, reducing OPTIONS
   // round-trips on repeat requests.
   maxAge: 600,
@@ -109,7 +152,27 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-// ── 4d. Global rate limiter ──────────────────────────────────────────────────
+// ── 4d. Correlation ID ───────────────────────────────────────────────────────
+// Registered BEFORE generalLimiter intentionally.
+//
+// Why before the rate limiter?
+//   When a request is rejected by express-rate-limit (429 Too Many Requests),
+//   the rate limiter calls res.send() and returns — the request never reaches
+//   any route handler. If correlationId were registered AFTER the rate limiter,
+//   rejected requests would have NO X-Correlation-ID on the response, making
+//   it impossible to correlate 429 errors in the frontend with server logs.
+//
+//   By registering first, every response — including 429s and CORS rejections
+//   from step 4b — carries a correlationId header.
+//
+// Why after CORS?
+//   CORS middleware must run first so that preflight OPTIONS requests are
+//   handled before any other middleware fires. correlationId calling res.set()
+//   AFTER cors() is safe because cors() does not finalise the response for
+//   non-OPTIONS requests — it just sets headers and calls next().
+app.use(correlationId);   // ← PHASE 4
+
+// ── 4e. Global rate limiter ──────────────────────────────────────────────────
 app.use(generalLimiter);
 
 // ─────────────────────────────────────────────────────────────────────────────
