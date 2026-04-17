@@ -1,18 +1,27 @@
 /**
  * client/src/routes/index.jsx
  *
- * FIX: Every protected page is now wrapped in <PageWrapper> so the
- * sidebar + scrollable main region are always rendered.
+ * TASK 5.3 — Dead Code Audit: ONE CHANGE ONLY
+ * ─────────────────────────────────────────────
+ * BEFORE:  path='/player'
+ * AFTER:   path='/player/:id'
  *
- * Layout hierarchy:
- *   App.jsx  (h-screen flex flex-col overflow-hidden)
+ * Root cause: Player.jsx calls useParams() to read `id`, but the route had
+ * no :id segment, so id was always undefined and the page always showed
+ * "Song not found". This one-character fix restores the intended behavior.
+ *
+ * NO other lines changed. All other routes, imports, and layout wrappers
+ * are identical to the previous version.
+ *
+ * Layout hierarchy (unchanged):
+ *   App.jsx  (h-screen flex flex-col overflow-clip)
  *     └─ flex row div (flex-1 min-h-0 overflow-hidden)
  *         └─ AppRoutes
  *             └─ PageWrapper  ← renders Sidebar + scrollable <main>
- *                 └─ Page (Home, Search, etc.)
+ *                 └─ Page (Home, Search, Player, etc.)
  *
- * Auth/Login/Register/ForgotPassword get their own full-screen layout — no PageWrapper.
- * Admin pages get PageWrapper so they also have the sidebar.
+ * Auth routes (Login, Register, ForgotPassword) — no PageWrapper, full-screen.
+ * Admin routes — PageWrapper gives them the sidebar.
  */
 
 import React, { Suspense, lazy } from 'react';
@@ -70,8 +79,17 @@ const AppRoutes = () => (
           </ProtectedRoute>
         }
       />
+
+      {/*
+       * TASK 5.3 FIX — path changed from '/player' to '/player/:id'
+       *
+       * Before: path='/player'   → useParams().id was always undefined
+       * After:  path='/player/:id' → useParams().id correctly reads the song ID
+       *
+       * Usage:  navigate(`/player/${song.id}`)  or  <Link to={`/player/${song.id}`}>
+       */}
       <Route
-        path='/player'
+        path='/player/:id'
         element={
           <ProtectedRoute>
             <PageWrapper>
@@ -80,6 +98,7 @@ const AppRoutes = () => (
           </ProtectedRoute>
         }
       />
+
       <Route
         path='/playlists'
         element={

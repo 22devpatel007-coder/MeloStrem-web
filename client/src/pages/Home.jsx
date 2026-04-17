@@ -829,7 +829,7 @@ const HOME_STYLES = `
 
   /* ── Sentinel ─────────────────────────────────────────────────────────────── */
   .home-sentinel {
-    height: 64px; display: flex; align-items: center;
+    height: 50px; display: flex; align-items: center;
     justify-content: center; margin-top: 16px;
   }
   .home-sentinel__loading { display: flex; align-items: center; gap: 10px; color: #4b5563; font-size: 13px; }
