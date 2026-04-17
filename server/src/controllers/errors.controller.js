@@ -243,3 +243,4 @@ const receiveErrorReports = (req, res, next) => {
 };
 
 module.exports = { receiveErrorReports };
+console.log("EXPORT TEST:", module.exports);

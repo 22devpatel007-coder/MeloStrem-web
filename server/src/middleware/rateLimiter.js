@@ -212,6 +212,16 @@ const playlistsLimiter = rateLimit({
   },
 });
 
+//error ratrlimitr
+const errorReportLimiter = rateLimit({
+  ...base,
+  windowMs: 1 * 60 * 1000,
+  max:      10,
+  message:  {
+    success: false,
+    error: { message: 'Too many error reports', code: 'RATE_LIMIT_EXCEEDED' },
+  },
+});
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -219,8 +229,9 @@ module.exports = {
   uploadLimiter,
   searchLimiter,
   adminMutationLimiter,
-  duplicateCheckLimiter,
+  duplicateCheckLimiter, 
   artistsLimiter,
   albumsLimiter,
   playlistsLimiter,
+  errorReportLimiter,
 };
