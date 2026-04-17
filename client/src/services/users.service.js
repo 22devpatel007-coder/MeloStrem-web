@@ -1,10 +1,63 @@
+/**
+ * client/src/services/users.service.js
+ *
+ * BUG-002 fix: replaced raw .data.data chains with defensive normalizers.
+ *
+ * Root cause: every function called .data.data directly with no null guard.
+ * If the backend returned { success, data } and data was missing/null,
+ * the caller received undefined and any .map() call crashed the UI.
+ *
+ * Fix: extractArray() and extractObject() handle all envelope shapes
+ * defensively — same pattern already used in playlists.service.js.
+ */
+
 import api from './api';
 
-export const getUsers = async () => (await api.get('/users')).data.data;
-export const getUserById = async (uid) => (await api.get(`/users/${uid}`)).data.data;
-export const updateUserRole = async (uid, role) =>
-  (await api.put(`/users/${uid}/role`, { role })).data.data;
-export const getLikedSongs = async (uid) =>
-  (await api.get(`/users/${uid}/liked-songs`)).data.data;
-export const toggleLikeSong = async (uid, songId) =>
-  (await api.post(`/users/${uid}/liked-songs/${songId}`)).data.data;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// Handles: { data: { data: [...] } }  →  Axios wraps { success, data: [...] }
+//          { data: [...] }            →  Axios wraps raw array
+//          anything else              →  []
+const extractArray = (res) => {
+  if (Array.isArray(res?.data?.data)) return res.data.data;
+  if (Array.isArray(res?.data))       return res.data;
+  return [];
+};
+
+// Handles: { data: { data: {...} } }  →  Axios wraps { success, data: {...} }
+//          { data: {...} }            →  Axios wraps raw object
+//          anything else              →  null
+const extractObject = (res) => {
+  if (res?.data?.data && typeof res.data.data === 'object') return res.data.data;
+  if (res?.data       && typeof res.data       === 'object') return res.data;
+  return null;
+};
+
+// ─── Service functions ────────────────────────────────────────────────────────
+
+export const getUsers = async () => {
+  const res = await api.get('/users');
+  return extractArray(res);
+};
+
+export const getUserById = async (uid) => {
+  const res = await api.get(`/users/${uid}`);
+  return extractObject(res);
+};
+
+export const updateUserRole = async (uid, role) => {
+  const res = await api.put(`/users/${uid}/role`, { role });
+  return extractObject(res);
+};
+
+export const getLikedSongs = async (uid) => {
+  const res = await api.get(`/users/${uid}/liked-songs`);
+  // Backend returns { success: true, data: Song[] }
+  return extractArray(res);
+};
+
+export const toggleLikeSong = async (uid, songId) => {
+  const res = await api.post(`/users/${uid}/liked-songs/${songId}`);
+  // Backend returns { success: true, data: string[] } — the updated liked ID list
+  return extractArray(res);
+};
