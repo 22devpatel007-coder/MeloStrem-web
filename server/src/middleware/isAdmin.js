@@ -29,7 +29,6 @@
  * If you need to revoke admin: clear the custom claim, do NOT rely on Firestore.
  */
 
-const config = require('../config/index');
 const { sendError } = require('../utils/apiResponse');
 
 const isAdmin = async (req, res, next) => {
@@ -47,23 +46,6 @@ const isAdmin = async (req, res, next) => {
 
     // 2. ADMIN_EMAILS env var — initial-setup escape hatch only.
     //    Once all admins have the custom claim set, clear this env var.
-    const adminEmails = config.adminEmails ?? [];
-    if (
-      Array.isArray(adminEmails) &&
-      adminEmails.length > 0 &&
-      req.user.email &&
-      adminEmails.includes(req.user.email.toLowerCase())
-    ) {
-      // Warn in production so ops knows a claim-less admin is still relying on this path.
-      if (process.env.NODE_ENV === 'production') {
-        console.warn(
-          '[isAdmin] Admin access via ADMIN_EMAILS env var for:',
-          req.user.email,
-          '— run scripts/setAdminClaim.js to provision a proper claim.'
-        );
-      }
-      return next();
-    }
 
     // Access denied.
     console.warn('[isAdmin] Access denied for uid:', req.user.uid, 'email:', req.user.email);

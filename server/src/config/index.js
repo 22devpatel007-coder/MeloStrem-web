@@ -19,8 +19,6 @@ const config = {
       ? process.env.CLIENT_ORIGIN.split(',').map(o => o.trim())
       : ['http://localhost:3000']
   ),
-  adminEmails: process.env.ADMIN_EMAILS?.split(',') || [],
-  // ✅ Added: used by keep-alive self-ping in server/src/index.js
   backendUrl: process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || null,
 };
 
