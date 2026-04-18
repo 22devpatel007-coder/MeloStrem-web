@@ -26,7 +26,7 @@
  */
 
 "use strict";
-
+const { retryFirestore } = require('../utils/retryFirestore');
 const { db } = require("../config/firebase");
 const cache = require("../services/cache.service");
 const logger = require("../utils/logger");

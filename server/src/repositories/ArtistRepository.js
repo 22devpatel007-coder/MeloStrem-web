@@ -29,7 +29,7 @@
 
 'use strict';
 
-const { admin }      = require('../config/firebase');
+const admin = require('firebase-admin');
 const BaseRepository = require('./BaseRepository');
 
 const FieldValue = admin.firestore.FieldValue;

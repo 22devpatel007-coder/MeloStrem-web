@@ -48,16 +48,16 @@ class Playlist {
 
     // songs must be a clean string[] — filter out any nulls/non-strings
     // that could have been written by buggy code paths.
-    const songs = Array.isArray(data.songs)
-      ? data.songs.filter((s) => typeof s === 'string' && s.trim() !== '')
-      : [];
+    const songs = Array.isArray(data.songIds)
+  ? data.songIds.filter((s) => typeof s === 'string' && s.trim() !== '')
+  : [];
 
     return {
       id:          typeof data.id          === 'string'  ? data.id               : '',
       name:        typeof data.name        === 'string'  ? data.name.trim()      : '',
       description: typeof data.description === 'string'  ? data.description      : '',
       coverUrl:    typeof data.coverUrl    === 'string'  ? data.coverUrl         : '',
-      songs,
+      songIds: songs,
       createdBy:   typeof data.createdBy   === 'string'  ? data.createdBy        : '',
       isPublic:    typeof data.isPublic    === 'boolean' ? data.isPublic         : false,
 
@@ -91,11 +91,9 @@ class Playlist {
       if (data.description !== undefined) payload.description = String(data.description);
       if (data.coverUrl    !== undefined) payload.coverUrl    = String(data.coverUrl).trim();
       if (data.isPublic    !== undefined) payload.isPublic    = Boolean(data.isPublic);
-      if (data.songs !== undefined && Array.isArray(data.songs)) {
-        // Full songs array replacement (not arrayUnion/arrayRemove).
-        // Filter defensively before writing.
-        payload.songs = data.songs.filter((s) => typeof s === 'string' && s.trim() !== '');
-      }
+      if (data.songIds !== undefined && Array.isArray(data.songIds)) {
+  payload.songIds = data.songIds.filter((s) => typeof s === 'string' && s.trim() !== '');
+}
       return payload;
     }
 
@@ -108,7 +106,7 @@ class Playlist {
       name:        typeof data.name        === 'string'  ? data.name.trim()      : '',
       description: typeof data.description === 'string'  ? data.description      : '',
       coverUrl:    typeof data.coverUrl    === 'string'  ? data.coverUrl         : '',
-      songs,
+     songIds: songs,
       createdBy:   typeof data.createdBy   === 'string'  ? data.createdBy        : '',
       isPublic:    typeof data.isPublic    === 'boolean' ? data.isPublic         : false,
       createdAt:   data.createdAt instanceof Date

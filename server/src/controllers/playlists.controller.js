@@ -252,7 +252,7 @@ exports.createAdminPlaylistWithCover = async (req, res, next) => {
       throw new ValidationError('At least one song is required', 'VALIDATION_ERROR');
     }
 
-    // REPLACE lines 255-264 with:
+
 let coverUrl = '', coverStoragePath = '';
 const coverFile = req.files?.['cover']?.[0];
 if (coverFile) {

@@ -27,7 +27,7 @@
 
 'use strict';
 
-const { admin }      = require('../config/firebase');
+const admin = require('firebase-admin');
 const BaseRepository = require('./BaseRepository');
 
 const FieldValue = admin.firestore.FieldValue;
@@ -67,6 +67,7 @@ class UserRepository extends BaseRepository {
       const snap = await this._db
         .collection('users')
         .orderBy('createdAt', 'desc')
+        .limit(500)
         .get();
       return snap.docs.map((doc) => this.formatDoc(doc));
     }, 'findAll');

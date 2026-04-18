@@ -186,7 +186,7 @@ class SongRepository extends BaseRepository {
     const baseQuery = this._db
       .collection('songs')
       .where('artistId', '==', artistId)
-      .orderBy('trackNumber', 'asc');
+      .orderBy('createdAt', 'desc');
 
     return this.findPaginated(baseQuery, limit, cursor);
   }
@@ -232,6 +232,7 @@ class SongRepository extends BaseRepository {
         .collection('songs')
         .where('titleLower', '==', title.toLowerCase())
         .where('artistLower', '==', artist.toLowerCase())
+        .limit(2)
         .get();
 
       if (snap.empty) return null;

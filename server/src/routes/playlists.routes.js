@@ -43,6 +43,7 @@ const isAdmin              = require('../middleware/isAdmin');
 const upload               = require('../middleware/upload');
 const ctrl                 = require('../controllers/playlists.controller');
 const { validateCreatePlaylist } = require('../validators/playlist.validator');
+const { validateCreateSong }     = require('../validators/song.validator');
 
 const { playlistsLimiter } = require('../middleware/rateLimiter');
 
@@ -71,6 +72,7 @@ router.post(
   verifyTokenStrict,
   isAdmin,
   upload.fields([{ name: 'song', maxCount: 1 }, { name: 'cover', maxCount: 1 }]),
+  validateCreateSong,
   ctrl.uploadPlaylistSong,
 );
 

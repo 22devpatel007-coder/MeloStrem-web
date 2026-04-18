@@ -70,7 +70,7 @@ class PlaylistRepository extends BaseRepository {
     return this._callFirestore(async () => {
       const snap = await this._db
         .collection('playlists')
-        .where('createdBy', '==', uid)
+        .where('ownerId', '==', uid)
         .orderBy('createdAt', 'desc')
         .get();
       return snap.docs.map((doc) => this.formatDoc(doc));
