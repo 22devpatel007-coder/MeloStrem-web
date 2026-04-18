@@ -172,7 +172,7 @@ exports.uploadPlaylistSong = async (req, res, next) => {
       titleLower:       title.toLowerCase(),
       artistLower:      artist.toLowerCase(),
       duration:         Number(duration) || 0,
-      fileUrl:          songResult.secure_url,
+      audioUrl: songResult.secure_url,
       coverUrl:         coverResult.secure_url,
       storagePath:      songResult.public_id,
       coverStoragePath: coverResult.public_id,
@@ -252,16 +252,21 @@ exports.createAdminPlaylistWithCover = async (req, res, next) => {
       throw new ValidationError('At least one song is required', 'VALIDATION_ERROR');
     }
 
-    let coverUrl = '', coverStoragePath = '';
-    const coverFile = req.files?.['cover']?.[0];
-    if (coverFile) {
-      const coverResult = await uploadCover(coverFile.buffer, {
-        folder:    'melostream/playlist-covers',
-        public_id: `${Date.now()}-${name.trim()}-playlist-cover`,
-      });
-      coverUrl         = coverResult.secure_url;
-      coverStoragePath = coverResult.public_id;
-    }
+    // REPLACE lines 255-264 with:
+let coverUrl = '', coverStoragePath = '';
+const coverFile = req.files?.['cover']?.[0];
+if (coverFile) {
+  const coverResult = await uploadCover(coverFile.buffer, {
+    folder:    'melostream/playlist-covers',
+    public_id: `${Date.now()}-${name.trim()}-playlist-cover`,
+  });
+  coverUrl         = coverResult.secure_url;
+  coverStoragePath = coverResult.public_id;
+} else if (req.body.coverUrl) {
+  // Client sent a pre-generated canvas cover URL (base64 data URL or CDN URL)
+  coverUrl         = req.body.coverUrl;
+  coverStoragePath = req.body.coverStoragePath || '';
+}
 
     const playlistData = {
       name: name.trim(), description: (description || '').trim(),

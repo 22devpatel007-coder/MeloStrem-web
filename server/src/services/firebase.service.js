@@ -126,8 +126,10 @@ const getSongById = async (id) => {
 
 const createSong = async (data) => {
   return retryFirestore(async () => {
-    const docRef = await db.collection('songs').add(data);
-    return { id: docRef.id, ...data };
+    const now = new Date();
+const withTs = { ...data, createdAt: now, updatedAt: now };
+const docRef = await db.collection('songs').add(withTs);
+return { id: docRef.id, ...withTs };
   }, { label: 'createSong' });
 };
 
@@ -292,8 +294,10 @@ const getPlaylistById = async (id) => {
 
 const createPlaylist = async (data) => {
   return retryFirestore(async () => {
-    const docRef = await db.collection('playlists').add(data);
-    return { id: docRef.id, ...data };
+    const now = new Date();
+const withTs = { ...data, createdAt: now, updatedAt: now };
+const docRef = await db.collection('playlists').add(withTs);
+return { id: docRef.id, ...withTs };
   }, { label: 'createPlaylist' });
 };
 

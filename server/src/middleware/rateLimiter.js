@@ -20,6 +20,15 @@
  *     - albumsLimiter          — 100 req / 15 min (albums routes)
  *     - playlistsLimiter       — 60 req  / 1 min  (playlists admin listing)
  *
+ *   BUG-017 FIX:
+ *     - errorReportLimiter raised from 10 req/min to 20 req/min.
+ *       The client flush interval was raised to 7 000 ms (~8.5 flushes/min
+ *       max). 20 req/min gives comfortable headroom for visibilitychange
+ *       flushes and multiple tabs sharing an IP without ever hitting the
+ *       wall under normal error conditions. The client-side circuit breaker
+ *       (immediate open on 429) is the primary abuse defence; this limiter
+ *       remains as the server-side safety net.
+ *
  * Policy notes (why each limit was chosen):
  *
  *   generalLimiter (100/15m):
@@ -59,6 +68,13 @@
  *     GET /api/playlists/admin is a public listing endpoint hit on every
  *     library page load. 60/min = 1/sec per IP; generous for real users,
  *     restrictive for scrapers. Matches previous inline definition exactly.
+ *
+ *   errorReportLimiter (20/1m):
+ *     POST /api/errors/report receives batched frontend error payloads.
+ *     Client flushes at most ~8.5 times/min (7 000 ms interval). 20/min
+ *     gives a 2x safety margin above the normal client flush rate. The
+ *     client-side 429 circuit breaker (opens immediately on first 429) is
+ *     the primary throttle; this limiter is the server-side safety net.
  *
  * SECURITY NOTE — why separate artistsLimiter and albumsLimiter:
  *   Previously both route files defined `const searchLimiter = rateLimit(...)`
@@ -212,16 +228,32 @@ const playlistsLimiter = rateLimit({
   },
 });
 
-//error ratrlimitr
+// ── Error reporting ───────────────────────────────────────────────────────────
+
+/**
+ * errorReportLimiter — POST /api/errors/report.
+ * 20 requests per 1 minute per IP.
+ *
+ * Raised from 10 → 20 as part of BUG-017 fix. The client now flushes at
+ * most ~8.5 times/min (FLUSH_INTERVAL_MS = 7 000 ms). 20/min gives a 2x
+ * margin above the normal flush rate, absorbing visibilitychange flushes
+ * and multiple tabs sharing a NAT IP without triggering the limiter.
+ *
+ * The client-side 429 circuit breaker (opens immediately on first 429
+ * response, not after 5 failures) is the primary throttle mechanism.
+ * This limiter remains as the server-side safety net against clients that
+ * do not respect the 429 signal.
+ */
 const errorReportLimiter = rateLimit({
   ...base,
   windowMs: 1 * 60 * 1000,
-  max:      10,
+  max:      20,
   message:  {
     success: false,
     error: { message: 'Too many error reports', code: 'RATE_LIMIT_EXCEEDED' },
   },
 });
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 module.exports = {
@@ -229,7 +261,7 @@ module.exports = {
   uploadLimiter,
   searchLimiter,
   adminMutationLimiter,
-  duplicateCheckLimiter, 
+  duplicateCheckLimiter,
   artistsLimiter,
   albumsLimiter,
   playlistsLimiter,

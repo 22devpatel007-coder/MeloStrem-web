@@ -121,7 +121,7 @@ exports.getArtistSongs = async (req, res, next) => {
 
     // ── Cache miss → Firestore ────────────────────────────────────────────
     // Verify artist exists first — return 404 rather than empty songs list.
-    const artistSnap = await db.collection("artists").doc(artistId).get();
+    const artistSnap = await retryFirestore(() => db.collection("artists").doc(artistId).get(), { label: 'getArtistSongs:artistCheck' });
     if (!artistSnap.exists) {
       throw new NotFoundError("Artist not found", "NOT_FOUND");
     }
@@ -133,13 +133,13 @@ exports.getArtistSongs = async (req, res, next) => {
       .limit(limit + 1);
 
     if (cursor) {
-      const cursorSnap = await db.collection("songs").doc(cursor).get();
+      const cursorSnap = await retryFirestore(() => db.collection("songs").doc(cursor).get(), { label: 'getArtistSongs:cursor' });
       if (cursorSnap.exists) {
         query = query.startAfter(cursorSnap);
       }
     }
 
-    const snaps = await query.get();
+    const snaps = await retryFirestore(() => query.get(), { label: 'getArtistSongs:songsFetch' });
     const docs = snaps.docs;
     const hasMore = docs.length > limit;
     const pageDocs = hasMore ? docs.slice(0, limit) : docs;

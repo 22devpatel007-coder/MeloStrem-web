@@ -224,7 +224,7 @@ exports.uploadSong = async (req, res) => {
     }
 
     // ── Audio upload (required) ─────────────────────────────────────────────
-    const audioFile = req.files?.['audio']?.[0];
+    const audioFile = req.files?.['song']?.[0];   // field name must match upload middleware ('song')
     if (!audioFile) {
       return res.status(400).json({ error: 'audio file is required', code: 'VALIDATION_ERROR' });
     }
@@ -289,8 +289,8 @@ exports.uploadSong = async (req, res) => {
     });
 
     const newSong     = { id: songData.id, ...songData };
-    newSong.createdAt = songData.createdAt.toISOString();
-    newSong.updatedAt = songData.updatedAt.toISOString();
+    newSong.createdAt = songData.createdAt?.toDate?.()?.toISOString() ?? new Date().toISOString();
+    newSong.updatedAt = songData.updatedAt?.toDate?.()?.toISOString() ?? new Date().toISOString();
 
     logger.info('uploadSong success', {
       ...logMeta(req),

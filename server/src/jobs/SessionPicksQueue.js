@@ -45,13 +45,32 @@
  *   3. Fires Firestore writes in parallel (Promise.allSettled — one uid failure
  *      does not affect others).
  *   4. Failed entries are re-queued with retries+1.
- *   5. Entries that exceed MAX_RETRIES are sent to dead-letter (logged + discarded).
+ *   5. Entries that exceed MAX_RETRIES are pushed to the in-memory dead-letter
+ *      list (this._deadLetter) AND logged at error level so nothing is silently
+ *      dropped without a trace.
+ *
+ * BUG-009 FIX — DEAD-LETTER PERSISTENCE
+ * ──────────────────────────────────────
+ * Previous behaviour: dead-lettered picks were only logged via logger.error
+ * and then discarded. If the log pipeline was down or logs were not monitored,
+ * picks were silently lost with no way to inspect or replay them.
+ *
+ * Fix: failed picks that exceed MAX_RETRIES are now pushed to this._deadLetter
+ * (an in-memory array capped at DEAD_LETTER_MAX). The dead-letter list is
+ * exposed via stats() so the /health and /ready endpoints (and any future
+ * alerting) can surface it. Engineers can inspect picks via stats().deadLetter
+ * during an incident without needing to parse logs.
+ *
+ * DEAD_LETTER_MAX (100): oldest entries are evicted when the list exceeds this.
+ * If dead-letter fills up it means Firestore has been down for an extended
+ * period — the warning log and stats counter are the signal to act.
  *
  * MEMORY SAFETY
  * ──────────────
- *   MAX_PICKS_PER_UID (500)  — oldest picks evicted when a single uid exceeds cap.
- *   MAX_TOTAL_ENTRIES (5000) — drain is forced when total queue depth hits this.
- *   Both caps log warnings so engineers know when scale demands Redis.
+ *   MAX_PICKS_PER_UID (500)       — oldest picks evicted when a single uid exceeds cap.
+ *   MAX_TOTAL_ENTRIES_WARN (10000) — drain is forced when total queue depth hits this.
+ *   DEAD_LETTER_MAX (100)         — dead-letter ring buffer cap.
+ *   All caps log warnings so engineers know when scale demands Redis.
  *
  * GRACEFUL SHUTDOWN
  * ──────────────────
@@ -74,7 +93,7 @@
  * const { sessionPicksQueue } = require('../jobs/SessionPicksQueue');
  * sessionPicksQueue.enqueue(uid, sanitizedPicks, sessionId);
  *
- * // In server/src/index.js (graceful shutdown):
+ * // In server/src/index.js (graceful shutdown — already wired):
  * const { sessionPicksQueue } = require('./jobs/SessionPicksQueue');
  * process.on('SIGTERM', async () => {
  *   await sessionPicksQueue.shutdown();
@@ -115,10 +134,18 @@ const MAX_PICKS_PER_UID = 500;
 const MAX_TOTAL_ENTRIES_WARN = 10_000;
 
 /**
- * Max retry attempts before a batch is sent to dead-letter (discarded).
+ * Max retry attempts before a batch is sent to dead-letter.
  * Each failed drain attempt increments the retry counter on that batch.
  */
 const MAX_RETRIES = 3;
+
+/**
+ * BUG-009 FIX: Max entries kept in the in-memory dead-letter list.
+ * Acts as a ring buffer — oldest entries are evicted when this cap is hit.
+ * Sized conservatively: 100 entries × ~50 picks each = ~5000 picks max in memory.
+ * If this fills, it means Firestore has been unreachable for an extended period.
+ */
+const DEAD_LETTER_MAX = 100;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -137,6 +164,16 @@ const MAX_RETRIES = 3;
  * @property {string}          sessionId
  * @property {number}          retries      — number of failed drain attempts
  * @property {number}          enqueuedAt   — Date.now() when first enqueued
+ */
+
+/**
+ * @typedef {object} DeadLetterEntry
+ * @property {string}          uid
+ * @property {SanitizedPick[]} picks
+ * @property {string}          sessionId
+ * @property {number}          retries
+ * @property {string|undefined} error
+ * @property {number}          deadLetteredAt  — Date.now() when dead-lettered
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -164,22 +201,31 @@ class SessionPicksQueue {
     /** The setInterval handle — stored for clearInterval on shutdown. */
     this._intervalHandle = null;
 
+    /**
+     * BUG-009 FIX: In-memory dead-letter list.
+     * Picks that fail all MAX_RETRIES attempts land here instead of being
+     * silently discarded. Capped at DEAD_LETTER_MAX (ring buffer — oldest
+     * evicted when cap is hit). Exposed via stats() for monitoring.
+     * @type {DeadLetterEntry[]}
+     */
+    this._deadLetter = [];
+
     /** Counters for stats(). */
     this._stats = {
-      totalEnqueued:    0,
-      totalWritten:     0,
-      totalFailed:      0,
+      totalEnqueued:     0,
+      totalWritten:      0,
+      totalFailed:       0,
       totalDeadLettered: 0,
-      drainCount:       0,
+      drainCount:        0,
     };
 
     // Start the drainer immediately
     this._startDrainer();
   }
 
-  // ══════════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // PUBLIC API
-  // ══════════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
 
   /**
    * enqueue(uid, sanitizedPicks, sessionId)
@@ -206,8 +252,8 @@ class SessionPicksQueue {
       return; // nothing to queue
     }
 
-    // ── Memory safety: enforce per-uid pick cap ───────────────────────────────
-    const currentEntries = this._queue.get(uid) || [];
+    // ── Memory safety: enforce per-uid pick cap ──────────────────────────────
+    const currentEntries   = this._queue.get(uid) || [];
     const currentPickCount = currentEntries.reduce((sum, e) => sum + e.picks.length, 0);
 
     let picksToEnqueue = sanitizedPicks;
@@ -235,20 +281,20 @@ class SessionPicksQueue {
       });
     }
 
-    // ── Append entry to uid's queue ───────────────────────────────────────────
+    // ── Append entry to uid's queue ──────────────────────────────────────────
     const entry = {
-      picks:       picksToEnqueue,
+      picks:      picksToEnqueue,
       sessionId,
-      retries:     0,
-      enqueuedAt:  Date.now(),
+      retries:    0,
+      enqueuedAt: Date.now(),
     };
 
     currentEntries.push(entry);
     this._queue.set(uid, currentEntries);
-    this._totalPickCount += picksToEnqueue.length;
-    this._stats.totalEnqueued += picksToEnqueue.length;
+    this._totalPickCount        += picksToEnqueue.length;
+    this._stats.totalEnqueued   += picksToEnqueue.length;
 
-    // ── Total depth warning ───────────────────────────────────────────────────
+    // ── Total depth warning ──────────────────────────────────────────────────
     if (this._totalPickCount >= MAX_TOTAL_ENTRIES_WARN) {
       logger.warn('[SessionPicksQueue] total queue depth at warning threshold', {
         totalPickCount: this._totalPickCount,
@@ -258,10 +304,9 @@ class SessionPicksQueue {
       });
     }
 
-    // ── Force immediate drain if we hit the warn threshold ────────────────────
+    // ── Force immediate drain if we hit the warn threshold ───────────────────
     if (this._totalPickCount >= MAX_TOTAL_ENTRIES_WARN && !this._draining) {
       logger.warn('[SessionPicksQueue] forcing immediate drain due to queue depth');
-      // setImmediate so this doesn't block the current request event-loop tick
       setImmediate(() => this._drain());
     }
   }
@@ -270,7 +315,10 @@ class SessionPicksQueue {
    * stats() → object
    *
    * Returns current queue metrics. Used by the /health and /ready endpoints
-   * (Phase 4 Task 4.3) and for operational monitoring.
+   * and for operational monitoring.
+   *
+   * BUG-009 FIX: Now includes deadLetterCount and deadLetter (last 20 entries)
+   * so the dead-letter state is visible without parsing logs.
    *
    * @returns {{
    *   pendingUids: number,
@@ -281,7 +329,9 @@ class SessionPicksQueue {
    *   totalWritten: number,
    *   totalFailed: number,
    *   totalDeadLettered: number,
-   *   drainCount: number
+   *   drainCount: number,
+   *   deadLetterCount: number,
+   *   deadLetter: DeadLetterEntry[]
    * }}
    */
   stats() {
@@ -291,6 +341,9 @@ class SessionPicksQueue {
       draining:          this._draining,
       shutdown:          this._shutdown,
       ...this._stats,
+      // BUG-009 FIX: expose dead-letter for monitoring/alerting
+      deadLetterCount:   this._deadLetter.length,
+      deadLetter:        this._deadLetter.slice(-20), // last 20 for inspection
     };
   }
 
@@ -334,9 +387,9 @@ class SessionPicksQueue {
     logger.info('[SessionPicksQueue] shutdown complete', this.stats());
   }
 
-  // ══════════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
   // INTERNAL — DRAINER
-  // ══════════════════════════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════════════════════
 
   /**
    * _startDrainer()
@@ -357,7 +410,6 @@ class SessionPicksQueue {
     }, DRAIN_INTERVAL_MS);
 
     // Don't keep the Node.js process alive just for this interval
-    // (process will still exit cleanly if this is the only pending timer)
     if (this._intervalHandle.unref) {
       this._intervalHandle.unref();
     }
@@ -377,6 +429,9 @@ class SessionPicksQueue {
    *   4. Fire Firestore writes in parallel with Promise.allSettled.
    *   5. Re-queue failed entries (up to MAX_RETRIES), dead-letter the rest.
    *
+   * BUG-009 FIX: Dead-lettered entries are pushed to this._deadLetter
+   * (in addition to being logged) so they are inspectable via stats().
+   *
    * @param {{ isShutdown?: boolean }} [opts]
    * @returns {Promise<void>}
    */
@@ -388,7 +443,7 @@ class SessionPicksQueue {
     this._stats.drainCount++;
 
     try {
-      // ── Step 1: Snapshot uid batch ──────────────────────────────────────────
+      // ── Step 1: Snapshot uid batch ────────────────────────────────────────
       // Take up to MAX_WRITES_PER_DRAIN uids. On shutdown, take ALL uids.
       const uidsToProcess = opts.isShutdown
         ? Array.from(this._queue.keys())
@@ -396,7 +451,7 @@ class SessionPicksQueue {
 
       if (uidsToProcess.length === 0) return;
 
-      // ── Step 2: Snapshot and remove from live queue ─────────────────────────
+      // ── Step 2: Snapshot and remove from live queue ───────────────────────
       // Removal happens BEFORE the async writes so that new enqueue() calls
       // during this drain go into fresh entries — never into this drain's batch.
       const batch = new Map(); // uid → { picks: [], sessionId, retries }
@@ -413,7 +468,6 @@ class SessionPicksQueue {
         const merged = entries.reduce(
           (acc, entry) => {
             acc.picks.push(...entry.picks);
-            // Use the most recent sessionId (last entry in the array)
             acc.sessionId = entry.sessionId;
             acc.retries   = Math.max(acc.retries, entry.retries);
             return acc;
@@ -430,14 +484,14 @@ class SessionPicksQueue {
         if (this._totalPickCount < 0) this._totalPickCount = 0;
       }
 
-      // ── Step 3: Fire Firestore writes in parallel ───────────────────────────
+      // ── Step 3: Fire Firestore writes in parallel ─────────────────────────
       const writeResults = await Promise.allSettled(
         Array.from(batch.entries()).map(([uid, { picks, sessionId }]) =>
           this._writeToFirestore(uid, picks, sessionId),
         ),
       );
 
-      // ── Step 4: Handle results ──────────────────────────────────────────────
+      // ── Step 4: Handle results ────────────────────────────────────────────
       const batchEntries = Array.from(batch.entries());
 
       for (let i = 0; i < batchEntries.length; i++) {
@@ -467,21 +521,47 @@ class SessionPicksQueue {
 
             logger.warn('[SessionPicksQueue] write failed — re-queued', {
               uid,
-              picks:   picks.length,
-              retries: retries + 1,
+              picks:      picks.length,
+              retries:    retries + 1,
               maxRetries: MAX_RETRIES,
-              error:   result.reason?.message,
+              error:      result.reason?.message,
             });
           } else {
-            // Dead-letter: exceeded retry budget — discard and log
+            // ── BUG-009 FIX: Dead-letter with persistence ─────────────────
+            // Previously: only logged, then silently discarded.
+            // Now: pushed to this._deadLetter so it is inspectable via stats()
+            // without requiring log access. Ring buffer — evict oldest when
+            // DEAD_LETTER_MAX is hit so memory stays bounded.
             this._stats.totalDeadLettered += picks.length;
-            logger.error('[SessionPicksQueue] dead-letter: picks discarded after max retries', {
+
+            const deadEntry = {
               uid,
-              picks:      picks.length,
+              picks,
+              sessionId,
+              retries,
+              error:          result.reason?.message,
+              deadLetteredAt: Date.now(),
+            };
+
+            this._deadLetter.push(deadEntry);
+
+            // Evict oldest entries if ring buffer is full
+            if (this._deadLetter.length > DEAD_LETTER_MAX) {
+              const evicted = this._deadLetter.splice(0, this._deadLetter.length - DEAD_LETTER_MAX);
+              logger.warn('[SessionPicksQueue] dead-letter ring buffer full — evicting oldest entries', {
+                evicted:      evicted.length,
+                deadLetterMax: DEAD_LETTER_MAX,
+              });
+            }
+
+            logger.error('[SessionPicksQueue] dead-letter: picks exceeded max retries', {
+              uid,
+              picks:          picks.length,
               retries,
               sessionId,
-              error:      result.reason?.message,
-              action:     'investigate Firestore connectivity — picks are lost',
+              error:          result.reason?.message,
+              deadLetterSize: this._deadLetter.length,
+              action:         'investigate Firestore connectivity — picks are in dead-letter; inspect via stats().deadLetter',
             });
           }
         }
@@ -537,9 +617,9 @@ class SessionPicksQueue {
    */
   _waitForDrainComplete() {
     return new Promise((resolve) => {
-      const maxWaitMs  = 10_000;
-      const pollMs     = 100;
-      let   elapsed    = 0;
+      const maxWaitMs = 10_000;
+      const pollMs    = 100;
+      let   elapsed   = 0;
 
       const check = () => {
         if (!this._draining || elapsed >= maxWaitMs) {

@@ -19,7 +19,10 @@ const config = {
       ? process.env.CLIENT_ORIGIN.split(',').map(o => o.trim())
       : ['http://localhost:3000']
   ),
-  backendUrl: process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || null,
+backendUrl: process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || null,
+keepAliveIntervalMs: process.env.KEEP_ALIVE_INTERVAL_MS
+  ? parseInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10)
+  : 14 * 60 * 1000,
 };
 
 const required = [

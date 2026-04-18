@@ -37,7 +37,6 @@
 
 const express   = require('express');
 const router    = express.Router();
-const rateLimit = require('express-rate-limit');
 
 const { verifyToken, verifyTokenStrict } = require('../middleware/verifyToken');
 const isAdmin              = require('../middleware/isAdmin');
@@ -45,19 +44,7 @@ const upload               = require('../middleware/upload');
 const ctrl                 = require('../controllers/playlists.controller');
 const { validateCreatePlaylist } = require('../validators/playlist.validator');
 
-// ─── Rate limiter ─────────────────────────────────────────────────────────────
-// Dedicated limiter for the public admin playlists endpoint.
-// Separate from generalLimiter so this doesn't consume the global budget.
-const playlistsLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute window
-  max:      60,             // 60 req/min per IP
-  standardHeaders: true,
-  legacyHeaders:   false,
-  message: {
-    success: false,
-    error: { message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' },
-  },
-});
+const { playlistsLimiter } = require('../middleware/rateLimiter');
 
 // ─── Public route ─────────────────────────────────────────────────────────────
 // Must be declared BEFORE any auth middleware to remain publicly accessible.
@@ -68,7 +55,7 @@ router.get('/admin', playlistsLimiter, ctrl.getPublicAdminPlaylists);
 // Read-only — verifyToken (non-strict) is acceptable here.
 // A stale-but-unrevoked token reading the playlist list poses minimal risk.
 // Middleware order: verifyToken → isAdmin → controller
-router.get('/', verifyToken, isAdmin, ctrl.getAdminPlaylists);
+router.get('/', verifyTokenStrict, isAdmin, ctrl.getAdminPlaylists);
 
 // ─── Admin mutation routes ────────────────────────────────────────────────────
 // All routes below mutate or delete data.

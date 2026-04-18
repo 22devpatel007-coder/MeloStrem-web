@@ -39,7 +39,7 @@ const { db }  = require('../config/firebase');
 const cache   = require('../services/cache.service');
 const logger  = require('../utils/logger');
 const { ValidationError, NotFoundError, InternalError } = require('../errors');
-
+const { retryFirestore } = require('../utils/retryFirestore');
 /**
  * Maximum songs returned for a single album.
  * Albums are bounded collections — this cap prevents unbounded Firestore
@@ -68,7 +68,7 @@ exports.getAlbum = async (req, res, next) => {
     }
 
     // ── Cache miss → Firestore ────────────────────────────────────────────
-    const snap = await db.collection('albums').doc(albumId).get();
+    const snap = await retryFirestore(() => db.collection('albums').doc(albumId).get(), { label: 'getAlbum:fetch' });
 
     if (!snap.exists) {
       throw new NotFoundError('Album not found', 'NOT_FOUND');

@@ -164,8 +164,8 @@ app.options('*', cors(corsOptions));
 app.use(cors(corsOptions));
 
 // ── 4c. Body parsers ─────────────────────────────────────────────────────────
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
 // ── 4d. Correlation ID ───────────────────────────────────────────────────────
 // Registered BEFORE generalLimiter intentionally.
@@ -412,7 +412,8 @@ async function gracefulShutdown(signal) {
         resolve();
       });
     });
-
+    // ── Step 1b: Stop keep-alive interval ────────────────────────────────────
+    keepAlive.stop();
     // ── Step 2: Drain session picks queue ────────────────────────────────────
     logger.info('[Shutdown] draining session picks queue...', sessionPicksQueue.stats());
     await sessionPicksQueue.shutdown();
@@ -471,40 +472,23 @@ process.on('uncaughtException', (err) => {
 //     every 14 minutes would create unnecessary dependency load during normal
 //     operation when nothing is wrong. /health is synchronous and cheap.
 // ─────────────────────────────────────────────────────────────────────────────
-if (config.nodeEnv === 'production') {
-  const backendUrl = config.backendUrl;
-
-  if (backendUrl) {
-    const pingServer = () => {
-      const url    = `${backendUrl}/health`;
-      const client = url.startsWith('https') ? https : http;
-
-      const req = client.get(url, (res) => {
-        if (res.statusCode !== 200) {
-          logger.warn(`[keep-alive] Ping returned status ${res.statusCode}`);
-        }
-      });
-
-      req.on('error', (err) => {
-        // Non-fatal — next ping retries in 14 minutes
-        logger.warn(`[keep-alive] Ping failed: ${err.message}`);
-      });
-
-      req.end();
-    };
-
-    const PING_INTERVAL_MS = 14 * 60 * 1000; // 14 minutes
-    setInterval(pingServer, PING_INTERVAL_MS);
-
-    logger.info(
-      `[keep-alive] Self-ping enabled → ${backendUrl}/health every 14 min`,
-    );
-  } else {
-    logger.warn('[keep-alive] BACKEND_URL not set — self-ping disabled.');
-  }
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. KEEP-ALIVE SELF PING
+//     Render free tier spins down after 15 min of inactivity.
+//     Extracted to KeepAlive service for validation, failure tracking,
+//     escalation, jitter, and clean shutdown integration.
+//     Interval is env-configurable via KEEP_ALIVE_INTERVAL_MS.
+// ─────────────────────────────────────────────────────────────────────────────
+const { KeepAlive } = require('./services/keepAlive');
+const keepAlive = new KeepAlive({
+  backendUrl:  config.backendUrl,
+  intervalMs:  config.keepAliveIntervalMs,
+  nodeEnv:     config.nodeEnv,
+  logger,
+});
+keepAlive.start();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Export for integration testing (supertest, etc.)
 // ─────────────────────────────────────────────────────────────────────────────
-module.exports = app;
+module.exports = app; 
