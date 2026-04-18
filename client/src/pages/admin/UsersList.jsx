@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import axiosInstance, { extractUsers } from "../../services/api";
+import axiosInstance from "../../services/api";
 import Loader from "../../components/ui/Loader";
 
 const formatDate = (raw) => {
@@ -28,7 +28,8 @@ const UsersList = () => {
     const fetchUsers = async () => {
       try {
         const res = await axiosInstance.get("/users");
-        setUsers(extractUsers(res.data));
+        const body = res?.data ?? {};
+        setUsers(Array.isArray(body) ? body : (Array.isArray(body.users) ? body.users : (Array.isArray(body.data) ? body.data : [])));
       } catch (err) {
         console.error("Failed to fetch users:", err);
       }

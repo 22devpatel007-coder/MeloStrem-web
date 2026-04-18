@@ -40,7 +40,7 @@ const SearchBar = () => {
   useEffect(() => {
     clearTimeout(debounceRef.current);
 
-    if (!query.trim()) {
+    if (!query.trim() || query.trim().length < 2) {
       if (isOnSearchPage) navigate('/search', { replace: true });
       return;
     }

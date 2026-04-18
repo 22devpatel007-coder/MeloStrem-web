@@ -55,7 +55,10 @@ export const useSongs = (limit = 30) => {
   const query = useInfiniteQuery({
     queryKey:         [QUERY_KEYS.SONGS],
     queryFn:          ({ pageParam }) => getSongs(limit, pageParam),
-    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.nextCursor : undefined),
+   getNextPageParam: (lastPage) => {
+  if (lastPage == null || typeof lastPage !== 'object' || Array.isArray(lastPage)) return undefined;
+  return (lastPage.hasMore && lastPage.nextCursor != null) ? lastPage.nextCursor : undefined;
+},
     initialPageParam: null,
 
     // ── Cache policy ───────────────────────────────────────────────────────
@@ -75,7 +78,7 @@ export const useSongs = (limit = 30) => {
   });
 
   // Flatten paginated pages into a single array — safe with defensive default
-  const songs = query.data?.pages.flatMap((p) => p.songs) ?? [];
+  const songs = query.data?.pages.flatMap((p) => Array.isArray(p?.songs) ? p.songs : []) ?? [];
 
   return {
     // ── Data ─────────────────────────────────────────────────────────────────

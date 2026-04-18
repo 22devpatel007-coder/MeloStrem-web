@@ -6,7 +6,9 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { axiosUpload } from "../../services/api";
+import { useQueryClient } from "@tanstack/react-query";      
+import { QUERY_KEYS } from "../../constants/queryKeys";       
+import api, { axiosUpload } from "../../services/api";
 import { generatePlaylistCover } from "../../utils/generatePlaylistCover";
 
 const JSZIP_CDN =
@@ -72,6 +74,7 @@ const createPlaceholderCoverFile = async (baseName) =>
 
 const UploadPlaylistZip = () => {
   const navigate = useNavigate();
+  const qc = useQueryClient();  
   const dropRef = useRef(null);
 
   const [playlistName, setPlaylistName] = useState("");
@@ -185,12 +188,15 @@ const UploadPlaylistZip = () => {
 
         const baseName = getBaseName(entry.file).replace(/\.[^.]+$/, "");
         const coverEntry =
-          findZipEntry(fileEntries, `${baseName}.jpg`) ||
-          findZipEntry(fileEntries, `${baseName}.jpeg`) ||
-          findZipEntry(fileEntries, `${baseName}.png`) ||
-          findZipEntry(fileEntries, `${baseName}.webp`) ||
-          null;
-
+  findZipEntry(fileEntries, `${baseName}.jpg`) ||
+  findZipEntry(fileEntries, `${baseName}.jpeg`) ||
+  findZipEntry(fileEntries, `${baseName}.png`) ||
+  findZipEntry(fileEntries, `${baseName}.webp`) ||
+  findZipEntry(fileEntries, `covers/${baseName}.jpg`) ||
+  findZipEntry(fileEntries, `covers/${baseName}.jpeg`) ||
+  findZipEntry(fileEntries, `covers/${baseName}.png`) ||
+  findZipEntry(fileEntries, `covers/${baseName}.webp`) ||
+  null;
         const fd = new FormData();
         fd.append("title", entry.title);
         fd.append("artist", entry.artist);
@@ -217,7 +223,7 @@ const UploadPlaylistZip = () => {
         const songId = payload.songId || payload.song?.id;
         const coverUrl = payload.song?.coverUrl;
 
-        if (songId) uploadedSongIds.push(songId);
+        if (songId && !uploadedSongIds.includes(songId)) uploadedSongIds.push(songId);
         if (coverUrl) uploadedCoverUrls.push(coverUrl);
 
         newResults.push({ title: entry.title, status: "success" });
@@ -244,14 +250,15 @@ const UploadPlaylistZip = () => {
       : "";
 
     try {
-      const playlistRes = await axiosUpload.post("/playlists", {
-        name: playlistName.trim(),
-        description: playlistDescription.trim(),
-        songIds: uploadedSongIds,
-        coverUrl,
-        coverStoragePath: "",
-      });
+      const playlistRes = await api.post("/playlists/with-cover", {
+  name: playlistName.trim(),
+  description: playlistDescription.trim(),
+  songIds: uploadedSongIds,
+  coverUrl,
+  coverStoragePath: "",
+});
       setCreatedPlaylistId(playlistRes.data?.id || "");
+      qc.invalidateQueries({ queryKey: [QUERY_KEYS.ADMIN_PLAYLISTS] });
       setStage("done");
     } catch (err) {
       setGlobalError(

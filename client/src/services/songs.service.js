@@ -107,7 +107,10 @@ export const extractSong = (payload) => {
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
-const unwrap = (res) => res?.data ?? res;
+const unwrap = (res) => {
+  const body = res?.data ?? res;
+  return body != null ? body : {};
+};
 
 // ─── Service functions ────────────────────────────────────────────────────────
 
@@ -123,7 +126,13 @@ export const getSongs = async (limit = 20, cursor = null) => {
   const params = { limit };
   if (cursor) params.cursor = cursor;
   const res = await api.get('/songs', { params });
-  return extractSongs(unwrap(res));
+  const normalized = extractSongs(unwrap(res));
+  // Guarantee React Query always gets a valid page shape — never undefined
+  return {
+    songs:      Array.isArray(normalized.songs) ? normalized.songs : [],
+    nextCursor: normalized.nextCursor ?? null,
+    hasMore:    normalized.nextCursor != null && normalized.hasMore === true,
+  };
 };
 
 /**

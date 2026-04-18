@@ -1,11 +1,30 @@
 /**
  * client/src/pages/admin/UploadMusic.jsx
- * PERMANENT FIX: Navbar import and usage removed.
+ *
+ * BUG-012 FIX — React Query cache invalidation after successful upload.
+ *
+ * WHAT CHANGED vs previous version:
+ *   1. Imported useQueryClient from @tanstack/react-query.
+ *   2. Imported QUERY_KEYS from constants/queryKeys.
+ *   3. After successful upload (before navigate), calls:
+ *        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
+ *      This ensures MusicList, Home, Search — any page reading the songs cache —
+ *      will refetch on their next render instead of showing stale data for
+ *      up to 2 minutes.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - All form state, duplicate check logic — identical
+ *   - axiosUpload call and FormData construction — identical
+ *   - Error handling — identical
+ *   - All styles — identical
+ *   - Field and FileField sub-components — identical
  */
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query"; // ← BUG-012 FIX
 import { axiosUpload } from "../../services/api";
+import { QUERY_KEYS } from "../../constants/queryKeys"; // ← BUG-012 FIX
 import {
   checkDuplicateSong,
   formatDuplicateMessage,
@@ -23,6 +42,7 @@ const parseDurationToSeconds = (raw) => {
 };
 
 const UploadMusic = () => {
+  const queryClient = useQueryClient(); // ← BUG-012 FIX
   const [form, setForm] = useState({
     title: "",
     artist: "",
@@ -80,6 +100,13 @@ const UploadMusic = () => {
       setForm({ title: "", artist: "", genre: "", duration: "" });
       setSongFile(null);
       setCoverFile(null);
+
+      // BUG-012 FIX: Invalidate the shared songs cache immediately after a
+      // successful upload. Without this, MusicList and Home page would serve
+      // the old song list from the React Query cache for up to 2 minutes —
+      // the newly uploaded song would be invisible until staleTime expired.
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
+
       setTimeout(() => navigate("/admin/music"), 1500);
     } catch (err) {
       if (err.response?.data?.code === "DUPLICATE_SONG") {

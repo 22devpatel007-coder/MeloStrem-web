@@ -358,18 +358,4 @@ axiosUpload.interceptors.response.use(
   },
   handleResponseError
 );
-
-// ── Normalisation helpers ─────────────────────────────────────────────────────
-// Always use these instead of accessing .songs / .data directly.
-// Backend response envelopes are not yet fully uniform (see CLAUDE.md §12),
-// so these helpers absorb the variance and return stable shapes.
-export const extractSongs = (data) =>
-  Array.isArray(data) ? data : data?.songs ?? data?.data?.songs ?? [];
-
-export const extractSong = (data) =>
-  data?.song ?? data?.data?.song ?? data?.data ?? null;
-
-export const extractUsers = (data) =>
-  Array.isArray(data) ? data : data?.users ?? data?.data?.users ?? data?.data ?? [];
-
 export default api;

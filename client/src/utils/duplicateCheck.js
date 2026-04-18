@@ -10,7 +10,7 @@ import api from '../services/api';
  */
 export async function checkDuplicateSong(title, artist, excludeId = null) {
   try {
-    const res = await api.post('/api/songs/check-duplicate', {
+    const res = await api.post('/songs/check-duplicate', {
       title,
       artist,
       ...(excludeId ? { excludeId } : {}),

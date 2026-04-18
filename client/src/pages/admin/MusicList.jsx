@@ -1,11 +1,33 @@
 /**
  * client/src/pages/admin/MusicList.jsx
- * PERMANENT FIX: Navbar import and usage removed.
+ *
+ * BUG-012 FIX — React Query cache invalidation after mutations.
+ *
+ * WHAT CHANGED vs previous version:
+ *   1. Imported useQueryClient from @tanstack/react-query.
+ *   2. Imported QUERY_KEYS from constants/queryKeys.
+ *   3. handleDelete: after axiosInstance.delete succeeds, calls
+ *      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
+ *      so the shared songs cache is refreshed. Local state update preserved
+ *      for immediate optimistic UI — the invalidation syncs the server truth.
+ *   4. handleToggleFeatured: after axiosInstance.patch succeeds, calls
+ *      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
+ *      so any other page (e.g. Home featured carousel) reflects the change.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - All styles — identical
+ *   - fetchSongs, useEffect — identical
+ *   - handleUpdated (called by EditSongModal onUpdated) — identical
+ *   - StarIcon, fmtDuration — identical
+ *   - JSX structure — identical
  */
 
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import axiosInstance, { extractSongs } from "../../services/api";
+import { useQueryClient } from "@tanstack/react-query"; // ← BUG-012 FIX
+import axiosInstance from "../../services/api";
+import { extractSong as normalizeSong } from "../../services/songs.service";
+import { QUERY_KEYS } from "../../constants/queryKeys"; // ← BUG-012 FIX
 import Loader from "../../components/ui/Loader";
 import EditSongModal from "../../components/admin/EditSongModal";
 
@@ -21,6 +43,7 @@ const fmtDuration = (secs) => {
 };
 
 const MusicList = () => {
+  const queryClient = useQueryClient(); // ← BUG-012 FIX
   const [songs, setSongs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState(null);
@@ -35,7 +58,9 @@ const MusicList = () => {
   const fetchSongs = async () => {
     try {
       const res = await axiosInstance.get("/songs?limit=200");
-      setSongs(extractSongs(res.data));
+      const body = res?.data ?? {};
+      const raw = Array.isArray(body) ? body : (Array.isArray(body.songs) ? body.songs : []);
+      setSongs(raw.map(normalizeSong).filter(Boolean));
     } catch (err) {
       console.error("Failed to fetch songs:", err);
     }
@@ -46,7 +71,13 @@ const MusicList = () => {
     setDeletingId(id);
     try {
       await axiosInstance.delete(`/songs/${id}`);
+      // Optimistic local update — removes the row immediately without a flash.
       setSongs((prev) => prev.filter((s) => s.id !== id));
+      // BUG-012 FIX: Invalidate the shared React Query songs cache so that
+      // Home, Search, and any other page that reads QUERY_KEYS.SONGS reflects
+      // the deletion on their next render instead of serving stale data for
+      // up to 2 minutes.
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
     } catch (err) {
       console.error("Delete failed:", err);
     }
@@ -57,6 +88,7 @@ const MusicList = () => {
   const handleToggleFeatured = async (song) => {
     if (featuringId) return;
     setFeaturingId(song.id);
+    // Optimistic toggle — flip the UI immediately.
     setSongs((prev) =>
       prev.map((s) => (s.id === song.id ? { ...s, featured: !s.featured } : s)),
     );
@@ -64,7 +96,12 @@ const MusicList = () => {
       await axiosInstance.patch(`/songs/${song.id}`, {
         featured: !song.featured,
       });
+      // BUG-012 FIX: Invalidate the shared songs cache after a successful
+      // featured toggle so the Home page featured carousel reflects the change
+      // without waiting for the 2-minute staleTime to expire.
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
     } catch (err) {
+      // Revert optimistic update on failure.
       setSongs((prev) =>
         prev.map((s) =>
           s.id === song.id ? { ...s, featured: song.featured } : s,

@@ -22,7 +22,9 @@ import SearchBar from '../components/search/SearchBar';
 import SearchSkeleton from '../components/search/SearchSkeleton';
 import SongCard from '../components/songs/SongCard';
 import { useSearch } from '../hooks/useSearch';
-import { useSongs } from '../hooks/useSongs';
+import { useQuery } from '@tanstack/react-query';
+import { getSongs } from '../services/songs.service';
+import { QUERY_KEYS } from '../constants/queryKeys';
 import { usePlayerStore } from '../store/playerStore';
 import { useQueueStore } from '../store/queueStore';
 import { fuzzyMatch } from '../utils/fuzzyMatch';
@@ -127,7 +129,8 @@ const SkeletonRow = () => (
 // ─── Component ────────────────────────────────────────────────────────────────
 const Search = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const query = searchParams.get('q') || '';
+  const rawQ  = searchParams.get('q') || '';
+  const query = rawQ.trim().length >= 2 ? rawQ.trim() : '';
 
   // isFetching fires on every in-flight request; isLoading only on first uncached load
   const { data, isFetching, isError } = useSearch(query);
@@ -136,12 +139,12 @@ const Search = () => {
   const songs = useMemo(() => data?.songs ?? [], [data]);
 
   // FIX 1b: flatMap inside useMemo so librarySongs only gets new ref when pages change
-  const { data: songsQueryData } = useSongs(30);
-  const librarySongs = useMemo(
-    () => songsQueryData?.pages?.flatMap((p) => p.songs ?? []) ?? [],
-    [songsQueryData]
-  );
-
+  const { data: librarySongs = [] } = useQuery({
+  queryKey:  [QUERY_KEYS.SONGS, 'browse-artists'],
+  queryFn:   () => getSongs(500, null),
+  staleTime: 5 * 60_000,
+  select:    (data) => data?.songs ?? [],
+});
   const { playSong, setPlaybackContext } = usePlayerStore();
   const { setQueueFromContext }          = useQueueStore();
 

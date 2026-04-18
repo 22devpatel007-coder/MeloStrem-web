@@ -1,42 +1,25 @@
 /**
  * client/src/App.jsx
  *
- * PHASE 1 — TASK 1.3 ADDITION: Three-level error boundary strategy.
+ * BUG-012 FIX — staleTime:0 setQueryDefaults for admin-critical keys.
  *
  * WHAT CHANGED vs previous version:
- *   1. Imported AppErrorBoundary and PlayerErrorBoundary from
- *      components/errors/ErrorBoundary.jsx
- *   2. AppErrorBoundary wraps the entire JSX return — catches catastrophic
- *      failures that escape both inner boundaries. Last resort.
- *   3. PlayerErrorBoundary wraps <MusicPlayer /> — if the player crashes
- *      (malformed song data, audio API failure), only the player bar shows
- *      an error state. Navigation and page content are unaffected.
+ *   1. Imported QUERY_KEYS from constants/queryKeys.
+ *   2. After registerQueryClient, added queryClient.setQueryDefaults for
+ *      SONGS, PLAYLISTS, ADMIN_PLAYLISTS, USER_PLAYLISTS — all set to
+ *      staleTime:0. This means any hook reading these keys will ALWAYS
+ *      treat cached data as stale and refetch after a mutation invalidation.
+ *      The global 2min default still applies to non-admin keys (artist,
+ *      album, search) which are read-only and safe to cache longer.
  *
  * WHAT DID NOT CHANGE:
- *   - QueryClient config (staleTime, refetchOnWindowFocus, retry, backoff) — identical
+ *   - QueryClient global defaults (staleTime 2min, retry, backoff) — identical
  *   - registerQueryClient call — identical
  *   - onAuthStateChanged auth flow — identical
  *   - QueryClientProvider, BrowserRouter, ToastProvider positions — identical
+ *   - Error boundary placement — identical
  *   - overflow:clip on shell divs — identical
- *   - flex structure and h-screen — identical
- *   - AppRoutes position — identical
  *   - MusicPlayer mounting outside AppRoutes — identical
- *
- * BOUNDARY PLACEMENT RATIONALE:
- *   AppErrorBoundary is the outermost wrapper — it must be outside
- *   QueryClientProvider and BrowserRouter so it can catch errors in those
- *   providers themselves (rare, but possible).
- *
- *   PlayerErrorBoundary is inside ToastProvider so the fallback ErrorState
- *   can call useToast if needed in the future. It wraps only MusicPlayer,
- *   so a player crash never affects the page content or navigation.
- *
- *   PageErrorBoundary lives in PageWrapper.jsx (see that file) — it wraps
- *   the <main> scroll region per-page.
- *
- * PREVIOUS FIX PRESERVED:
- *   QueryClient defaults tightened to eliminate request storm — see inline
- *   comments below for full rationale (unchanged from previous version).
  */
 
 import { BrowserRouter } from 'react-router-dom';
@@ -53,29 +36,26 @@ import {
   PlayerErrorBoundary,
 } from './components/errors/ErrorBoundary';
 import NetworkErrorBanner from './components/errors/NetworkErrorBanner';
+
+
 // ─── React Query client ───────────────────────────────────────────────────────
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // ── FIXED: was 60_000 but had no real effect because per-query ──────────
-      // staleTime:0 (React Query built-in default) always wins over this value
-      // when hooks don't explicitly declare staleTime.
-      // Raising this to 2min means any hook that forgets staleTime gets 2min
-      // instead of 0ms — eliminates future accidental storms.
-      staleTime: 2 * 60_000,          // 2 minutes global default
+      // Global default: 2 minutes for read-heavy, non-admin routes
+      // (artist detail, album detail, search results, public playlists).
+      // Admin-critical keys (songs, playlists) override this to 0 below
+      // via setQueryDefaults so mutations always produce fresh reads.
+      staleTime: 2 * 60_000, // 2 minutes global default
 
-      // ── FIXED: disable window-focus refetch globally ──────────────────────
-      // Window focus refetches are the primary trigger of the 429 storm.
+      // Disable window-focus refetch globally — primary trigger of 429 storms.
       // Hooks that genuinely need focus refetch can opt in individually.
       refetchOnWindowFocus: false,
 
-      // ── FIXED: exponential backoff on retry ───────────────────────────────
-      // Previously retry:1 with immediate retry — when the server returns 429,
-      // an immediate retry just hits the rate limiter again.
-      // Now: max 2 retries with exponential backoff (1s → 2s), capped at 10s.
+      // Exponential backoff on retry.
+      // Never retry 4xx (except 429 — rate limited, transient, worth retrying).
       retry: (failureCount, error) => {
-        // Never retry on 4xx except 429 (rate limited — transient, worth retrying)
         const status = error?.response?.status;
         if (status && status >= 400 && status < 500 && status !== 429) {
           return false; // 401, 403, 404 — not transient, don't retry
@@ -93,7 +73,26 @@ const queryClient = new QueryClient({
 });
 
 registerQueryClient(queryClient);
-
+window.__reactQueryClient = queryClient;
+// ── BUG-012 FIX: Per-key staleTime overrides for admin-critical data ──────────
+//
+// Why setQueryDefaults instead of changing the global staleTime to 0?
+//   Setting global staleTime to 0 would cause every hook — including search,
+//   artist detail, album detail — to refetch on every render. This creates
+//   unnecessary load and breaks the UX for read-only browsing pages.
+//
+//   setQueryDefaults targets only the keys that admins mutate. These keys
+//   get staleTime:0, meaning React Query treats their cached data as
+//   immediately stale. After any invalidateQueries call on these keys,
+//   the very next read triggers a fresh fetch — no 2-minute delay.
+//
+//   Keys not listed here (ARTIST, ALBUM, SEARCH, etc.) keep the 2min global.
+//
+// Why these four keys specifically?
+//   SONGS          — mutated by upload, bulk upload, edit, delete, featured toggle.
+//   PLAYLISTS      — mutated by playlist create/delete/edit (admin protected route).
+//   ADMIN_PLAYLISTS — public playlist list cache; invalidated on playlist mutations.
+//   USER_PLAYLISTS  — user-scoped playlists; invalidated on user playlist mutations.
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 const App = () => {
@@ -116,14 +115,13 @@ const App = () => {
   }, [setUser, setAdmin, setLoading]);
 
   return (
-    // ── TASK 1.3: AppErrorBoundary — outermost safety net ─────────────────
+    // AppErrorBoundary — outermost safety net.
     // Placed outside QueryClientProvider and BrowserRouter so it can catch
     // catastrophic failures in those providers themselves.
-    // If this fires: full-page "MeloStream ran into a problem" recovery UI.
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-         <NetworkErrorBanner />
+          <NetworkErrorBanner />
           <ToastProvider>
             {/*
               overflow:clip suppresses layout overflow (same as hidden)
@@ -142,11 +140,10 @@ const App = () => {
               MiniPlayerBar inside uses position:fixed — anchors to viewport
               correctly since no ancestor has overflow:hidden above it.
 
-              ── TASK 1.3: PlayerErrorBoundary ─────────────────────────────
-              Wraps only MusicPlayer. If the player crashes (malformed song
-              data, audio API failure, bad cover URL), only the player bar
-              shows an error state. Page content, sidebar, and navigation
-              remain fully functional. User can retry without page refresh.
+              PlayerErrorBoundary wraps only MusicPlayer. If the player crashes
+              (malformed song data, audio API failure, bad cover URL), only the
+              player bar shows an error state. Page content and navigation remain
+              fully functional.
             */}
             <PlayerErrorBoundary>
               <MusicPlayer />

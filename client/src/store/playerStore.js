@@ -303,41 +303,50 @@ const usePlayerStore = create((set, get) => ({
   },
 
   // ── cycleShuffleMode ───────────────────────────────────────────────────────
-  cycleShuffleMode: () => {
-    const { shuffleMode, playbackContext } = get();
-    const isDynamic = playbackContext.type === 'dynamic';
+ cycleShuffleMode: () => {
+  const { shuffleMode, playbackContext, setShuffleMode } = get();
+  const isDynamic = playbackContext.type === 'dynamic';
 
-    let next;
-    if (shuffleMode === 'none')         next = isDynamic ? 'smart' : 'classic';
-    else if (shuffleMode === 'classic') next = 'smart';
-    else                                next = 'none';
+  let next;
+  if (shuffleMode === 'none')         next = isDynamic ? 'smart' : 'classic';
+  else if (shuffleMode === 'classic') next = 'smart';
+  else                                next = 'none';
 
-    if (next === 'classic') {
-      const pool = playbackContext.songs.length > 0
-        ? playbackContext.songs
-        : getQueueState().queue;
+  setShuffleMode(next); // always routes through the hard guard
+},
+  // ── setShuffleMode ─────────────────────────────────────────────────────────
+// HARD GUARD — single enforced entry point for all shuffle state changes.
+// Classic shuffle is unconditionally blocked in dynamic context regardless
+// of caller (UI button, keyboard shortcut, external setState).
+setShuffleMode: (mode) => {
+  const { playbackContext } = get();
+  const isDynamic = playbackContext.type === 'dynamic';
 
-      if (pool.length > 0) {
-        const { currentSong } = get();
-        const rolled = vinylRoll(pool);
-        const idx    = rolled.findIndex((s) => s.id === currentSong?.id);
-        set({
-          shuffleMode:   'classic',
-          shuffledOrder: rolled,
-          shuffledIndex: idx >= 0 ? idx : 0,
-        });
-        return;
-      }
-    }
+  // Hard block: dynamic context never permits classic shuffle
+  const safeMode = (isDynamic && mode === 'classic') ? 'smart' : mode;
 
-    if (next === 'smart') {
-      set({ shuffleMode: 'smart', shuffledOrder: [], shuffledIndex: -1 });
+  if (process.env.NODE_ENV !== 'production' && safeMode !== mode) {
+    console.warn(
+      '[playerStore] setShuffleMode: classic shuffle blocked in dynamic context — coerced to smart'
+    );
+  }
+
+  if (safeMode === 'classic') {
+    const pool = playbackContext.songs.length > 0
+      ? playbackContext.songs
+      : getQueueState().queue;
+
+    if (pool.length > 0) {
+      const { currentSong } = get();
+      const rolled = vinylRoll(pool);
+      const idx    = rolled.findIndex((s) => s.id === currentSong?.id);
+      set({ shuffleMode: 'classic', shuffledOrder: rolled, shuffledIndex: idx >= 0 ? idx : 0 });
       return;
     }
+  }
 
-    set({ shuffleMode: 'none', shuffledOrder: [], shuffledIndex: -1 });
-  },
-
+  set({ shuffleMode: safeMode, shuffledOrder: [], shuffledIndex: -1 });
+},
   toggleShuffle: () => get().cycleShuffleMode(),
 
   // ── logPick ────────────────────────────────────────────────────────────────

@@ -10,28 +10,44 @@
  *   0 song updates.
  *
  * USAGE:
- *   cd server && node scripts/migrateArtistAlbum.js
+ *   cd server
+ *
+ *   # Dry run — shows what would change, writes nothing to Firestore:
+ *   node scripts/migrateArtistAlbum.js --dry-run
+ *
+ *   # Live run — writes to Firestore, creates backup before any writes:
+ *   node scripts/migrateArtistAlbum.js
+ *
+ *   # Rollback — restores exact pre-migration field values from backup file:
+ *   node scripts/migrateArtistAlbum.js --rollback=../logs/backup-artistalbum-<date>-<time>.json
  *
  * OUTPUT:
  *   Console progress for every song processed.
- *   Full audit log written to: server/logs/migration-<date>.json
+ *   Backup snapshot written BEFORE any writes:  server/logs/backup-artistalbum-<date>-<time>.json
+ *   Full audit log written AFTER all writes:    server/logs/migration-artistalbum-<date>-<time>.json
  *
  * SAFETY:
- *   - Only adds new fields (artistId, albumId, trackNumber).
- *   - Never modifies existing fields (title, artist, album, genre, etc.).
+ *   - Dry-run flag makes the script fully non-destructive for review.
+ *   - Backup captures the exact pre-migration state of every affected document.
+ *   - Rollback restores only the fields this script touched (artistId, albumId,
+ *     trackNumber, updatedAt) to their exact pre-migration values using
+ *     set({ merge: true }) — other fields on the document are never disturbed.
+ *   - Only adds/overwrites new fields during live run — never touches title,
+ *     artist, album, genre, coverUrl, or any other pre-existing fields.
  *   - Uses the same findOrCreateArtist / findOrCreateAlbum services as
  *     uploadSong — guarantees identical ID computation.
- *   - All Firestore writes use set({ merge: true }) via the service layer.
  *   - Songs are processed sequentially (not concurrently) to stay within
  *     Firestore write rate limits and produce clean, ordered log output.
  *
  * BEFORE RUNNING:
  *   Ensure server/.env is populated with valid Firebase credentials.
  *   The script loads dotenv automatically.
+ *   Always run --dry-run first and review output before the live run.
  *
  * AFTER RUNNING:
  *   Add the required Firestore composite indexes to firestore.indexes.json
  *   (see Phase 4 instructions) before deploying the frontend artist/album pages.
+ *   Keep the backup file until the migration is confirmed stable in production.
  */
 
 'use strict';
@@ -43,28 +59,181 @@ const fs   = require('fs');
 const path = require('path');
 
 // These imports trigger Firebase Admin initialization via config/firebase.js
-const { db }               = require('../src/config/firebase');
+const { db }                 = require('../src/config/firebase');
 const { findOrCreateArtist } = require('../src/services/artist.service');
 const { findOrCreateAlbum  } = require('../src/services/album.service');
 
-// ─── Logging setup ────────────────────────────────────────────────────────────
+// ─── CLI argument parsing ──────────────────────────────────────────────────────
+
+const args    = process.argv.slice(2);
+const DRY_RUN = args.includes('--dry-run');
+
+// --rollback=path/to/backup.json
+const rollbackArg = args.find((a) => a.startsWith('--rollback='));
+const ROLLBACK    = rollbackArg ? rollbackArg.split('=').slice(1).join('=') : null;
+
+// ─── Logging / path setup ─────────────────────────────────────────────────────
 
 const logsDir = path.resolve(__dirname, '../logs');
 fs.mkdirSync(logsDir, { recursive: true });
 
-const dateStamp  = new Date().toISOString().slice(0, 10); // "2026-04-08"
-const logFile    = path.join(logsDir, `migration-${dateStamp}.json`);
-const auditLog   = []; // accumulated per-song results, written at end
+// Include time in stamp so multiple runs on the same day don't overwrite files
+const runStamp   = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19); // "2026-04-08T14-30-00"
+const backupFile = path.join(logsDir, `backup-artistalbum-${runStamp}.json`);
+const logFile    = path.join(logsDir, `migration-artistalbum-${runStamp}.json`);
+const auditLog   = [];
 
 function logLine(msg) {
-  // ISO timestamp prefix so log lines are sortable
   console.log(`[${new Date().toISOString()}] ${msg}`);
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── ROLLBACK ─────────────────────────────────────────────────────────────────
+
+/**
+ * Reads a previously written backup file and restores the exact pre-migration
+ * field values for every song that was captured.
+ *
+ * Rollback uses set({ merge: true }) so it only restores the specific fields
+ * that were backed up (artistId, albumId, trackNumber, updatedAt).
+ * All other fields on each document remain untouched.
+ *
+ * If a backed-up field value was undefined (field did not exist before migration),
+ * the rollback uses FieldValue.delete() to remove that field, returning the
+ * document to its exact pre-migration shape.
+ */
+async function runRollback(backupPath) {
+  logLine(`ROLLBACK MODE — reading backup: ${backupPath}`);
+
+  const resolved = path.resolve(backupPath);
+  if (!fs.existsSync(resolved)) {
+    logLine(`✗  Backup file not found: ${resolved}`);
+    process.exit(1);
+  }
+
+  let backup;
+  try {
+    backup = JSON.parse(fs.readFileSync(resolved, 'utf8'));
+  } catch (err) {
+    logLine(`✗  Failed to parse backup file: ${err.message}`);
+    process.exit(1);
+  }
+
+  const { entries } = backup;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    logLine('Backup contains no entries. Nothing to rollback.');
+    process.exit(0);
+  }
+
+  logLine(`Found ${entries.length} document(s) in backup. Starting rollback...`);
+
+  // Import FieldValue for delete sentinel
+  const admin      = require('firebase-admin');
+  const FieldValue = admin.firestore.FieldValue;
+
+  let successCount = 0;
+  let errorCount   = 0;
+
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const { songId, before } = entry;
+
+    logLine(`[${i + 1}/${entries.length}] Restoring song ${songId}...`);
+
+    try {
+      // Build restore payload — use FieldValue.delete() for fields that
+      // did not exist before the migration (value stored as null sentinel).
+      const restore = {};
+
+      for (const [field, value] of Object.entries(before)) {
+        restore[field] = value === null ? FieldValue.delete() : value;
+      }
+
+      await db.collection('songs').doc(songId).set(restore, { merge: true });
+
+      logLine(`  ✓  Restored.`);
+      successCount++;
+    } catch (err) {
+      logLine(`  ✗  Failed to restore song ${songId}: ${err.message}`);
+      errorCount++;
+    }
+  }
+
+  logLine('');
+  logLine('─────────────────────────────────────────');
+  logLine('Rollback complete.');
+  logLine(`  ✓  Restored : ${successCount}`);
+  logLine(`  ✗  Errors   : ${errorCount}`);
+  logLine('─────────────────────────────────────────');
+
+  process.exit(errorCount > 0 ? 1 : 0);
+}
+
+// ─── BACKUP ───────────────────────────────────────────────────────────────────
+
+/**
+ * Captures the pre-migration state of every field this script will touch.
+ * Written to disk BEFORE the first Firestore write so it is always available
+ * for rollback even if the migration is interrupted partway through.
+ *
+ * Fields captured per document:
+ *   artistId, albumId, trackNumber, updatedAt
+ *
+ * If a field did not exist on a document, its value is stored as null.
+ * The rollback path uses null as the sentinel to issue a FieldValue.delete()
+ * and return the document to its exact pre-migration shape.
+ */
+function writeBackup(toMigrate) {
+  const ROLLBACK_FIELDS = ['artistId', 'albumId', 'trackNumber', 'updatedAt'];
+
+  const entries = toMigrate.map((doc) => {
+    const data   = doc.data();
+    const before = {};
+
+    for (const field of ROLLBACK_FIELDS) {
+      // Store the current value, or null if the field doesn't exist.
+      // null is our sentinel meaning "delete this field on rollback".
+      before[field] = Object.prototype.hasOwnProperty.call(data, field)
+        ? (data[field] instanceof Date ? data[field].toISOString()
+          : data[field] !== undefined  ? data[field]
+          : null)
+        : null;
+    }
+
+    return {
+      songId: doc.id,
+      title:  data.title  || '(no title)',
+      artist: data.artist || '(no artist)',
+      before,
+    };
+  });
+
+  const payload = {
+    createdAt:       new Date().toISOString(),
+    migration:       'migrateArtistAlbum',
+    rollbackFields:  ROLLBACK_FIELDS,
+    totalDocuments:  entries.length,
+    entries,
+  };
+
+  fs.writeFileSync(backupFile, JSON.stringify(payload, null, 2), 'utf8');
+  logLine(`Backup written to: ${backupFile}`);
+  logLine(`To rollback: node scripts/migrateArtistAlbum.js --rollback=${backupFile}`);
+}
+
+// ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  logLine('Migration started.');
+  // Handle rollback mode before anything else
+  if (ROLLBACK) {
+    await runRollback(ROLLBACK);
+    return;
+  }
+
+  if (DRY_RUN) {
+    logLine('DRY-RUN MODE — no data will be written to Firestore.');
+  }
+
+  logLine('Migration started: migrateArtistAlbum');
   logLine(`Audit log will be written to: ${logFile}`);
 
   // ── 1. Fetch all songs ──────────────────────────────────────────────────
@@ -76,8 +245,6 @@ async function main() {
   logLine(`Found ${allDocs.length} total song(s).`);
 
   // ── 2. Filter to songs that need migration ──────────────────────────────
-  // A song is considered already migrated if it has artistId set (non-null,
-  // non-empty string). We skip these entirely for idempotency.
   const toMigrate = allDocs.filter((doc) => {
     const data = doc.data();
     return !data.artistId || typeof data.artistId !== 'string' || !data.artistId.trim();
@@ -94,18 +261,21 @@ async function main() {
     return;
   }
 
-  // ── 3. Track counters ───────────────────────────────────────────────────
-  let successCount    = 0;
-  let skipCount       = 0;
-  let errorCount      = 0;
-  const artistsSeen   = new Set(); // track unique artistIds created this run
-  const albumsSeen    = new Set(); // track unique albumIds created this run
+  // ── 3. Write backup BEFORE any Firestore writes (live run only) ─────────
+  if (!DRY_RUN) {
+    writeBackup(toMigrate);
+  } else {
+    logLine('[DRY-RUN] Backup would be written to: ' + backupFile);
+  }
 
-  // ── 4. Process each song sequentially ──────────────────────────────────
-  // Sequential (not Promise.all) to:
-  //   a) Stay within Firestore write rate limits on large collections
-  //   b) Produce clean, ordered log output
-  //   c) Make it easier to resume if the script is interrupted mid-run
+  // ── 4. Track counters ───────────────────────────────────────────────────
+  let successCount  = 0;
+  let skipCount     = 0;
+  let errorCount    = 0;
+  const artistsSeen = new Set();
+  const albumsSeen  = new Set();
+
+  // ── 5. Process each song sequentially ──────────────────────────────────
   for (let i = 0; i < toMigrate.length; i++) {
     const doc  = toMigrate[i];
     const data = doc.data();
@@ -115,7 +285,7 @@ async function main() {
     const displayArtist = data.artist || '(no artist)';
     const displayAlbum  = data.album  || '';
 
-    logLine(`[${i + 1}/${toMigrate.length}] Processing: "${displayTitle}" by "${displayArtist}"...`);
+    logLine(`[${i + 1}/${toMigrate.length}] Processing: "${displayTitle}" by "${displayArtist}"${DRY_RUN ? ' [DRY-RUN]' : ''}...`);
 
     const entry = {
       songId,
@@ -126,10 +296,10 @@ async function main() {
       albumId:  null,
       status:   'pending',
       error:    null,
+      dryRun:   DRY_RUN,
     };
 
     try {
-      // Guard: skip songs with no artist string (shouldn't happen in practice)
       if (!data.artist || !String(data.artist).trim()) {
         logLine(`  ⚠  Skipping — no artist field on song ${songId}`);
         entry.status = 'skipped_no_artist';
@@ -139,6 +309,8 @@ async function main() {
       }
 
       // ── Artist find-or-create ─────────────────────────────────────────
+      // In dry-run mode we still call the service so we can report what
+      // WOULD be created/reused — but no song document is written.
       const artistResult = await findOrCreateArtist(data.artist);
 
       if (!artistResult) {
@@ -159,7 +331,7 @@ async function main() {
         logLine(`  ✓  Artist: ${artistResult.artistId} (existing)`);
       }
 
-      // ── Album find-or-create (optional — only when album field exists) ─
+      // ── Album find-or-create ──────────────────────────────────────────
       let albumId = null;
 
       if (data.album && String(data.album).trim()) {
@@ -167,8 +339,8 @@ async function main() {
           albumName:  String(data.album).trim(),
           artistId:   artistResult.artistId,
           artistName: artistResult.artistName,
-          coverUrl:   data.coverUrl   || '',
-          genre:      data.genre      || '',
+          coverUrl:   data.coverUrl || '',
+          genre:      data.genre    || '',
           year:       0,
         });
 
@@ -189,20 +361,25 @@ async function main() {
         logLine(`  –  No album field — skipping album link`);
       }
 
-      // ── Update song document ──────────────────────────────────────────
-      // Only write the new fields — never touch existing fields.
-      const songUpdates = {
-        artistId:    artistResult.artistId,
-        albumId:     albumId,           // null if no album or album service failed
-        trackNumber: data.trackNumber ?? null, // preserve if already set
-        updatedAt:   new Date(),
-      };
+      // ── Update song document (skipped in dry-run) ─────────────────────
+      if (DRY_RUN) {
+        logLine(`  ℹ  [DRY-RUN] Would write: artistId=${entry.artistId} albumId=${albumId ?? 'null'}`);
+        entry.status = 'dry_run_would_update';
+        successCount++;
+      } else {
+        const songUpdates = {
+          artistId:    artistResult.artistId,
+          albumId:     albumId,
+          trackNumber: data.trackNumber ?? null,
+          updatedAt:   new Date(),
+        };
 
-      await db.collection('songs').doc(songId).update(songUpdates);
+        await db.collection('songs').doc(songId).update(songUpdates);
 
-      logLine(`  ✓  Song updated.`);
-      entry.status = 'success';
-      successCount++;
+        logLine(`  ✓  Song updated.`);
+        entry.status = 'success';
+        successCount++;
+      }
 
     } catch (err) {
       logLine(`  ✗  Unexpected error for song ${songId}: ${err.message}`);
@@ -212,12 +389,12 @@ async function main() {
     }
 
     auditLog.push(entry);
-  } // end for loop
+  }
 
-  // ── 5. Summary ──────────────────────────────────────────────────────────
+  // ── 6. Summary ──────────────────────────────────────────────────────────
   logLine('');
   logLine('─────────────────────────────────────────');
-  logLine('Migration complete.');
+  logLine(DRY_RUN ? 'Dry run complete.' : 'Migration complete.');
   logLine(`  Songs processed : ${toMigrate.length}`);
   logLine(`  ✓  Success      : ${successCount}`);
   logLine(`  ⚠  Skipped      : ${skipCount}`);
@@ -226,10 +403,14 @@ async function main() {
   logLine(`  Albums touched  : ${albumsSeen.size}`);
   logLine('─────────────────────────────────────────');
 
-  await writeAuditLog(auditLog);
-  logLine(`Full audit log written to: ${logFile}`);
+  if (!DRY_RUN) {
+    logLine(`Backup file:    ${backupFile}`);
+    logLine(`To rollback:    node scripts/migrateArtistAlbum.js --rollback=${backupFile}`);
+  }
 
-  // Exit with non-zero code if any songs errored — useful for CI/CD pipelines
+  await writeAuditLog(auditLog);
+  logLine(`Audit log:      ${logFile}`);
+
   if (errorCount > 0) {
     logLine(`⚠  ${errorCount} error(s) occurred. Review the audit log before proceeding.`);
     process.exit(1);
@@ -242,7 +423,8 @@ async function main() {
 
 async function writeAuditLog(entries) {
   const payload = {
-    runAt:       new Date().toISOString(),
+    runAt:        new Date().toISOString(),
+    dryRun:       DRY_RUN,
     totalEntries: entries.length,
     entries,
   };

@@ -4,15 +4,21 @@
  * PRODUCTION READY
  *
  * Changes from previous version:
- *   - fetchUserPlaylists: added try/catch with console.error so failures are
- *     visible in DevTools rather than surfacing as an opaque empty array.
- *     The error is re-thrown so React Query's `isError` / `error` fire correctly
- *     and the Sidebar can show "Couldn't load playlists." instead of
- *     silently showing "No playlists yet."
+ *   - getPlaylistSongs [BUG-007 FIX]:
+ *       1. Deduplicates songIds BEFORE the batch request using Set — avoids
+ *          sending duplicate IDs to the server and wasting Firestore reads.
+ *       2. Deduplicates songs in the response by `id` — defensive against the
+ *          backend returning duplicate song objects when given duplicate IDs
+ *          via db.getAll (Firestore's getAll does not deduplicate).
+ *       3. Preserves original playlist ordering — the response is re-ordered
+ *          to match the deduplicated input ID sequence, so the UI renders songs
+ *          in the order they were added to the playlist, not Firestore document
+ *          order.
+ *       4. Logs a DEV-only warning (not an error) when duplicates are detected,
+ *          so data issues are visible during development without polluting
+ *          production logs.
  *
- *   - fetchAdminPlaylists: same try/catch + re-throw pattern.
- *
- *   All other functions — completely unchanged.
+ * All other functions — completely unchanged.
  */
 
 import api from './api';
@@ -73,12 +79,67 @@ export const removeSongFromPlaylist = async (playlistId, songId) => {
   return res?.data?.data ?? res?.data ?? { removed: true };
 };
 
+// ─── getPlaylistSongs — POST /api/songs/batch ────────────────────────────────
+//
+// BUG-007 FIX: Two-pass deduplication.
+//
+// Pass 1 (pre-request): Build a unique, ordered ID list from the input.
+//   - A playlist can accumulate duplicate IDs through repeated addSongToPlaylist
+//     calls or corrupted data. Sending duplicates to the server causes Firestore
+//     db.getAll to resolve the same document multiple times, returning duplicate
+//     song objects.
+//
+// Pass 2 (post-response): Deduplicate by song `id` and restore playlist order.
+//   - Firestore db.getAll does not guarantee order. We use the deduped input
+//     sequence as the source-of-truth order, and build an id→song Map from the
+//     response so the final array matches the original playlist track order.
+//   - Songs missing from the response (deleted from Firestore) are silently
+//     dropped — this is the correct behavior and was already implicit.
+//
+// Ordering contract:
+//   Input:    ['a', 'b', 'a', 'c', 'b']
+//   Deduped:  ['a', 'b', 'c']           ← sent to server
+//   Response: [songC, songA, songB]      ← Firestore order (arbitrary)
+//   Output:   [songA, songB, songC]      ← restored to deduped-input order
+//
 export const getPlaylistSongs = async (songIds) => {
   if (!Array.isArray(songIds) || songIds.length === 0) return [];
+
+  // ── Pass 1: deduplicate input IDs while preserving first-seen order ────────
+  const uniqueIds = [...new Set(songIds.filter(Boolean))];
+
+  if (process.env.NODE_ENV !== 'production' && uniqueIds.length !== songIds.length) {
+    console.warn(
+      `[playlists.service] getPlaylistSongs: received ${songIds.length} IDs, ` +
+      `${songIds.length - uniqueIds.length} duplicate(s) removed before batch request.`
+    );
+  }
+
+  if (uniqueIds.length === 0) return [];
+
   try {
-    const res   = await api.post('/songs/batch', { ids: songIds });
+    const res   = await api.post('/songs/batch', { ids: uniqueIds });
     const songs = res?.data?.data ?? res?.data ?? [];
-    return Array.isArray(songs) ? songs : [];
+
+    if (!Array.isArray(songs)) return [];
+
+    // ── Pass 2: build id→song map, then restore input order ─────────────────
+    // The Map handles any backend-side duplicates (same id appearing twice in
+    // the response). Last-write-wins is fine here because all instances of the
+    // same song object are identical.
+    const songMap = new Map(
+      songs
+        .filter((s) => s?.id)
+        .map((s) => [s.id, s])
+    );
+
+    // Re-order by the deduplicated input sequence; drop IDs not in the response
+    // (song was deleted from Firestore — correct to omit silently).
+    return uniqueIds.reduce((acc, id) => {
+      const song = songMap.get(id);
+      if (song) acc.push(song);
+      return acc;
+    }, []);
   } catch (err) {
     console.error('[playlists.service] getPlaylistSongs error:', err.message);
     throw err;

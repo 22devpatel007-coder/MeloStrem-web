@@ -40,10 +40,6 @@ const useQueueStore = create((set, get) => ({
 
     // In dynamic context, if Classic is somehow active, force it off
     const playerState = usePlayerStore.getState();
-    if (contextType === 'dynamic' && playerState.shuffleMode === 'classic') {
-      usePlayerStore.setState({ shuffleMode: 'smart', shuffledOrder: [], shuffledIndex: -1 });
-    }
-
     // Reset shuffle session with the new pool
     playerState.resetShuffleSession();
 

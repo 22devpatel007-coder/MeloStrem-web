@@ -1,12 +1,30 @@
 /**
  * client/src/pages/admin/BulkUpload.jsx
- * PERMANENT FIX: Navbar import and usage removed.
- * PageWrapper owns layout — page renders only its own content.
+ *
+ * BUG-012 FIX — React Query cache invalidation after bulk upload completes.
+ *
+ * WHAT CHANGED vs previous version:
+ *   1. Imported useQueryClient from @tanstack/react-query.
+ *   2. Imported QUERY_KEYS from constants/queryKeys.
+ *   3. At the end of handleUploadAll, before setStage("done"), calls:
+ *        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
+ *      This ensures that after a bulk upload, any page reading the songs cache
+ *      (MusicList, Home, Search) will refetch on their next render instead of
+ *      showing the old song list for up to 2 minutes.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - ZIP parsing, JSZip loading, manifest validation — identical
+ *   - Upload loop, FormData construction, placeholder cover logic — identical
+ *   - handleReset, drag-and-drop handlers — identical
+ *   - All styles — identical
+ *   - ZipIcon — identical
  */
 
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query"; // ← BUG-012 FIX
 import { axiosUpload } from "../../services/api";
+import { QUERY_KEYS } from "../../constants/queryKeys"; // ← BUG-012 FIX
 
 const JSZIP_CDN =
   "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
@@ -70,6 +88,7 @@ const createPlaceholderCoverFile = async (baseName) =>
   });
 
 const BulkUpload = () => {
+  const queryClient = useQueryClient(); // ← BUG-012 FIX
   const navigate = useNavigate();
   const dropRef = useRef(null);
 
@@ -212,6 +231,14 @@ const BulkUpload = () => {
     }
 
     setCurrent("");
+
+    // BUG-012 FIX: Invalidate the shared songs cache after all uploads complete.
+    // Without this, MusicList and any other page reading QUERY_KEYS.SONGS would
+    // serve the pre-upload song list for up to 2 minutes. The invalidation fires
+    // once for the entire batch — not per-song — to avoid flooding React Query
+    // with redundant invalidation calls during the loop.
+    queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
+
     setStage("done");
   };
 
