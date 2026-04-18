@@ -1,6 +1,8 @@
 /**
  * Swagger spec stub.
- * Route docs will be added per endpoint in the future.
+ * STATUS: Unstarted. Not mounted — swagger-ui-express is not installed and
+ * no /docs route exists. Safe to ignore until API documentation is scoped
+ * as a formal work item. See CONTEXT.md for confirmed API contracts.
  */
 
 const swaggerSpec = {
