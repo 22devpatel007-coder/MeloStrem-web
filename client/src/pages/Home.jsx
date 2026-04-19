@@ -41,15 +41,20 @@ try {
   SongListSkeleton = require("../components/songs/SongListSkeleton").default;
 } catch {
   SongListSkeleton = ({ count = 8 }) => (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       {Array.from({ length: count }).map((_, i) => (
-        <div key={i} style={{
-          height: 60, borderRadius: 8,
-          background: 'linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%)',
-          backgroundSize: '200% 100%',
-          animation: 'skeleton-shimmer 1.4s ease infinite',
-          animationDelay: `${i * 60}ms`,
-        }} />
+        <div
+          key={i}
+          style={{
+            height: 60,
+            borderRadius: 8,
+            background:
+              "linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%)",
+            backgroundSize: "200% 100%",
+            animation: "skeleton-shimmer 1.4s ease infinite",
+            animationDelay: `${i * 60}ms`,
+          }}
+        />
       ))}
       <style>{`
         @keyframes skeleton-shimmer {
@@ -66,16 +71,19 @@ try {
   HomeSkeleton = require("../components/home/HomeSkeleton").default;
 } catch {
   HomeSkeleton = () => (
-    <div style={{ padding: '20px 24px' }}>
+    <div style={{ padding: "20px 24px" }}>
       {[80, 60, 60, 60].map((w, i) => (
-        <div key={i} style={{
-          height: i === 0 ? 32 : 20,
-          width: `${w}%`,
-          borderRadius: 6,
-          background: '#1a1a1a',
-          marginBottom: i === 0 ? 24 : 12,
-          animation: 'skeleton-shimmer 1.4s ease infinite',
-        }} />
+        <div
+          key={i}
+          style={{
+            height: i === 0 ? 32 : 20,
+            width: `${w}%`,
+            borderRadius: 6,
+            background: "#1a1a1a",
+            marginBottom: i === 0 ? 24 : 12,
+            animation: "skeleton-shimmer 1.4s ease infinite",
+          }}
+        />
       ))}
       <style>{`
         @keyframes skeleton-shimmer {
@@ -92,17 +100,28 @@ const HISTORY_KEY = "melostream_search_history";
 const MAX_HISTORY = 8;
 
 function readHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 function saveHistory(items) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(items)); }
-  catch { /* storage full */ }
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+  } catch {
+    /* storage full */
+  }
 }
 function addToHistory(song) {
   const prev = readHistory().filter((s) => s.id !== song.id);
   const updated = [
-    { id: song.id, title: song.title, artist: song.artist, coverUrl: song.coverUrl },
+    {
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      coverUrl: song.coverUrl,
+    },
     ...prev,
   ].slice(0, MAX_HISTORY);
   saveHistory(updated);
@@ -126,13 +145,22 @@ const AVATAR_COLORS = [
 ];
 
 const COVER_COLORS = [
-  "#9FE1CB", "#CECBF6", "#F5C4B3", "#B5D4F4",
-  "#FAC775", "#C0DD97", "#F4C0D1",
+  "#9FE1CB",
+  "#CECBF6",
+  "#F5C4B3",
+  "#B5D4F4",
+  "#FAC775",
+  "#C0DD97",
+  "#F4C0D1",
 ];
 
 function initials(name = "") {
-  return name.split(/[\s\-,]+/).filter(Boolean)
-    .slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+  return name
+    .split(/[\s\-,]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
 }
 
 function deriveArtists(songs) {
@@ -140,7 +168,11 @@ function deriveArtists(songs) {
   for (const s of songs) {
     const key = s.artistId || `__plain__${s.artist}`;
     if (!map.has(key)) {
-      map.set(key, { artistId: s.artistId || null, artist: s.artist || "Unknown", songCount: 0 });
+      map.set(key, {
+        artistId: s.artistId || null,
+        artist: s.artist || "Unknown",
+        songCount: 0,
+      });
     }
     map.get(key).songCount += 1;
   }
@@ -155,7 +187,12 @@ function deriveAlbums(songs) {
     if (!s.album) continue;
     const key = s.albumId || `__plain__${s.album}`;
     if (!map.has(key)) {
-      map.set(key, { albumId: s.albumId || null, album: s.album, artist: s.artist || "", artistId: s.artistId || null });
+      map.set(key, {
+        albumId: s.albumId || null,
+        album: s.album,
+        artist: s.artist || "",
+        artistId: s.artistId || null,
+      });
     }
   }
   return Array.from(map.values());
@@ -173,23 +210,23 @@ const Home = () => {
     refetch,
   } = useSongs();
 
-  const [activeGenre, setActiveGenre]       = useState("All");
-  const [searchText, setSearchText]         = useState("");
-  const [searchFocused, setSearchFocused]   = useState(false);
-  const [history, setHistory]               = useState(readHistory);
+  const [activeGenre, setActiveGenre] = useState("All");
+  const [searchText, setSearchText] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [history, setHistory] = useState(readHistory);
   const [showAllArtists, setShowAllArtists] = useState(false);
-  const [showAllAlbums, setShowAllAlbums]   = useState(false);
-  const [isSearching, setIsSearching]       = useState(false);
+  const [showAllAlbums, setShowAllAlbums] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
   const searchDebounceRef = useRef(null);
-  const inputRef          = useRef(null);
-  const wrapRef           = useRef(null);
-  const blurTimerRef      = useRef(null);
-  const sentinelRef       = useRef(null);
+  const inputRef = useRef(null);
+  const wrapRef = useRef(null);
+  const blurTimerRef = useRef(null);
+  const sentinelRef = useRef(null);
 
   // BUG 8 FIX: subscribe to currentSong to run logPick + history as side-effect
-  const currentSong        = usePlayerStore((s) => s.currentSong);
-  const logPick            = usePlayerStore((s) => s.logPick);
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const logPick = usePlayerStore((s) => s.logPick);
   const setPlaybackContext = usePlayerStore((s) => s.setPlaybackContext);
   const { user } = useAuthStore();
 
@@ -207,7 +244,8 @@ const Home = () => {
     setHistory(addToHistory(currentSong));
   }, [currentSong, logPick, user?.uid]);
 
-  const showHistory = searchFocused && searchText.trim() === "" && history.length > 0;
+  const showHistory =
+    searchFocused && searchText.trim() === "" && history.length > 0;
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -220,7 +258,8 @@ const Home = () => {
   // Close history on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setSearchFocused(false);
+      if (wrapRef.current && !wrapRef.current.contains(e.target))
+        setSearchFocused(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -231,7 +270,9 @@ const Home = () => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
     const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting && hasMore && !loadingMore) fetchMore(); },
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) fetchMore();
+      },
       { rootMargin: "300px" },
     );
     observer.observe(sentinel);
@@ -245,23 +286,35 @@ const Home = () => {
   }, [songs]);
 
   const filtered = useMemo(() => {
-    let r = activeGenre === "All" ? songs : songs.filter((s) => s.genre === activeGenre);
+    let r =
+      activeGenre === "All"
+        ? songs
+        : songs.filter((s) => s.genre === activeGenre);
     if (searchText.trim().length >= 1) {
       const q = searchText.trim().toLowerCase();
-      r = r.filter((s) => (s.title || "").toLowerCase().includes(q) || (s.artist || "").toLowerCase().includes(q));
+      r = r.filter(
+        (s) =>
+          (s.title || "").toLowerCase().includes(q) ||
+          (s.artist || "").toLowerCase().includes(q),
+      );
     }
     return r;
   }, [songs, activeGenre, searchText]);
 
   const artists = useMemo(() => deriveArtists(songs), [songs]);
-  const albums  = useMemo(() => deriveAlbums(songs),  [songs]);
+  const albums = useMemo(() => deriveAlbums(songs), [songs]);
 
   const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
-  const visibleAlbums  = showAllAlbums  ? albums  : albums.slice(0, 8);
+  const visibleAlbums = showAllAlbums ? albums : albums.slice(0, 8);
 
   // Handlers
-  const handleFocus = () => { clearTimeout(blurTimerRef.current); setSearchFocused(true); };
-  const handleBlur  = () => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 150); };
+  const handleFocus = () => {
+    clearTimeout(blurTimerRef.current);
+    setSearchFocused(true);
+  };
+  const handleBlur = () => {
+    blurTimerRef.current = setTimeout(() => setSearchFocused(false), 150);
+  };
   const handleClear = () => {
     clearTimeout(searchDebounceRef.current);
     setSearchText("");
@@ -271,12 +324,15 @@ const Home = () => {
 
   // BUG 8 FIX: handlePlaySong only used for history-item clicks.
   // Regular SongList playback goes through SongCard → setPlaybackContext directly.
-  const handlePlaySong = useCallback((song, pool) => {
-    const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
-    const idx = safePool.findIndex((s) => s.id === song.id);
-    setPlaybackContext("library", null, safePool, idx >= 0 ? idx : 0);
-    setSearchFocused(false);
-  }, [songs, setPlaybackContext]);
+  const handlePlaySong = useCallback(
+    (song, pool) => {
+      const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
+      const idx = safePool.findIndex((s) => s.id === song.id);
+      setPlaybackContext("library", null, safePool, idx >= 0 ? idx : 0);
+      setSearchFocused(false);
+    },
+    [songs, setPlaybackContext],
+  );
 
   const handlePlayFromHistory = (item) => {
     const song = songs.find((s) => s.id === item.id);
@@ -284,8 +340,14 @@ const Home = () => {
     setSearchFocused(false);
   };
 
-  const handleRemoveHistory   = (e, id) => { e.stopPropagation(); setHistory(removeFromHistory(id)); };
-  const handleClearAllHistory = () => { saveHistory([]); setHistory([]); };
+  const handleRemoveHistory = (e, id) => {
+    e.stopPropagation();
+    setHistory(removeFromHistory(id));
+  };
+  const handleClearAllHistory = () => {
+    saveHistory([]);
+    setHistory([]);
+  };
 
   // ── States ──
   if (loading) return <HomeSkeleton />;
@@ -293,9 +355,16 @@ const Home = () => {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] gap-3 px-4">
-        <p className="text-white text-base font-semibold">Could not load your library</p>
-        <p className="text-gray-500 text-sm">{error?.message || "Something went wrong."}</p>
-        <button onClick={refetch} className="bg-emerald-500 text-black font-semibold text-sm px-6 py-2.5 rounded-lg hover:bg-emerald-400 transition-colors">
+        <p className="text-white text-base font-semibold">
+          Could not load your library
+        </p>
+        <p className="text-gray-500 text-sm">
+          {error?.message || "Something went wrong."}
+        </p>
+        <button
+          onClick={refetch}
+          className="bg-emerald-500 text-black font-semibold text-sm px-6 py-2.5 rounded-lg hover:bg-emerald-400 transition-colors"
+        >
           Retry
         </button>
       </div>
@@ -307,7 +376,6 @@ const Home = () => {
     <div className="home-content-enter">
       <style>{HOME_STYLES}</style>
       <div className="home-topbar">
-
         {/* Left: title + song count */}
         <div className="home-topbar__left">
           <h1 className="home-topbar__title">Your Library</h1>
@@ -316,14 +384,15 @@ const Home = () => {
 
         {/* Right cluster: search + avatar (avatar hidden on mobile via CSS) */}
         <div className="home-topbar__right">
-
           {/* Search */}
           <div ref={wrapRef} className="home-topbar__search-wrap">
             <div
               className="home-topbar__search"
               style={{
                 borderColor: searchFocused ? "#22c55e" : "#2a2a2a",
-                boxShadow: searchFocused ? "0 0 0 3px rgba(34,197,94,0.1)" : "none",
+                boxShadow: searchFocused
+                  ? "0 0 0 3px rgba(34,197,94,0.1)"
+                  : "none",
                 borderBottomLeftRadius: showHistory ? 0 : 10,
                 borderBottomRightRadius: showHistory ? 0 : 10,
               }}
@@ -336,8 +405,19 @@ const Home = () => {
                 className="home-topbar__search-icon"
                 style={{ color: searchFocused ? "#22c55e" : "#6b7280" }}
               >
-                <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M14 14l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                <circle
+                  cx="8.5"
+                  cy="8.5"
+                  r="5.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M14 14l3 3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
               </svg>
               <input
                 ref={inputRef}
@@ -350,7 +430,10 @@ const Home = () => {
                   if (val.trim().length >= 1) {
                     setIsSearching(true);
                     clearTimeout(searchDebounceRef.current);
-                    searchDebounceRef.current = setTimeout(() => setIsSearching(false), 200);
+                    searchDebounceRef.current = setTimeout(
+                      () => setIsSearching(false),
+                      200,
+                    );
                   } else {
                     clearTimeout(searchDebounceRef.current);
                     setIsSearching(false);
@@ -363,10 +446,21 @@ const Home = () => {
                 spellCheck={false}
               />
               {searchText.length > 0 && (
-                <button onClick={handleClear} className="home-topbar__search-clear" aria-label="Clear search">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18"/>
-                    <line x1="6" y1="6" x2="18" y2="18"/>
+                <button
+                  onClick={handleClear}
+                  className="home-topbar__search-clear"
+                  aria-label="Clear search"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               )}
@@ -376,20 +470,41 @@ const Home = () => {
             {showHistory && (
               <div className="home-history-dropdown">
                 <div className="home-history-dropdown__header">
-                  <span className="home-history-dropdown__label">Recent searches</span>
-                  <button onMouseDown={handleClearAllHistory} className="home-history-dropdown__clear">Clear all</button>
+                  <span className="home-history-dropdown__label">
+                    Recent searches
+                  </span>
+                  <button
+                    onMouseDown={handleClearAllHistory}
+                    className="home-history-dropdown__clear"
+                  >
+                    Clear all
+                  </button>
                 </div>
                 {history.map((item) => (
-                  <div key={item.id} onMouseDown={() => handlePlayFromHistory(item)} className="home-history-item">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4b5563" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10"/>
-                      <polyline points="12 6 12 12 16 14"/>
+                  <div
+                    key={item.id}
+                    onMouseDown={() => handlePlayFromHistory(item)}
+                    className="home-history-item"
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#4b5563"
+                      strokeWidth="2"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
                     </svg>
                     <img
                       src={item.coverUrl}
                       alt={item.title}
                       className="home-history-item__cover"
-                      onError={(e) => { e.target.src = "https://placehold.co/32x32/111/555?text=♪"; }}
+                      onError={(e) => {
+                        e.target.src =
+                          "https://placehold.co/32x32/111/555?text=♪";
+                      }}
                     />
                     <div className="home-history-item__meta">
                       <p className="home-history-item__title">{item.title}</p>
@@ -400,9 +515,16 @@ const Home = () => {
                       className="home-history-item__remove"
                       aria-label="Remove from history"
                     >
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                      >
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
                       </svg>
                     </button>
                   </div>
@@ -415,20 +537,21 @@ const Home = () => {
           <div className="home-topbar__avatar">
             <UserMenu />
           </div>
-
         </div>
       </div>
 
       {/* ── Page body ─────────────────────────────────────────────────────── */}
       <div className="home-body">
-
         {/* ── Artists ── */}
         {artists.length > 0 && !searchText && (
           <section className="home-section">
             <div className="home-section__header">
               <h2 className="home-section__title">Artists</h2>
               {artists.length > 8 && (
-                <button onClick={() => setShowAllArtists((v) => !v)} className="home-section__see-all">
+                <button
+                  onClick={() => setShowAllArtists((v) => !v)}
+                  className="home-section__see-all"
+                >
                   {showAllArtists ? "Show less" : "See all"}
                 </button>
               )}
@@ -439,13 +562,26 @@ const Home = () => {
                 const av = initials(a.artist);
                 const card = (
                   <div className="home-artist-card">
-                    <div className="home-artist-card__av" style={{ background: col.bg, color: col.color }}>{av}</div>
+                    <div
+                      className="home-artist-card__av"
+                      style={{ background: col.bg, color: col.color }}
+                    >
+                      {av}
+                    </div>
                     <span className="home-artist-card__name">{a.artist}</span>
-                    <span className="home-artist-card__count">{a.songCount} songs</span>
+                    <span className="home-artist-card__count">
+                      {a.songCount} songs
+                    </span>
                   </div>
                 );
                 return a.artistId ? (
-                  <Link key={a.artistId} to={`/artist/${a.artistId}`} style={{ textDecoration: "none" }}>{card}</Link>
+                  <Link
+                    key={a.artistId}
+                    to={`/artist/${a.artistId}`}
+                    style={{ textDecoration: "none" }}
+                  >
+                    {card}
+                  </Link>
                 ) : (
                   <div key={a.artist}>{card}</div>
                 );
@@ -460,7 +596,10 @@ const Home = () => {
             <div className="home-section__header">
               <h2 className="home-section__title">Albums</h2>
               {albums.length > 8 && (
-                <button onClick={() => setShowAllAlbums((v) => !v)} className="home-section__see-all">
+                <button
+                  onClick={() => setShowAllAlbums((v) => !v)}
+                  className="home-section__see-all"
+                >
                   {showAllAlbums ? "Show less" : "See all"}
                 </button>
               )}
@@ -470,7 +609,10 @@ const Home = () => {
                 const bg = COVER_COLORS[i % COVER_COLORS.length];
                 const card = (
                   <div className="home-album-card">
-                    <div className="home-album-card__cover" style={{ background: bg }}>
+                    <div
+                      className="home-album-card__cover"
+                      style={{ background: bg }}
+                    >
                       <span className="home-album-card__cover-icon">♪</span>
                     </div>
                     <div className="home-album-card__info">
@@ -484,13 +626,21 @@ const Home = () => {
                           {al.artist}
                         </Link>
                       ) : (
-                        <span className="home-album-card__artist">{al.artist}</span>
+                        <span className="home-album-card__artist">
+                          {al.artist}
+                        </span>
                       )}
                     </div>
                   </div>
                 );
                 return al.albumId ? (
-                  <Link key={al.albumId} to={`/album/${al.albumId}`} style={{ textDecoration: "none" }}>{card}</Link>
+                  <Link
+                    key={al.albumId}
+                    to={`/album/${al.albumId}`}
+                    style={{ textDecoration: "none" }}
+                  >
+                    {card}
+                  </Link>
                 ) : (
                   <div key={al.album || i}>{card}</div>
                 );
@@ -543,12 +693,16 @@ const Home = () => {
                 <span>Loading more songs…</span>
               </div>
             )}
-            {!searchText.trim() && !hasMore && songs.length > 0 && !loadingMore && (
-              <p className="home-sentinel__done">All {songs.length} songs loaded</p>
-            )}
+            {!searchText.trim() &&
+              !hasMore &&
+              songs.length > 0 &&
+              !loadingMore && (
+                <p className="home-sentinel__done">
+                  All {songs.length} songs loaded
+                </p>
+              )}
           </div>
         </section>
-
       </div>
     </div>
   );

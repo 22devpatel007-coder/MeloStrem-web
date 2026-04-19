@@ -59,7 +59,7 @@ const LS_ROW_HEIGHT = 64;
 const OVERSCAN = 5;
 
 /** Max visible height for the tbody scroll region. */
-const TABLE_MAX_HEIGHT = 'calc(100vh - 320px)';
+const TABLE_MAX_HEIGHT = "calc(100vh - 320px)";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const formatDuration = (secs) => {
@@ -72,10 +72,14 @@ const formatDuration = (secs) => {
 const sortSongs = (songs, sortBy) => {
   const arr = [...songs];
   switch (sortBy) {
-    case "az":       return arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    case "duration": return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
-    case "genre":    return arr.sort((a, b) => (a.genre || "").localeCompare(b.genre || ""));
-    default:         return arr;
+    case "az":
+      return arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    case "duration":
+      return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    case "genre":
+      return arr.sort((a, b) => (a.genre || "").localeCompare(b.genre || ""));
+    default:
+      return arr;
   }
 };
 
@@ -90,7 +94,15 @@ const buildGenreGroups = (songs) => {
 };
 
 // ── SongRow — identical to original ──────────────────────────────────────────
-const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, onToggleLike, isLiked }) => {
+const SongRow = ({
+  song,
+  displayIndex,
+  isNew,
+  isCurrentlyPlaying,
+  onPlaySong,
+  onToggleLike,
+  isLiked,
+}) => {
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -107,7 +119,11 @@ const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, on
       {/* # / Play */}
       <td className="ls-td ls-td--num">
         {hovered || isCurrentlyPlaying ? (
-          <button className={`ls-play-btn ${isCurrentlyPlaying ? "ls-play-btn--active" : ""}`} onClick={onPlaySong} aria-label={`Play ${song.title}`}>
+          <button
+            className={`ls-play-btn ${isCurrentlyPlaying ? "ls-play-btn--active" : ""}`}
+            onClick={onPlaySong}
+            aria-label={`Play ${song.title}`}
+          >
             {isCurrentlyPlaying ? <PauseIcon /> : <PlayIcon />}
           </button>
         ) : (
@@ -120,22 +136,42 @@ const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, on
         <div className="ls-song-info">
           <div className="ls-cover-wrap">
             {song.coverUrl ? (
-              <img src={song.coverUrl} alt={`${song.title} cover`} className="ls-cover" loading="lazy" draggable={false} />
+              <img
+                src={song.coverUrl}
+                alt={`${song.title} cover`}
+                className="ls-cover"
+                loading="lazy"
+                draggable={false}
+              />
             ) : (
-              <div className="ls-cover ls-cover--fallback" aria-hidden="true"><MusicNoteIcon /></div>
+              <div className="ls-cover ls-cover--fallback" aria-hidden="true">
+                <MusicNoteIcon />
+              </div>
             )}
-            {isNew && <span className="ls-new-badge" aria-label="Recently liked">NEW</span>}
+            {isNew && (
+              <span className="ls-new-badge" aria-label="Recently liked">
+                NEW
+              </span>
+            )}
           </div>
           <div className="ls-song-meta">
-            <span className={`ls-song-title ${isCurrentlyPlaying ? "ls-song-title--playing" : ""}`}>
+            <span
+              className={`ls-song-title ${isCurrentlyPlaying ? "ls-song-title--playing" : ""}`}
+            >
               {song.title || "Unknown"}
             </span>
             <span className="ls-song-artist">
               {song.artistId ? (
-                <Link to={`/artist/${song.artistId}`} className="ls-artist-link" onClick={(e) => e.stopPropagation()}>
+                <Link
+                  to={`/artist/${song.artistId}`}
+                  className="ls-artist-link"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {song.artist || "Unknown Artist"}
                 </Link>
-              ) : (song.artist || "Unknown Artist")}
+              ) : (
+                song.artist || "Unknown Artist"
+              )}
             </span>
           </div>
         </div>
@@ -144,7 +180,11 @@ const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, on
       {/* Album */}
       <td className="ls-td ls-td--album ls-td--hide-sm">
         {song.albumId ? (
-          <Link to={`/album/${song.albumId}`} className="ls-album-link" onClick={(e) => e.stopPropagation()}>
+          <Link
+            to={`/album/${song.albumId}`}
+            className="ls-album-link"
+            onClick={(e) => e.stopPropagation()}
+          >
             {song.album || "—"}
           </Link>
         ) : (
@@ -154,7 +194,11 @@ const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, on
 
       {/* Genre */}
       <td className="ls-td ls-td--hide-md">
-        {song.genre ? <GenreChip genre={song.genre} /> : <span className="ls-muted">—</span>}
+        {song.genre ? (
+          <GenreChip genre={song.genre} />
+        ) : (
+          <span className="ls-muted">—</span>
+        )}
       </td>
 
       {/* Time + Unlike */}
@@ -162,7 +206,10 @@ const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, on
         <div className="ls-td-end">
           <button
             className={`ls-unlike-btn ${hovered ? "ls-unlike-btn--visible" : ""} ${isLiked ? "ls-unlike-btn--liked" : ""}`}
-            onClick={(e) => { e.stopPropagation(); onToggleLike(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLike();
+            }}
             aria-label={isLiked ? "Remove from liked" : "Add to liked"}
           >
             <HeartIcon filled={isLiked} />
@@ -178,7 +225,14 @@ const SongRow = ({ song, displayIndex, isNew, isCurrentlyPlaying, onPlaySong, on
 export const GenreChip = ({ genre }) => {
   const color = getGenreColor(genre);
   return (
-    <span className="ls-genre-chip" style={{ background: color.bg, borderColor: color.border, color: color.text }}>
+    <span
+      className="ls-genre-chip"
+      style={{
+        background: color.bg,
+        borderColor: color.border,
+        color: color.text,
+      }}
+    >
       {genre}
     </span>
   );
@@ -202,50 +256,64 @@ const VirtualizedSongTable = ({
   const tbodyRef = useRef(null);
 
   const virtualizer = useVirtualizer({
-    count:            songs.length,
+    count: songs.length,
     getScrollElement: () => tbodyRef.current,
-    estimateSize:     () => LS_ROW_HEIGHT,
-    overscan:         OVERSCAN,
+    estimateSize: () => LS_ROW_HEIGHT,
+    overscan: OVERSCAN,
   });
 
   const virtualItems = virtualizer.getVirtualItems();
-  const totalHeight  = virtualizer.getTotalSize();
+  const totalHeight = virtualizer.getTotalSize();
 
   return (
     <table className="ls-table" role="table">
       <thead>
         <tr className="ls-thead-row">
-          <th className="ls-th ls-th--num" scope="col">#</th>
-          <th className="ls-th" scope="col">TITLE</th>
-          <th className="ls-th ls-th--hide-sm" scope="col">ALBUM</th>
-          <th className="ls-th ls-th--hide-md" scope="col">GENRE</th>
-          <th className="ls-th ls-th--right" scope="col">TIME</th>
+          <th className="ls-th ls-th--num" scope="col">
+            #
+          </th>
+          <th className="ls-th" scope="col">
+            TITLE
+          </th>
+          <th className="ls-th ls-th--hide-sm" scope="col">
+            ALBUM
+          </th>
+          <th className="ls-th ls-th--hide-md" scope="col">
+            GENRE
+          </th>
+          <th className="ls-th ls-th--right" scope="col">
+            TIME
+          </th>
         </tr>
       </thead>
 
       {/*
-        * tbody is the scroll container.
-        * display: block is required to make overflow-y work on tbody.
-        * This is a known pattern for virtualizing HTML tables — the tbody
-        * becomes a block-level scroll container; trs are absolutely positioned
-        * inside the totalHeight spacer.
-        */}
+       * tbody is the scroll container.
+       * display: block is required to make overflow-y work on tbody.
+       * This is a known pattern for virtualizing HTML tables — the tbody
+       * becomes a block-level scroll container; trs are absolutely positioned
+       * inside the totalHeight spacer.
+       */}
       <tbody
         ref={tbodyRef}
         style={{
-          display:    'block',
-          overflowY:  'auto',
-          maxHeight:  TABLE_MAX_HEIGHT,
-          position:   'relative',
+          display: "block",
+          overflowY: "auto",
+          maxHeight: TABLE_MAX_HEIGHT,
+          position: "relative",
           // Thin scrollbar to match SongList
-          scrollbarWidth: 'thin',
-          scrollbarColor: 'rgba(255,255,255,0.08) transparent',
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(255,255,255,0.08) transparent",
         }}
       >
         {/* Virtual spacer — sizes the scrollbar correctly */}
         <tr
           aria-hidden="true"
-          style={{ display: 'block', height: totalHeight, pointerEvents: 'none' }}
+          style={{
+            display: "block",
+            height: totalHeight,
+            pointerEvents: "none",
+          }}
         />
 
         {virtualItems.map((virtualItem) => {
@@ -258,17 +326,19 @@ const VirtualizedSongTable = ({
               song={song}
               displayIndex={virtualItem.index}
               isNew={newIds.has(song.id)}
-              isCurrentlyPlaying={currentSongId === song.id && isGloballyPlaying}
+              isCurrentlyPlaying={
+                currentSongId === song.id && isGloballyPlaying
+              }
               isLiked={likedSongIds.includes(song.id)}
               onPlaySong={() => onPlaySong(song, virtualItem.index, songs)}
               onToggleLike={() => onToggleLike(song.id)}
               // Position each row in virtual space
               style={{
-                display:   'table-row',
-                position:  'absolute',
-                top:       0,
-                left:      0,
-                width:     '100%',
+                display: "table-row",
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
                 transform: `translateY(${virtualItem.start}px)`,
               }}
             />
@@ -294,18 +364,25 @@ const LikedSongsTable = ({
 
   const filtered = useMemo(
     () => (activeGenre ? songs.filter((s) => s.genre === activeGenre) : songs),
-    [songs, activeGenre]
+    [songs, activeGenre],
   );
   const sorted = useMemo(() => sortSongs(filtered, sortBy), [filtered, sortBy]);
   // Top-3 "new" = first 3 in original server order
-  const newIds = useMemo(() => new Set(songs.slice(0, 3).map((s) => s.id)), [songs]);
+  const newIds = useMemo(
+    () => new Set(songs.slice(0, 3).map((s) => s.id)),
+    [songs],
+  );
 
   if (!sorted.length) {
     return (
       <div className="ls-empty-filter">
-        <span className="ls-empty-filter__icon" aria-hidden="true">🎵</span>
+        <span className="ls-empty-filter__icon" aria-hidden="true">
+          🎵
+        </span>
         <p className="ls-empty-filter__text">No songs match this filter.</p>
-        <p className="ls-empty-filter__sub">Try a different genre or clear the filter.</p>
+        <p className="ls-empty-filter__sub">
+          Try a different genre or clear the filter.
+        </p>
       </div>
     );
   }
@@ -327,7 +404,9 @@ const LikedSongsTable = ({
           <section key={genre} className="ls-genre-group">
             <div className="ls-genre-group__header">
               <GenreChip genre={genre} />
-              <span className="ls-genre-group__count">{groupSongs.length} songs</span>
+              <span className="ls-genre-group__count">
+                {groupSongs.length} songs
+              </span>
             </div>
             <VirtualizedSongTable songs={groupSongs} {...tableProps} />
           </section>
@@ -345,23 +424,54 @@ const LikedSongsTable = ({
 
 // ── Icons — identical to original ─────────────────────────────────────────────
 const PlayIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
     <path d="M8 5.14v14l11-7-11-7z" />
   </svg>
 );
 const PauseIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
+    <rect x="6" y="4" width="4" height="16" />
+    <rect x="14" y="4" width="4" height="16" />
   </svg>
 );
 const HeartIcon = ({ filled }) => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill={filled ? "#f43f5e" : "none"} stroke={filled ? "#f43f5e" : "currentColor"} strokeWidth="2" aria-hidden="true">
+  <svg
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill={filled ? "#f43f5e" : "none"}
+    stroke={filled ? "#f43f5e" : "currentColor"}
+    strokeWidth="2"
+    aria-hidden="true"
+  >
     <path d="M12 21C12 21 3 14.5 3 8.5C3 5.42 5.42 3 8.5 3C10.24 3 11.91 3.81 13 5.09C14.09 3.81 15.76 3 17.5 3C20.58 3 23 5.42 23 8.5C23 14.5 14 21 12 21Z" />
   </svg>
 );
 const MusicNoteIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-    <path d="M9 18V5l12-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="18" cy="16" r="3" />
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    aria-hidden="true"
+  >
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
   </svg>
 );
 
