@@ -1,44 +1,17 @@
-/**
- * server/src/routes/users.routes.js
- *
- * ADDED: POST /users/:uid/session-picks
- *   Receives batched pick events for co-occurrence data collection.
- *   Middleware: verifyToken → controller ownership check (same pattern as liked-songs).
- *   No isAdmin needed — users log their own picks.
- *
- * All existing routes unchanged.
- */
-
 const express        = require('express');
 const router         = express.Router();
-const verifyToken    = require('../middleware/verifyToken');
+const { verifyToken }   = require('../middleware/verifyToken');
 const isAdmin        = require('../middleware/isAdmin');
-const usersController = require('../controllers/users.controller');
+const usersCtrl      = require('../controllers/users.controller');
+const playlistsCtrl  = require('../controllers/playlists.controller');
 
-// ── Admin: list all users ─────────────────────────────────────────────────────
-router.get('/', verifyToken, isAdmin, usersController.getAllUsers);
+// All routes in this file require a valid Firebase ID token.
+router.use(verifyToken);
 
-// ── User: liked songs ─────────────────────────────────────────────────────────
-router.get(
-  '/:uid/liked-songs',
-  verifyToken,
-  usersController.getLikedSongs,
-);
-
-router.post(
-  '/:uid/liked-songs/:songId',
-  verifyToken,
-  usersController.toggleLikedSong,
-);
-
-// ── User: session picks (co-occurrence data collection) ───────────────────────
-// POST /users/:uid/session-picks
-// Body: { picks: Array<{ songId, previousSongId, contextType, contextId, ts }> }
-// Fire-and-forget from client — always 200 on valid auth + payload.
-router.post(
-  '/:uid/session-picks',
-  verifyToken,
-  usersController.logSessionPicks,
-);
+router.get('/',                          isAdmin, usersCtrl.getAllUsers);
+router.get('/:uid/liked-songs',          usersCtrl.getLikedSongs);
+router.post('/:uid/liked-songs/:songId', usersCtrl.toggleLikedSong);
+router.post('/:uid/session-picks',       usersCtrl.logSessionPicks);
+router.get('/:uid/playlists',            playlistsCtrl.getUserPlaylists);
 
 module.exports = router;

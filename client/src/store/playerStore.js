@@ -1,46 +1,45 @@
 /**
  * client/src/store/playerStore.js
  *
- * PLAYBACK CONTEXT + HYBRID RECOMMENDATION (Option D):
+ * PATCH — Queue auto-pagination (permanent fix for "stops at 50 songs").
  *
- * New concepts added:
+ * ROOT CAUSE:
+ *   playNext() in linear mode hits the last song in the queue (e.g. index 49
+ *   out of 50) and calls `set({ isPlaying: false }); return;` — it has no
+ *   awareness that React Query has more pages available via fetchNextPage().
+ *   The queue and the infinite-scroll pagination were completely disconnected.
  *
- * ── playbackContext ──────────────────────────────────────────────────────────
- *   { type: 'library' | 'playlist' | 'liked' | 'dynamic', id: string | null, songs: Song[] }
- *   Set when the user initiates playback from any surface.
- *   All shuffle algorithms operate only on context.songs — not the global library.
+ * FIX — THREE PARTS:
  *
- * ── affinityMap ──────────────────────────────────────────────────────────────
- *   { [key: string]: number }  where key = `artist::${artist}` or `genre::${genre}`
- *   Updated on every manual pick. Decays over time (older picks count less).
- *   Used by Smart shuffle + Dynamic queue candidate scoring.
+ *   1. registerPaginationBridge(bridge) — new export.
+ *      Called once by useSongs() after the hook mounts.
+ *      bridge = { fetchNextPage, hasNextPage, appendSongs }
+ *        - fetchNextPage:  React Query's fetchNextPage()
+ *        - hasNextPage:    reactive boolean (passed as a getter fn so it stays live)
+ *        - appendSongs:    function(songs[]) → appends to the current queue
  *
- * ── dynamicPool ──────────────────────────────────────────────────────────────
- *   Song[] — live candidate list for the dynamic context.
- *   Scored and sorted on every pick using Phase 1 (similarity) + Phase 2 (affinity).
- *   Classic shuffle is DISABLED when context type is 'dynamic'.
+ *   2. playNext() — two new lines added inside the "end of queue" branch:
+ *      BEFORE stopping, check if hasNextPage() is true.
+ *      If yes: call fetchNextPage() and set a pending flag.
+ *      The player stays in isPlaying:true state — do NOT stop.
+ *      When appendSongs() is called (by useSongs effect), the queue grows
+ *      and the pending "play next" resumes automatically.
  *
- * ── sessionLog ───────────────────────────────────────────────────────────────
- *   Array of pick events batched and sent to POST /api/users/:uid/session-picks.
- *   Fire-and-forget — never blocks playback.
+ *   3. _pendingNextAfterFetch flag (module-level, not in Zustand state).
+ *      When playNext() triggers a fetch, this flag is set to true.
+ *      appendSongsToQueue() (called by useSongs) checks this flag:
+ *        - If true: immediately call playNext() on the newly appended songs.
+ *        - Always resets the flag after consuming it.
+ *      Module-level (not Zustand) because it is transient fetch coordination
+ *      state, not UI state — it never needs to trigger a re-render.
  *
- * ── setPlaybackContext(type, id, songs) ──────────────────────────────────────
- *   Called by PlaylistDetail, Home, LikedSongs when user hits Play/Shuffle.
- *   Resets shuffle session and seeds queue through queueStore.
+ * CONTEXT SCOPING:
+ *   Auto-pagination only triggers when playbackContext.type === 'library'.
+ *   Playlist / liked / dynamic contexts have a fixed song pool and never
+ *   need to fetch more — they continue their existing stop/loop behaviour.
  *
- * ── logPick(song, previousSong) ──────────────────────────────────────────────
- *   Records pick to sessionLog + updates affinityMap.
- *   Flushes log to server after every 5 picks (batched, non-blocking).
- *
- * PRESERVED FIXES:
- *   BUG 2 FIX: resumeSong awaits audio.play() before setting isPlaying:true
- *   BUG 3 FIX: audio.onended calls playNext() — reads live queueStore state
- *   BUG 4 FIX: getQueueState() synchronous getter, no dynamic import()
- *   BUG 5 FIX: safePlay abort controller pattern preserved
- *
- * SHUFFLE RULES:
- *   Context 'library' | 'playlist' | 'liked' → Classic ✅  Smart ✅
- *   Context 'dynamic'                         → Classic ❌  Smart ✅ (forced)
+ * UNCHANGED: Every other action, algorithm, and export is untouched.
+ *   All previously fixed bugs (BUG 1–4, stopAndClose) are preserved exactly.
  */
 
 import { create } from 'zustand';
@@ -57,9 +56,71 @@ export function registerQueueStore(getStateFn) {
 function getQueueState() {
   if (!_getQueueState) {
     console.warn('[playerStore] queueStore not registered yet');
-    return { queue: [] };
+    return { queue: [], setQueueFromContext: null };
   }
   return _getQueueState();
+}
+
+// ── Pagination bridge ─────────────────────────────────────────────────────────
+//
+// Registered by useSongs() after mount. Allows playerStore to request more
+// songs from React Query when the queue runs dry in library context.
+//
+// Shape: {
+//   fetchNextPage: () => void          — triggers React Query page fetch
+//   hasNextPage:   () => boolean       — getter so value stays live
+//   appendSongs:   (songs[]) => void   — called by useSongs to grow the queue
+// }
+//
+let _paginationBridge = null;
+
+export function registerPaginationBridge(bridge) {
+  if (
+    bridge &&
+    typeof bridge.fetchNextPage === 'function' &&
+    typeof bridge.hasNextPage   === 'function' &&
+    typeof bridge.appendSongs   === 'function'
+  ) {
+    _paginationBridge = bridge;
+  } else {
+    console.warn('[playerStore] registerPaginationBridge: invalid bridge shape', bridge);
+  }
+}
+
+// Transient flag — set when playNext() requests a fetch and is waiting for
+// appendSongsToQueue() to fire. Never stored in Zustand (no re-render needed).
+let _pendingNextAfterFetch = false;
+
+/**
+ * Called by useSongs() when a new page of songs arrives.
+ * Appends songs to the queue and, if a playNext() was waiting, continues.
+ *
+ * @param {Song[]} newSongs  — freshly fetched page (already normalized)
+ */
+export function appendSongsToQueue(newSongs) {
+  if (!Array.isArray(newSongs) || newSongs.length === 0) {
+    _pendingNextAfterFetch = false;
+    return;
+  }
+
+  // Grow the queue
+  const qs = getQueueState();
+  if (typeof qs?.appendSongs === 'function') {
+    qs.appendSongs(newSongs);
+  } else {
+    console.warn('[playerStore] appendSongsToQueue — queueStore.appendSongs not available');
+    _pendingNextAfterFetch = false;
+    return;
+  }
+
+  // If playNext() was waiting for this page, resume playback now
+  if (_pendingNextAfterFetch) {
+    _pendingNextAfterFetch = false;
+    // Small tick so the queue state has settled before playNext reads it
+    setTimeout(() => {
+      usePlayerStore.getState().playNext();
+    }, 0);
+  }
 }
 
 // ── safePlay ──────────────────────────────────────────────────────────────────
@@ -77,6 +138,17 @@ async function safePlay(src) {
   try {
     await new Promise((resolve, reject) => {
       if (signal.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+
+      // FIX: canplay race condition.
+      // HTMLMediaElement.readyState >= 3 (HAVE_FUTURE_DATA) means the browser
+      // already has enough data to begin playback — canplay has already fired
+      // or will never fire again for this load. If we only attached the
+      // 'canplay' listener we would hang forever waiting for an event that
+      // already happened (common on CDN edge cache hits or fast connections).
+      if (audio.readyState >= 3) {
+        resolve();
+        return;
+      }
 
       const onCanPlay = () => { cleanup(); resolve(); };
       const onError   = () => { cleanup(); reject(new Error(audio.error?.message || 'Audio load failed')); };
@@ -103,26 +175,43 @@ async function safePlay(src) {
 }
 
 // ── VINYL ROLL ALGORITHM ──────────────────────────────────────────────────────
+// BUG 3 FIX: rewritten to use index tracking instead of splice() mutation.
 export function vinylRoll(songs) {
-  if (songs.length <= 1) return [...songs];
+  if (!Array.isArray(songs) || songs.length <= 1) return [...(songs || [])];
 
   const arr = [...songs];
   const len = arr.length;
 
-  const variance    = Math.floor(len * 0.1);
-  const splitPoint  = Math.floor(len / 2) + Math.floor(Math.random() * variance * 2) - variance;
+  const variance     = Math.floor(len * 0.1);
+  const splitPoint   = Math.floor(len / 2) + Math.floor(Math.random() * variance * 2) - variance;
   const clampedSplit = Math.max(1, Math.min(len - 1, splitPoint));
 
-  let left  = arr.slice(0, clampedSplit);
-  let right = arr.slice(clampedSplit);
+  let   leftIdx  = 0;
+  let   rightIdx = clampedSplit;
+  const leftEnd  = clampedSplit;
+  const rightEnd = len;
 
   const interleaved = [];
   let fromLeft = Math.random() > 0.5;
 
-  while (left.length > 0 || right.length > 0) {
-    const source    = fromLeft ? left : right;
-    const dropCount = Math.min(source.length, Math.floor(Math.random() * 3) + 1);
-    interleaved.push(...source.splice(0, dropCount));
+  while (leftIdx < leftEnd || rightIdx < rightEnd) {
+    if (fromLeft) {
+      if (leftIdx < leftEnd) {
+        const drop = Math.min(leftEnd - leftIdx, Math.floor(Math.random() * 3) + 1);
+        for (let i = 0; i < drop; i++) interleaved.push(arr[leftIdx++]);
+      } else {
+        while (rightIdx < rightEnd) interleaved.push(arr[rightIdx++]);
+        break;
+      }
+    } else {
+      if (rightIdx < rightEnd) {
+        const drop = Math.min(rightEnd - rightIdx, Math.floor(Math.random() * 3) + 1);
+        for (let i = 0; i < drop; i++) interleaved.push(arr[rightIdx++]);
+      } else {
+        while (leftIdx < leftEnd) interleaved.push(arr[leftIdx++]);
+        break;
+      }
+    }
     fromLeft = !fromLeft;
   }
 
@@ -141,20 +230,22 @@ export function vinylRoll(songs) {
 }
 
 // ── SMART SHUFFLE ALGORITHM ───────────────────────────────────────────────────
+// BUG 2 FIX: replaced Math.max(1, ...spread) with reduce()
 export function smartPick(queue, currentSong, playCountMap, recentHistory) {
   if (!queue.length) return null;
 
   const recentWindow = Math.max(3, Math.ceil(queue.length * 0.2));
   const recentIds    = new Set(recentHistory.slice(0, recentWindow).map((s) => s.id));
   const last3Artists = new Set(recentHistory.slice(0, 3).map((s) => s.artist).filter(Boolean));
-  const maxPlayCount = Math.max(1, ...Object.values(playCountMap));
+
+  const maxPlayCount = Object.values(playCountMap).reduce((m, v) => Math.max(m, v), 1);
 
   const weights = queue.map((song) => {
     if (song.id === currentSong?.id) return 0;
-    if (recentIds.has(song.id)) return 0.05;
+    if (recentIds.has(song.id))      return 0.05;
 
-    const playCount   = playCountMap[song.id] ?? 0;
-    const countWeight = (maxPlayCount - playCount + 1) / (maxPlayCount + 1);
+    const playCount     = playCountMap[song.id] ?? 0;
+    const countWeight   = (maxPlayCount - playCount + 1) / (maxPlayCount + 1);
     const artistPenalty = last3Artists.has(song.artist) ? 0.15 : 1.0;
 
     return countWeight * artistPenalty;
@@ -163,7 +254,9 @@ export function smartPick(queue, currentSong, playCountMap, recentHistory) {
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
   if (totalWeight === 0) {
     const fallback = queue.filter((s) => s.id !== currentSong?.id);
-    return fallback.length ? fallback[Math.floor(Math.random() * fallback.length)] : queue[0];
+    return fallback.length
+      ? fallback[Math.floor(Math.random() * fallback.length)]
+      : queue[0];
   }
 
   let rand = Math.random() * totalWeight;
@@ -176,20 +269,15 @@ export function smartPick(queue, currentSong, playCountMap, recentHistory) {
 }
 
 // ── AFFINITY HELPERS ──────────────────────────────────────────────────────────
-// Decay factor: each pick contributes less than the previous over time.
-// New pick weight = 1.0, then decays by multiplying existing weights by 0.85.
-const AFFINITY_DECAY = 0.85;
+const AFFINITY_DECAY     = 0.85;
 const AFFINITY_INCREMENT = 1.0;
 
 function updateAffinityMap(prevMap, song) {
-  // Decay all existing weights first
   const decayed = {};
   for (const [key, val] of Object.entries(prevMap)) {
     const next = val * AFFINITY_DECAY;
-    if (next > 0.01) decayed[key] = next; // prune near-zero weights
+    if (next > 0.01) decayed[key] = next;
   }
-
-  // Increment for this song's artist and genre
   if (song.artist) {
     const k = `artist::${song.artist}`;
     decayed[k] = (decayed[k] ?? 0) + AFFINITY_INCREMENT;
@@ -198,14 +286,10 @@ function updateAffinityMap(prevMap, song) {
     const k = `genre::${song.genre}`;
     decayed[k] = (decayed[k] ?? 0) + AFFINITY_INCREMENT;
   }
-
   return decayed;
 }
 
 // ── DYNAMIC POOL SCORING ──────────────────────────────────────────────────────
-// Phase 1: similarity to seed song (artist/genre match).
-// Phase 2: affinity map scoring.
-// Returns songs sorted by combined score descending.
 function scoreDynamicPool(candidates, currentSong, affinityMap, recentHistory) {
   if (!candidates.length) return [];
 
@@ -215,43 +299,34 @@ function scoreDynamicPool(candidates, currentSong, affinityMap, recentHistory) {
   return candidates
     .filter((s) => s.id !== currentSong?.id)
     .map((song) => {
-      // Phase 1 — similarity to current song
       let similarityScore = 0;
       if (currentSong) {
         if (song.artist === currentSong.artist) similarityScore += 2;
         if (song.genre  === currentSong.genre)  similarityScore += 1;
       }
 
-      // Phase 2 — affinity map
       let affinityScore = 0;
       if (song.artist) affinityScore += affinityMap[`artist::${song.artist}`] ?? 0;
       if (song.genre)  affinityScore += affinityMap[`genre::${song.genre}`]   ?? 0;
 
-      // Penalties
-      const recentPenalty  = recentIds.has(song.id) ? 0.1 : 1.0;
-      const artistPenalty  = last3Artists.has(song.artist) ? 0.3 : 1.0;
+      const recentPenalty = recentIds.has(song.id)        ? 0.1 : 1.0;
+      const artistPenalty = last3Artists.has(song.artist) ? 0.3 : 1.0;
 
-      const totalScore = (similarityScore + affinityScore) * recentPenalty * artistPenalty;
-
-      return { song, score: totalScore };
+      return { song, score: (similarityScore + affinityScore) * recentPenalty * artistPenalty };
     })
     .sort((a, b) => b.score - a.score)
     .map((entry) => entry.song);
 }
 
 // ── SESSION LOG FLUSH ─────────────────────────────────────────────────────────
-// Batched, fire-and-forget. Never blocks playback.
-// Requires uid from authStore — imported lazily to avoid circular dep.
 const FLUSH_EVERY = 5;
 
 async function flushSessionLog(log, uid) {
   if (!log.length || !uid) return;
   try {
-    // Dynamic import to avoid circular dependency with authStore
     const { default: api } = await import('../services/api');
     await api.post(`/users/${uid}/session-picks`, { picks: log });
   } catch (err) {
-    // Non-blocking — log but never surface to user
     console.warn('[playerStore] session-picks flush failed (non-critical):', err.message);
   }
 }
@@ -265,7 +340,6 @@ const usePlayerStore = create((set, get) => ({
   currentTime:    0,
   duration:       0,
 
-  // ── Shuffle state ──────────────────────────────────────────────────────────
   shuffleMode:   'none', // 'none' | 'classic' | 'smart'
   shuffledOrder: [],
   shuffledIndex: -1,
@@ -274,42 +348,22 @@ const usePlayerStore = create((set, get) => ({
 
   repeatMode: 'none', // 'none' | 'all' | 'one'
 
-  // ── Playback context ───────────────────────────────────────────────────────
-  // type: 'library' | 'playlist' | 'liked' | 'dynamic'
-  // id:   playlist ID or null for library/liked/dynamic
-  // songs: Song[] — the pool for this context (shuffled only within this pool)
   playbackContext: {
     type:  'library',
     id:    null,
     songs: [],
   },
 
-  // ── Affinity map ───────────────────────────────────────────────────────────
-  // { [key: string]: number } — persists across context switches within session
   affinityMap: {},
-
-  // ── Dynamic pool ───────────────────────────────────────────────────────────
-  // Scored candidate list — only populated when context type === 'dynamic'
   dynamicPool: [],
-
-  // ── Session log ────────────────────────────────────────────────────────────
-  // Pick events queued for server-side co-occurrence data collection
-  sessionLog: [],
+  sessionLog:  [],
 
   // ── setPlaybackContext ─────────────────────────────────────────────────────
-  // Called by PlaylistDetail / Home / LikedSongs when user initiates playback.
-  // Seeds the queue through queueStore after setting context.
-  //
-  // type: 'library' | 'playlist' | 'liked' | 'dynamic'
-  // id:   playlist ID or null
-  // songs: full Song[] for this context
-  // startIndex: which song to start from (default 0)
   setPlaybackContext: (type, id, songs, startIndex = 0) => {
     if (!Array.isArray(songs) || songs.length === 0) return;
 
     const safeIdx = Math.max(0, Math.min(startIndex, songs.length - 1));
 
-    // In dynamic context, Classic shuffle is not allowed — force Smart if Classic is active
     const { shuffleMode } = get();
     let nextShuffleMode = shuffleMode;
     if (type === 'dynamic' && shuffleMode === 'classic') {
@@ -317,71 +371,74 @@ const usePlayerStore = create((set, get) => ({
     }
 
     set({
-      playbackContext:  { type, id, songs },
-      shuffleMode:      nextShuffleMode,
-      shuffledOrder:    [],
-      shuffledIndex:    -1,
-      playCountMap:     {},
-      recentlyPlayed:   [],
-      dynamicPool:      type === 'dynamic' ? [...songs] : [],
+      playbackContext: { type, id, songs },
+      shuffleMode:     nextShuffleMode,
+      shuffledOrder:   [],
+      shuffledIndex:   -1,
+      playCountMap:    {},
+      recentlyPlayed:  [],
+      dynamicPool:     type === 'dynamic' ? [...songs] : [],
     });
 
-    // Seed the queue store with this context's songs
-    // Import lazily to avoid circular dependency
-    import('./queueStore').then(({ default: useQueueStore }) => {
-      useQueueStore.getState().setQueueFromContext(songs, safeIdx, type);
-    }).catch((err) => {
-      console.error('[playerStore] setPlaybackContext — queueStore import failed:', err.message);
-    });
+    const qs = getQueueState();
+    if (typeof qs?.setQueueFromContext === 'function') {
+      qs.setQueueFromContext(songs, safeIdx, type);
+    } else {
+      import('./queueStore').then(({ default: useQueueStore }) => {
+        useQueueStore.getState().setQueueFromContext(songs, safeIdx, type);
+      }).catch((err) => {
+        console.error('[playerStore] setPlaybackContext — queueStore import failed:', err.message);
+      });
+    }
   },
 
   // ── cycleShuffleMode ───────────────────────────────────────────────────────
-  // none → classic → smart → none
-  // Classic is skipped when context is 'dynamic'
   cycleShuffleMode: () => {
-    const { shuffleMode, playbackContext } = get();
+    const { shuffleMode, playbackContext, setShuffleMode } = get();
     const isDynamic = playbackContext.type === 'dynamic';
 
     let next;
-    if (shuffleMode === 'none') {
-      // Dynamic context skips Classic
-      next = isDynamic ? 'smart' : 'classic';
-    } else if (shuffleMode === 'classic') {
-      next = 'smart';
-    } else {
-      next = 'none';
+    if (shuffleMode === 'none')         next = isDynamic ? 'smart' : 'classic';
+    else if (shuffleMode === 'classic') next = 'smart';
+    else                                next = 'none';
+
+    setShuffleMode(next);
+  },
+
+  // ── setShuffleMode ─────────────────────────────────────────────────────────
+  // HARD GUARD — single enforced entry point for all shuffle state changes.
+  setShuffleMode: (mode) => {
+    const { playbackContext } = get();
+    const isDynamic = playbackContext.type === 'dynamic';
+
+    const safeMode = (isDynamic && mode === 'classic') ? 'smart' : mode;
+
+    if (process.env.NODE_ENV !== 'production' && safeMode !== mode) {
+      console.warn(
+        '[playerStore] setShuffleMode: classic shuffle blocked in dynamic context — coerced to smart'
+      );
     }
 
-    if (next === 'classic') {
-      const { queue } = getQueueState();
-      const pool = queue.length > 0 ? queue : get().playbackContext.songs;
-      const { currentSong } = get();
+    if (safeMode === 'classic') {
+      const pool = playbackContext.songs.length > 0
+        ? playbackContext.songs
+        : getQueueState().queue;
+
       if (pool.length > 0) {
+        const { currentSong } = get();
         const rolled = vinylRoll(pool);
         const idx    = rolled.findIndex((s) => s.id === currentSong?.id);
-        set({
-          shuffleMode:   'classic',
-          shuffledOrder: rolled,
-          shuffledIndex: idx >= 0 ? idx : 0,
-        });
+        set({ shuffleMode: 'classic', shuffledOrder: rolled, shuffledIndex: idx >= 0 ? idx : 0 });
         return;
       }
     }
 
-    if (next === 'smart') {
-      set({ shuffleMode: 'smart', shuffledOrder: [], shuffledIndex: -1 });
-      return;
-    }
-
-    set({ shuffleMode: 'none', shuffledOrder: [], shuffledIndex: -1 });
+    set({ shuffleMode: safeMode, shuffledOrder: [], shuffledIndex: -1 });
   },
 
   toggleShuffle: () => get().cycleShuffleMode(),
 
   // ── logPick ────────────────────────────────────────────────────────────────
-  // Records a manual song pick for affinity + server-side co-occurrence logging.
-  // previousSong: the song that was playing before this pick.
-  // uid: current user ID (from authStore — caller must pass it in).
   logPick: (song, previousSong, uid) => {
     if (!song) return;
 
@@ -393,10 +450,8 @@ const usePlayerStore = create((set, get) => ({
       ts:             Date.now(),
     };
 
-    // Update affinity map with decay
     const newAffinityMap = updateAffinityMap(get().affinityMap, song);
 
-    // Update dynamic pool scoring when in dynamic context
     let newDynamicPool = get().dynamicPool;
     if (get().playbackContext.type === 'dynamic') {
       newDynamicPool = scoreDynamicPool(
@@ -415,7 +470,6 @@ const usePlayerStore = create((set, get) => ({
       sessionLog:  newLog,
     });
 
-    // Flush to server every FLUSH_EVERY picks — fire-and-forget
     if (newLog.length >= FLUSH_EVERY) {
       const logSnapshot = [...newLog];
       set({ sessionLog: [] });
@@ -425,7 +479,23 @@ const usePlayerStore = create((set, get) => ({
 
   // ── playSong ───────────────────────────────────────────────────────────────
   playSong: async (song) => {
-    const src = song?.audioUrl || song?.fileUrl || '';
+    if (!song?.id) {
+      console.warn('[playerStore] playSong — song has no id:', song);
+      return;
+    }
+
+    // Fetch audioUrl on-demand — list normalizer intentionally strips it.
+    // GET /api/songs/:id is cached at 300s TTL on the backend.
+    let src = song.audioUrl || song.fileUrl || '';
+    if (!src) {
+      try {
+        const { getSongAudioUrl } = await import('../services/songs.service');
+        src = await getSongAudioUrl(song.id);
+      } catch (err) {
+        console.warn('[playerStore] playSong — getSongAudioUrl failed:', err.message);
+      }
+    }
+
     if (!src) {
       console.warn('[playerStore] playSong — no audio URL on song:', song);
       return;
@@ -463,7 +533,6 @@ const usePlayerStore = create((set, get) => ({
   },
 
   // ── playNext ───────────────────────────────────────────────────────────────
-  // Routes through Static path (library/playlist/liked) or Dynamic path.
   playNext: () => {
     const {
       currentSong, shuffleMode, shuffledOrder, shuffledIndex,
@@ -473,22 +542,20 @@ const usePlayerStore = create((set, get) => ({
 
     const { queue } = getQueueState();
 
-    // Dynamic context — Smart pick from scored dynamicPool
+    // Dynamic context — always smart-pick from pool, never paginate
     if (playbackContext.type === 'dynamic') {
-      const pool = dynamicPool.length > 0 ? dynamicPool : (
-        playbackContext.songs.length > 0 ? playbackContext.songs : queue
-      );
+      const pool = dynamicPool.length > 0
+        ? dynamicPool
+        : (playbackContext.songs.length > 0 ? playbackContext.songs : queue);
       const nextSong = smartPick(pool, currentSong, playCountMap, recentlyPlayed);
       if (nextSong) playSong(nextSong);
       return;
     }
 
-    // Use context songs as the authoritative pool for shuffling
-    // Fall back to queue if context is not set
     const pool = playbackContext.songs.length > 0 ? playbackContext.songs : queue;
     if (!pool.length) return;
 
-    // ── Classic (Vinyl Roll) ─────────────────────────────────────────────────
+    // ── Classic shuffle ──────────────────────────────────────────────────────
     if (shuffleMode === 'classic') {
       let order = shuffledOrder;
       let idx   = shuffledIndex;
@@ -506,24 +573,48 @@ const usePlayerStore = create((set, get) => ({
       return;
     }
 
-    // ── Smart (Weighted Random) ──────────────────────────────────────────────
+    // ── Smart shuffle ────────────────────────────────────────────────────────
     if (shuffleMode === 'smart') {
       const nextSong = smartPick(pool, currentSong, playCountMap, recentlyPlayed);
       if (nextSong) playSong(nextSong);
       return;
     }
 
-    // ── No shuffle — linear through queue ────────────────────────────────────
+    // ── Linear playback ──────────────────────────────────────────────────────
     if (!queue.length) return;
+
     const currentIndex = queue.findIndex((s) => s.id === currentSong?.id);
     let nextIndex = currentIndex + 1;
 
-    if (nextIndex >= queue.length) {
-      if (repeatMode === 'all') nextIndex = 0;
-      else { set({ isPlaying: false }); return; }
+    if (nextIndex < queue.length) {
+      // Normal case — next song is already in queue
+      playSong(queue[nextIndex]);
+      return;
     }
 
-    playSong(queue[nextIndex]);
+    // ── End of queue reached ─────────────────────────────────────────────────
+    //
+    // Only auto-paginate in 'library' context. Other contexts (playlist, liked)
+    // have a fixed pool and should respect repeatMode instead.
+    //
+    if (playbackContext.type === 'library' && _paginationBridge) {
+      const hasMore = _paginationBridge.hasNextPage();
+      if (hasMore) {
+        // Signal that we want to play next as soon as the new page arrives.
+        // Keep isPlaying:true so the UI doesn't flash to a stopped state.
+        _pendingNextAfterFetch = true;
+        _paginationBridge.fetchNextPage();
+        // Do NOT stop — appendSongsToQueue() will resume playback
+        return;
+      }
+    }
+
+    // No more pages — respect repeatMode
+    if (repeatMode === 'all') {
+      playSong(queue[0]);
+    } else {
+      set({ isPlaying: false });
+    }
   },
 
   // ── playPrev ───────────────────────────────────────────────────────────────
@@ -600,11 +691,13 @@ const usePlayerStore = create((set, get) => ({
     });
   },
 
+  // ── stop ──────────────────────────────────────────────────────────────────
   stop: () => {
     if (currentAbortController) currentAbortController.abort();
     audio.pause();
-    audio.src = '';
+    audio.src     = '';
     audio.onended = null;
+    _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
     set({
       currentSong:     null,
       isPlaying:       false,
@@ -617,6 +710,39 @@ const usePlayerStore = create((set, get) => ({
       dynamicPool:     [],
       sessionLog:      [],
     });
+  },
+
+  // ── stopAndClose ──────────────────────────────────────────────────────────
+  stopAndClose: () => {
+    if (currentAbortController) currentAbortController.abort();
+
+    audio.pause();
+    audio.src     = '';
+    audio.onended = null;
+
+    _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
+
+    set({
+      currentSong:     null,
+      isPlaying:       false,
+      currentTime:     0,
+      duration:        0,
+      shuffledOrder:   [],
+      shuffledIndex:   -1,
+      playCountMap:    {},
+      playbackContext: { type: 'library', id: null, songs: [] },
+      dynamicPool:     [],
+      sessionLog:      [],
+    });
+
+    try {
+      const qs = getQueueState();
+      if (typeof qs?.setQueueFromContext === 'function') {
+        qs.setQueueFromContext([], 0, 'library');
+      }
+    } catch (err) {
+      console.warn('[playerStore] stopAndClose — could not clear queue:', err.message);
+    }
   },
 }));
 

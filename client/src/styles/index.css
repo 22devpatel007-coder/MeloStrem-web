@@ -1,4 +1,5 @@
 @import './colors.css';
+@import './liked-songs.css';
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 @tailwind base;
@@ -6,7 +7,13 @@
 @tailwind utilities;
 
 /* =============================================================
-   GLOBAL BASE — Applied to every page
+   GLOBAL BASE
+
+   Scroll ownership model (must never change):
+     html, body, #root  → overflow: hidden, height: 100%
+     App.jsx shell      → h-screen overflow-hidden  (Tailwind)
+     PageWrapper <main> → flex-1 min-h-0 overflow-y-auto pb-28
+   Only <main> inside PageWrapper ever scrolls.
 ============================================================= */
 
 @layer base {
@@ -24,7 +31,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    scroll-behavior: smooth;
+    height: 100%;
+    overflow: hidden;
   }
 
   body {
@@ -34,35 +42,38 @@
     line-height: var(--line-height-normal);
     background-color: var(--color-bg);
     color: var(--color-text-primary);
-    min-height: 100vh;
-    /* Reserve space so content never hides behind fixed player bar */
-    padding-bottom: var(--player-height);
+    height: 100%;
+    overflow: hidden;
   }
 
-  /* -------------------------------------------------------
-     HEADINGS
-  ------------------------------------------------------- */
+  #root {
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  html, body, #root {
+  height: 100%;
+}
+  /* ── Headings ─────────────────────────────────────────── */
   h1 {
     font-size: var(--font-size-2xl);
     font-weight: var(--font-weight-bold);
     line-height: var(--line-height-tight);
     color: var(--color-text-primary);
   }
-
   h2 {
     font-size: var(--font-size-xl);
     font-weight: var(--font-weight-semibold);
     line-height: var(--line-height-tight);
     color: var(--color-text-primary);
   }
-
   h3 {
     font-size: var(--font-size-lg);
     font-weight: var(--font-weight-semibold);
     line-height: var(--line-height-tight);
     color: var(--color-text-primary);
   }
-
   h4, h5, h6 {
     font-size: var(--font-size-base);
     font-weight: var(--font-weight-medium);
@@ -70,25 +81,16 @@
     color: var(--color-text-primary);
   }
 
-  /* -------------------------------------------------------
-     LINKS
-  ------------------------------------------------------- */
+  /* ── Links ────────────────────────────────────────────── */
   a {
     color: var(--color-accent);
     text-decoration: none;
     transition: color var(--transition-fast);
   }
+  a:hover { color: var(--color-accent-dim); }
 
-  a:hover {
-    color: var(--color-accent-hover);
-  }
-
-  /* -------------------------------------------------------
-     FORM ELEMENTS — Global reset so all inputs start clean
-  ------------------------------------------------------- */
-  input,
-  textarea,
-  select {
+  /* ── Form elements ────────────────────────────────────── */
+  input, textarea, select {
     font-family: var(--font-family);
     font-size: var(--font-size-base);
     color: var(--color-text-primary);
@@ -100,22 +102,14 @@
       border-color var(--transition-fast),
       box-shadow var(--transition-fast);
   }
-
   input::placeholder,
-  textarea::placeholder {
-    color: var(--color-text-muted);
-  }
-
-  input:focus,
-  textarea:focus,
-  select:focus {
+  textarea::placeholder { color: var(--color-text-muted); }
+  input:focus, textarea:focus, select:focus {
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+    box-shadow: 0 0 0 3px var(--color-accent-glow);
   }
 
-  /* -------------------------------------------------------
-     BUTTONS — Global reset (component styles override this)
-  ------------------------------------------------------- */
+  /* ── Buttons ──────────────────────────────────────────── */
   button {
     font-family: var(--font-family);
     font-size: var(--font-size-base);
@@ -129,389 +123,201 @@
       border-color var(--transition-fast),
       opacity var(--transition-fast);
   }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
+  img { display: block; max-width: 100%; }
+  ul, ol { list-style: none; }
 
-  /* -------------------------------------------------------
-     IMAGES
-  ------------------------------------------------------- */
-  img {
-    display: block;
-    max-width: 100%;
-  }
-
-  /* -------------------------------------------------------
-     LISTS
-  ------------------------------------------------------- */
-  ul, ol {
-    list-style: none;
-  }
-
-  /* -------------------------------------------------------
-     FOCUS VISIBLE — Keyboard navigation only
-  ------------------------------------------------------- */
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
     border-radius: var(--radius-sm);
   }
-
-  /* Hide outline for mouse users */
-  :focus:not(:focus-visible) {
-    outline: none;
-  }
-
+  :focus:not(:focus-visible) { outline: none; }
 }
 
 /* =============================================================
-   CUSTOM SCROLLBAR — Dark themed, matches design system
+   CUSTOM SCROLLBAR
 ============================================================= */
-
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--color-bg);
-}
-
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: var(--radius-full);
-  transition: background var(--transition-fast);
 }
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-emphasis);
-}
-
-/* Firefox */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) var(--color-bg);
-}
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-emphasis); }
+* { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
 
 /* =============================================================
    TEXT SELECTION
 ============================================================= */
-
 ::selection {
   background-color: var(--color-accent-muted);
   color: var(--color-accent);
 }
 
 /* =============================================================
-   COMPONENT LAYER — Reusable atomic classes
-   These sit between Tailwind base and utilities
+   COMPONENT LAYER
 ============================================================= */
 
 @layer components {
 
-  /* -------------------------------------------------------
-     CARDS
-  ------------------------------------------------------- */
+  /* ── Cards ────────────────────────────────────────────── */
   .card {
     background-color: var(--color-surface);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
   }
-
   .card-hover {
     transition: background-color var(--transition-fast), border-color var(--transition-fast);
   }
-
   .card-hover:hover {
     background-color: var(--color-surface-hover);
     border-color: var(--color-border-emphasis);
   }
 
-  /* -------------------------------------------------------
-     BUTTONS
-  ------------------------------------------------------- */
-
-  /* Primary — teal fill */
+  /* ── Buttons ──────────────────────────────────────────── */
   .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    background-color: var(--color-accent);
-    color: var(--color-text-inverse);
-    font-weight: var(--font-weight-semibold);
-    font-size: var(--font-size-base);
-    border-radius: var(--radius-sm);
-    border: 1px solid transparent;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      opacity var(--transition-fast);
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--space-2); padding: var(--space-2) var(--space-4);
+    background-color: var(--color-accent); color: var(--color-text-inverse);
+    font-weight: var(--font-weight-semibold); font-size: var(--font-size-base);
+    border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer;
+    transition: background-color var(--transition-fast), opacity var(--transition-fast);
   }
+  .btn-primary:hover:not(:disabled) { background-color: var(--color-accent-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  .btn-primary:hover:not(:disabled) {
-    background-color: var(--color-accent-hover);
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* Secondary — teal outline */
   .btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    background-color: transparent;
-    color: var(--color-accent);
-    font-weight: var(--font-weight-medium);
-    font-size: var(--font-size-base);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-accent);
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--space-2); padding: var(--space-2) var(--space-4);
+    background-color: transparent; color: var(--color-accent);
+    font-weight: var(--font-weight-medium); font-size: var(--font-size-base);
+    border-radius: var(--radius-sm); border: 1px solid var(--color-accent); cursor: pointer;
+    transition: background-color var(--transition-fast), color var(--transition-fast);
   }
+  .btn-secondary:hover:not(:disabled) { background-color: var(--color-accent-muted); }
+  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-  .btn-secondary:hover:not(:disabled) {
-    background-color: var(--color-accent-muted);
-  }
-
-  .btn-secondary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* Ghost — no border, no fill */
   .btn-ghost {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-3);
-    background-color: transparent;
-    color: var(--color-text-secondary);
-    font-weight: var(--font-weight-medium);
-    font-size: var(--font-size-base);
-    border-radius: var(--radius-sm);
-    border: 1px solid transparent;
-    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--space-2); padding: var(--space-2) var(--space-3);
+    background-color: transparent; color: var(--color-text-secondary);
+    font-weight: var(--font-weight-medium); font-size: var(--font-size-base);
+    border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer;
     transition: color var(--transition-fast), background-color var(--transition-fast);
   }
-
   .btn-ghost:hover:not(:disabled) {
     color: var(--color-text-primary);
     background-color: var(--color-surface-hover);
   }
 
-  /* Danger — red fill */
   .btn-danger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    background-color: var(--color-danger);
-    color: #ffffff;
-    font-weight: var(--font-weight-semibold);
-    font-size: var(--font-size-base);
-    border-radius: var(--radius-sm);
-    border: 1px solid transparent;
-    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--space-2); padding: var(--space-2) var(--space-4);
+    background-color: var(--color-danger); color: #ffffff;
+    font-weight: var(--font-weight-semibold); font-size: var(--font-size-base);
+    border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer;
     transition: opacity var(--transition-fast);
   }
+  .btn-danger:hover:not(:disabled) { opacity: 0.85; }
 
-  .btn-danger:hover:not(:disabled) {
-    opacity: 0.85;
-  }
-
-  /* -------------------------------------------------------
-     FORM INPUTS
-  ------------------------------------------------------- */
+  /* ── Inputs ───────────────────────────────────────────── */
   .input {
-    width: 100%;
-    padding: var(--space-2) var(--space-3);
-    background-color: var(--color-surface);
-    color: var(--color-text-primary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-base);
-    font-family: var(--font-family);
-    transition:
-      border-color var(--transition-fast),
-      box-shadow var(--transition-fast);
+    width: 100%; padding: var(--space-2) var(--space-3);
+    background-color: var(--color-surface); color: var(--color-text-primary);
+    border: 1px solid var(--color-border); border-radius: var(--radius-sm);
+    font-size: var(--font-size-base); font-family: var(--font-family);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
   }
-
-  .input::placeholder {
-    color: var(--color-text-muted);
-  }
-
+  .input::placeholder { color: var(--color-text-muted); }
   .input:focus {
     border-color: var(--color-accent);
-    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+    box-shadow: 0 0 0 3px var(--color-accent-glow);
     outline: none;
   }
-
-  .input:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  /* Input label */
+  .input:disabled { opacity: 0.5; cursor: not-allowed; }
   .input-label {
-    display: block;
-    font-size: var(--font-size-sm);
-    font-weight: var(--font-weight-medium);
-    color: var(--color-text-secondary);
-    margin-bottom: var(--space-1);
+    display: block; font-size: var(--font-size-sm); font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary); margin-bottom: var(--space-1);
   }
+  .input-error { border-color: var(--color-danger); }
+  .input-error:focus { border-color: var(--color-danger); box-shadow: 0 0 0 3px var(--color-danger-muted); }
+  .error-message { font-size: var(--font-size-sm); color: var(--color-danger); margin-top: var(--space-1); }
 
-  /* Input error state */
-  .input-error {
-    border-color: var(--color-danger);
-  }
-
-  .input-error:focus {
-    border-color: var(--color-danger);
-    box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.15);
-  }
-
-  /* Error message text */
-  .error-message {
-    font-size: var(--font-size-sm);
-    color: var(--color-danger);
-    margin-top: var(--space-1);
-  }
-
-  /* -------------------------------------------------------
-     BADGES
-  ------------------------------------------------------- */
+  /* ── Badges ───────────────────────────────────────────── */
   .badge {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px var(--space-2);
-    font-size: var(--font-size-xs);
-    font-weight: var(--font-weight-medium);
-    border-radius: var(--radius-full);
+    display: inline-flex; align-items: center;
+    padding: 2px var(--space-2); font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium); border-radius: var(--radius-xs);
     border: 1px solid var(--color-border);
-    background-color: var(--color-overlay);
-    color: var(--color-text-secondary);
+    background-color: var(--color-overlay); color: var(--color-text-secondary);
   }
-
   .badge-accent {
     background-color: var(--color-accent-muted);
     color: var(--color-accent);
     border-color: var(--color-accent-subtle);
   }
-
-  .badge-danger {
-    background-color: var(--color-danger-muted);
-    color: var(--color-danger);
-    border-color: transparent;
-  }
-
-  .badge-success {
-    background-color: var(--color-success-muted);
-    color: var(--color-success);
-    border-color: transparent;
-  }
-
-  /* -------------------------------------------------------
-     DIVIDER
-  ------------------------------------------------------- */
-  .divider {
-    width: 100%;
-    height: 1px;
-    background-color: var(--color-border);
-  }
-
-  /* -------------------------------------------------------
-     PAGE LAYOUT WRAPPER
-  ------------------------------------------------------- */
-  .page-wrapper {
-    max-width: var(--content-max-width);
-    margin: 0 auto;
-    padding: var(--space-6) var(--space-4);
-  }
-
-  /* -------------------------------------------------------
-     EMPTY STATE
-  ------------------------------------------------------- */
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    padding: var(--space-12) var(--space-4);
-    color: var(--color-text-muted);
-    text-align: center;
-  }
-
-  .empty-state-icon {
-    font-size: 40px;
-    opacity: 0.4;
-  }
-
-  .empty-state-title {
-    font-size: var(--font-size-md);
+  /* Genre badge — matches screenshot exactly */
+  .badge-genre {
+    background-color: var(--color-badge-genre-bg);
+    color: var(--color-badge-genre-text);
+    border: 1px solid var(--color-badge-genre-border);
+    border-radius: var(--radius-xs);
+    padding: 3px 9px;
+    font-size: var(--font-size-xs);
     font-weight: var(--font-weight-medium);
-    color: var(--color-text-secondary);
+    white-space: nowrap;
   }
+  .badge-danger { background-color: var(--color-danger-muted); color: var(--color-danger); border-color: transparent; }
+  .badge-success { background-color: var(--color-success-muted); color: var(--color-success); border-color: transparent; }
 
-  .empty-state-desc {
-    font-size: var(--font-size-sm);
-    color: var(--color-text-muted);
+  /* ── Divider ──────────────────────────────────────────── */
+  .divider { width: 100%; height: 1px; background-color: var(--color-border); }
+
+  /* ── Empty state ──────────────────────────────────────── */
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: var(--space-3);
+    padding: var(--space-12) var(--space-4);
+    color: var(--color-text-muted); text-align: center;
   }
+  .empty-state-icon {
+    width: 56px; height: 56px;
+    background: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; margin: 0 auto; opacity: 0.6;
+  }
+  .empty-state-title {
+    font-size: var(--font-size-md); font-weight: var(--font-weight-semibold);
+    color: var(--color-text-primary);
+  }
+  .empty-state-desc { font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
-  /* -------------------------------------------------------
-     MODAL OVERLAY
-  ------------------------------------------------------- */
+  /* ── Modal ────────────────────────────────────────────── */
   .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background-color: rgba(1, 4, 9, 0.75);
-    backdrop-filter: blur(2px);
-    z-index: 50;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: fixed; inset: 0;
+    background-color: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(4px); z-index: 50;
+    display: flex; align-items: center; justify-content: center;
     padding: var(--space-4);
     animation: overlayIn var(--transition-normal) ease;
   }
-
   .modal-box {
-    background-color: var(--color-surface);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-overlay);
-    width: 100%;
-    max-width: 480px;
-    padding: var(--space-6);
+    background-color: var(--color-surface); border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-overlay);
+    width: 100%; max-width: 480px; padding: var(--space-6);
     animation: modalIn var(--transition-normal) ease;
   }
-
-  @keyframes overlayIn {
-    from { opacity: 0; }
-    to   { opacity: 1; }
-  }
-
+  @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
   @keyframes modalIn {
-    from { opacity: 0; transform: translateY(8px) scale(0.98); }
-    to   { opacity: 1; transform: translateY(0) scale(1); }
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
   }
 
-  /* -------------------------------------------------------
-     SKELETON LOADER
-  ------------------------------------------------------- */
+  /* ── Skeleton ─────────────────────────────────────────── */
   .skeleton {
     background: linear-gradient(
       90deg,
@@ -523,38 +329,64 @@
     animation: shimmer 1.5s infinite;
     border-radius: var(--radius-sm);
   }
-
   @keyframes shimmer {
     0%   { background-position: 200% 0; }
     100% { background-position: -200% 0; }
   }
 
-  /* -------------------------------------------------------
-     TOAST / NOTIFICATION
-  ------------------------------------------------------- */
+  /* ── Toast ────────────────────────────────────────────── */
   .toast {
     position: fixed;
-    bottom: calc(var(--player-height) + var(--space-4));
+    bottom: calc(112px + var(--space-4));
     right: var(--space-4);
     z-index: 100;
     padding: var(--space-3) var(--space-4);
-    background-color: var(--color-overlay);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    box-shadow: var(--shadow-md);
-    font-size: var(--font-size-sm);
-    color: var(--color-text-primary);
-    max-width: 320px;
-    animation: toastIn var(--transition-normal) ease;
+    background-color: var(--color-overlay); border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm); box-shadow: var(--shadow-md);
+    font-size: var(--font-size-sm); color: var(--color-text-primary);
+    max-width: 320px; animation: toastIn var(--transition-normal) ease;
   }
-
   .toast-success { border-left: 3px solid var(--color-success); }
   .toast-danger  { border-left: 3px solid var(--color-danger); }
   .toast-accent  { border-left: 3px solid var(--color-accent); }
-
   @keyframes toastIn {
     from { opacity: 0; transform: translateX(12px); }
     to   { opacity: 1; transform: translateX(0); }
   }
 
+  /* ── Section header ───────────────────────────────────── */
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: var(--space-4);
+  }
+  .section-title {
+    font-size: var(--font-size-lg); font-weight: var(--font-weight-bold);
+    color: var(--color-text-primary);
+  }
+  .section-link {
+    font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold);
+    color: var(--color-accent); transition: color var(--transition-fast);
+  }
+  .section-link:hover { color: var(--color-accent-dim); }
+
+  /* ── Nav item (sidebar) ───────────────────────────────── */
+  .nav-item {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-base); font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+    transition: color var(--transition-fast), background-color var(--transition-fast);
+    text-decoration: none;
+  }
+  .nav-item:hover {
+    color: var(--color-text-primary);
+    background-color: var(--color-sidebar-hover);
+  }
+  .nav-item.active {
+    color: var(--color-text-primary);
+    background-color: var(--color-sidebar-active);
+  }
+
+  body.has-player .toast { bottom: calc(112px + var(--space-4)); }
 }

@@ -1,40 +1,146 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+} from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Maps raw Firebase error codes to human-friendly messages.
+ * Never expose raw SDK strings to end-users in production.
+ */
+const FIREBASE_ERROR_MAP = {
+  'auth/email-already-in-use': 'An account with this email already exists.',
+  'auth/invalid-email': 'Please enter a valid email address.',
+  'auth/weak-password': 'Password must be at least 6 characters.',
+  'auth/network-request-failed': 'Network error. Please check your connection.',
+  'auth/too-many-requests': 'Too many attempts. Please try again later.',
+  'auth/popup-closed-by-user': 'Google sign-in was cancelled.',
+  'auth/popup-blocked': 'Popup was blocked. Please allow popups and try again.',
+};
+
+const getFriendlyError = (err) => {
+  if (err?.code && FIREBASE_ERROR_MAP[err.code]) {
+    return FIREBASE_ERROR_MAP[err.code];
+  }
+  // Fallback: strip "Firebase: " prefix if present
+  return err?.message
+    ? err.message.replace(/^Firebase:\s*/i, '').replace(/\s*\(auth\/[\w-]+\)\.$/, '').trim()
+    : 'Something went wrong. Please try again.';
+};
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+const GoogleIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 48 48"
+    width="18"
+    height="18"
+    style={{ flexShrink: 0 }}
+    aria-hidden="true"
+  >
+    <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z" />
+    <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z" />
+    <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z" />
+    <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z" />
+  </svg>
+);
+
+const ErrorAlert = ({ message }) => {
+  if (!message) return null;
+  return (
+    <div role="alert" aria-live="polite" style={styles.errorBox}>
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ flexShrink: 0, marginTop: '1px' }}
+        aria-hidden="true"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      <span>{message}</span>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
+
 const Register = () => {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirm, setConfirm] = useState('');
+  const [fields, setFields] = useState({
+    name: '',
+    email: '',
+    password: '',
+    confirm: '',
+  });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const navigate = useNavigate();
 
+  const handleChange = (e) => {
+    setFields((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+    // Clear error as user corrects input
+    if (error) setError('');
+  };
+
+  // Client-side validation before hitting Firebase
+  const validate = () => {
+    if (!fields.name.trim()) return 'Full name is required.';
+    if (!fields.email.trim()) return 'Email is required.';
+    if (fields.password.length < 6) return 'Password must be at least 6 characters.';
+    if (fields.password !== fields.confirm) return 'Passwords do not match.';
+    return null;
+  };
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setError('');
-    if (password !== confirm) return setError('Passwords do not match.');
-    if (password.length < 6) return setError('Password must be at least 6 characters.');
+
+    const validationError = validate();
+    if (validationError) return setError(validationError);
+
     setLoading(true);
     try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
+      const result = await createUserWithEmailAndPassword(
+        auth,
+        fields.email.trim(),
+        fields.password,
+      );
       await setDoc(doc(db, 'users', result.user.uid), {
         uid: result.user.uid,
-        email,
-        displayName: name,
+        email: fields.email.trim().toLowerCase(),
+        displayName: fields.name.trim(),
         role: 'user',
         likedSongs: [],
         createdAt: serverTimestamp(),
       });
       navigate('/home');
     } catch (err) {
-      setError(err.message.replace('Firebase: ', ''));
+      setError(getFriendlyError(err));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleGoogleLogin = async () => {
@@ -42,129 +148,183 @@ const Register = () => {
     setGoogleLoading(true);
     try {
       const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
       await signInWithPopup(auth, provider);
       navigate('/home');
     } catch (err) {
-      setError('Google sign-in failed. Please try again.');
+      // Don't show error if user just closed the popup
+      if (err?.code !== 'auth/popup-closed-by-user') {
+        setError(getFriendlyError(err));
+      }
+    } finally {
+      setGoogleLoading(false);
     }
-    setGoogleLoading(false);
   };
 
+  const isLoading = loading || googleLoading;
+
   return (
+    // This wrapper guarantees centering regardless of whether the parent
+    // is PageWrapper, a plain div, or the app root — it takes full viewport
+    // height and centers content both axes, just like Login.jsx.
     <div style={styles.page}>
       <div style={styles.card}>
+        {/* ── Logo ── */}
         <div style={styles.logoRow}>
-          <div style={styles.logoIcon}>♪</div>
+          <div style={styles.logoIcon} aria-hidden="true">♪</div>
           <span style={styles.logoText}>MeloStream</span>
         </div>
         <p style={styles.subtitle}>Create your account</p>
 
-        {error && <div style={styles.errorBox}>{error}</div>}
+        {/* ── Error ── */}
+        <ErrorAlert message={error} />
 
-        <form onSubmit={handleRegister} style={styles.form}>
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Full Name</label>
-            <input
-              type="text"
-              placeholder="John Doe"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              style={styles.input}
-              onFocus={e => e.target.style.borderColor = '#22c55e'}
-              onBlur={e => e.target.style.borderColor = '#2d2d2d'}
-            />
-          </div>
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Email</label>
-            <input
-              type="email"
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={styles.input}
-              onFocus={e => e.target.style.borderColor = '#22c55e'}
-              onBlur={e => e.target.style.borderColor = '#2d2d2d'}
-            />
-          </div>
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Password</label>
-            <input
-              type="password"
-              placeholder="Min. 6 characters"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              style={styles.input}
-              onFocus={e => e.target.style.borderColor = '#22c55e'}
-              onBlur={e => e.target.style.borderColor = '#2d2d2d'}
-            />
-          </div>
-          <div style={styles.fieldGroup}>
-            <label style={styles.label}>Confirm Password</label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              value={confirm}
-              onChange={(e) => setConfirm(e.target.value)}
-              required
-              style={styles.input}
-              onFocus={e => e.target.style.borderColor = '#22c55e'}
-              onBlur={e => e.target.style.borderColor = '#2d2d2d'}
-            />
-          </div>
+        {/* ── Form ── */}
+        <form onSubmit={handleRegister} style={styles.form} noValidate>
+          <Field
+            label="Full Name"
+            name="name"
+            type="text"
+            placeholder="John Doe"
+            value={fields.name}
+            onChange={handleChange}
+            autoComplete="name"
+            disabled={isLoading}
+            required
+          />
+          <Field
+            label="Email"
+            name="email"
+            type="email"
+            placeholder="you@example.com"
+            value={fields.email}
+            onChange={handleChange}
+            autoComplete="email"
+            disabled={isLoading}
+            required
+          />
+          <Field
+            label="Password"
+            name="password"
+            type="password"
+            placeholder="Min. 6 characters"
+            value={fields.password}
+            onChange={handleChange}
+            autoComplete="new-password"
+            disabled={isLoading}
+            required
+          />
+          <Field
+            label="Confirm Password"
+            name="confirm"
+            type="password"
+            placeholder="••••••••"
+            value={fields.confirm}
+            onChange={handleChange}
+            autoComplete="new-password"
+            disabled={isLoading}
+            required
+          />
+
           <button
             type="submit"
-            disabled={loading}
-            style={{ ...styles.primaryBtn, opacity: loading ? 0.6 : 1 }}
+            disabled={isLoading}
+            style={{
+              ...styles.primaryBtn,
+              opacity: loading ? 0.65 : 1,
+              cursor: loading ? 'not-allowed' : 'pointer',
+            }}
           >
             {loading ? 'Creating account…' : 'Create Account'}
           </button>
         </form>
 
-        <div style={styles.divider}>
+        {/* ── Divider ── */}
+        <div style={styles.divider} aria-hidden="true">
           <span style={styles.dividerLine} />
-          <span style={styles.dividerText}>or</span>
+          <span style={styles.dividerText}>OR</span>
           <span style={styles.dividerLine} />
         </div>
 
+        {/* ── Google ── */}
         <button
+          type="button"
           onClick={handleGoogleLogin}
-          disabled={googleLoading}
-          style={{ ...styles.googleBtn, opacity: googleLoading ? 0.6 : 1 }}
+          disabled={isLoading}
+          style={{
+            ...styles.googleBtn,
+            opacity: googleLoading ? 0.65 : 1,
+            cursor: googleLoading ? 'not-allowed' : 'pointer',
+          }}
         >
           <GoogleIcon />
           {googleLoading ? 'Signing in…' : 'Continue with Google'}
         </button>
 
+        {/* ── Footer ── */}
         <p style={styles.footerText}>
           Already have an account?{' '}
-          <Link to="/login" style={styles.link}>Sign in</Link>
+          <Link to="/login" style={styles.link}>
+            Sign in
+          </Link>
         </p>
       </div>
     </div>
   );
 };
 
-const GoogleIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="18" height="18" style={{ flexShrink: 0 }}>
-    <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
-    <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
-    <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
-    <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
-  </svg>
-);
+// ---------------------------------------------------------------------------
+// Field sub-component — keeps JSX clean and focus styles in one place
+// ---------------------------------------------------------------------------
+
+const Field = ({ label, name, type, placeholder, value, onChange, autoComplete, disabled, required }) => {
+  const [focused, setFocused] = useState(false);
+
+  return (
+    <div style={styles.fieldGroup}>
+      <label htmlFor={name} style={styles.label}>
+        {label}
+      </label>
+      <input
+        id={name}
+        name={name}
+        type={type}
+        placeholder={placeholder}
+        value={value}
+        onChange={onChange}
+        autoComplete={autoComplete}
+        disabled={disabled}
+        required={required}
+        style={{
+          ...styles.input,
+          borderColor: focused ? '#22c55e' : '#2d2d2d',
+          opacity: disabled ? 0.6 : 1,
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
 
 const styles = {
+  // Full-viewport centering — works whether rendered inside PageWrapper or not.
+  // position:fixed ensures it always covers the true viewport, not a scrollable parent.
   page: {
-    minHeight: '100vh',
+    position: 'fixed',
+    inset: 0,
     background: '#0f0f0f',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     padding: '24px 16px',
+    overflowY: 'auto',
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    zIndex: 0,
   },
   card: {
     background: '#1a1a1a',
@@ -173,6 +333,9 @@ const styles = {
     padding: '40px',
     width: '100%',
     maxWidth: '400px',
+    // Prevent card from being taller than viewport on small screens
+    maxHeight: 'calc(100vh - 48px)',
+    overflowY: 'auto',
   },
   logoRow: {
     display: 'flex',
@@ -191,6 +354,7 @@ const styles = {
     color: '#000',
     fontSize: '18px',
     fontWeight: '700',
+    flexShrink: 0,
   },
   logoText: {
     color: '#fff',
@@ -202,14 +366,19 @@ const styles = {
     color: '#6b7280',
     fontSize: '14px',
     marginBottom: '28px',
+    marginTop: 0,
   },
   errorBox: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
     background: 'rgba(239,68,68,0.1)',
-    border: '1px solid rgba(239,68,68,0.3)',
+    border: '1px solid rgba(239,68,68,0.35)',
     color: '#f87171',
     borderRadius: '8px',
-    padding: '12px 14px',
+    padding: '11px 14px',
     fontSize: '13px',
+    lineHeight: '1.5',
     marginBottom: '20px',
   },
   form: {
@@ -235,7 +404,7 @@ const styles = {
     color: '#fff',
     fontSize: '14px',
     outline: 'none',
-    transition: 'border-color 0.2s',
+    transition: 'border-color 0.15s ease',
     width: '100%',
     boxSizing: 'border-box',
   },
@@ -245,10 +414,11 @@ const styles = {
     border: 'none',
     borderRadius: '8px',
     padding: '12px',
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: '14px',
-    cursor: 'pointer',
+    width: '100%',
     marginTop: '4px',
+    transition: 'opacity 0.15s ease',
   },
   divider: {
     display: 'flex',
@@ -260,12 +430,13 @@ const styles = {
     flex: 1,
     height: '1px',
     background: '#2d2d2d',
+    display: 'block',
   },
   dividerText: {
     color: '#4b5563',
-    fontSize: '12px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.5px',
+    fontSize: '11px',
+    fontWeight: '600',
+    letterSpacing: '0.8px',
   },
   googleBtn: {
     background: '#fff',
@@ -275,23 +446,24 @@ const styles = {
     padding: '11px 14px',
     fontWeight: '600',
     fontSize: '14px',
-    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: '10px',
     width: '100%',
+    transition: 'opacity 0.15s ease',
   },
   footerText: {
     color: '#6b7280',
     fontSize: '13px',
     textAlign: 'center',
     marginTop: '24px',
+    marginBottom: 0,
   },
   link: {
     color: '#22c55e',
     textDecoration: 'none',
-    fontWeight: '500',
+    fontWeight: '600',
   },
 };
 

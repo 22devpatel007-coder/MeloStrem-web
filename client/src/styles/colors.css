@@ -6,144 +6,211 @@
    - Never hardcode colors anywhere in the app
    - Always reference these variables
    - Change here = changes everywhere
+
+   ANALYZED FROM UI SCREENSHOT (April 2026):
+   - Base bg: #0f0f0f (slightly warmer than #0d1117)
+   - Cards: #1c1c1c with #2a2a2a borders
+   - Accent: #22c55e (green — matches active states, genre badges)
+   - Song row active: rgba(34,197,94,0.06) with #22c55e left border
+   - Text primary: #e5e7eb
+   - Text secondary: #9ca3af
+   - Text muted: #4b5563
    ============================================================= */
 
 :root {
 
   /* -----------------------------------------------------------
-     BACKGROUNDS — Layered dark system (never pure black)
+     BACKGROUNDS — Layered dark system
   ----------------------------------------------------------- */
-  --color-bg:              #0d1117;   /* Page background — deepest layer */
-  --color-surface:         #161b22;   /* Cards, sidebar, modals, player bar */
-  --color-surface-hover:   #1c2128;   /* Surface on hover state */
-  --color-overlay:         #21262d;   /* Dropdowns, tooltips, context menus */
+  --color-bg:              #0f0f0f;   /* Page background — deepest layer */
+  --color-surface:         #1c1c1c;   /* Cards, sidebar panels, modals */
+  --color-surface-hover:   #222222;   /* Surface on hover */
+  --color-overlay:         #2a2a2a;   /* Dropdowns, tooltips, context menus */
+  --color-surface-active:  rgba(34, 197, 94, 0.06); /* Active song row bg */
 
   /* -----------------------------------------------------------
-     BORDERS — Subtle but visible separation
+     SIDEBAR
   ----------------------------------------------------------- */
-  --color-border:          #30363d;   /* Default border for cards, inputs, dividers */
-  --color-border-muted:    #21262d;   /* Softer border for internal separators */
-  --color-border-emphasis: #8b949e;   /* Focused input border, emphasized dividers */
+  --color-sidebar-bg:      #111111;   /* Sidebar background */
+  --color-sidebar-border:  #2a2a2a;   /* Sidebar right border */
+  --color-sidebar-active:  #2a2a2a;   /* Active nav item background */
+  --color-sidebar-hover:   #1e1e1e;   /* Nav item hover */
 
   /* -----------------------------------------------------------
-     TEXT — Clear hierarchy
+     BORDERS
   ----------------------------------------------------------- */
-  --color-text-primary:    #e6edf3;   /* Main text — headings, song titles */
-  --color-text-secondary:  #8b949e;   /* Secondary — artist name, timestamps */
-  --color-text-muted:      #484f58;   /* Disabled, placeholder text */
-  --color-text-inverse:    #0d1117;   /* Text on teal/accent backgrounds */
+  --color-border:          #2a2a2a;   /* Default border — cards, inputs, dividers */
+  --color-border-muted:    #1e1e1e;   /* Softer internal separators */
+  --color-border-emphasis: #444444;   /* Focused states, emphasized dividers */
 
   /* -----------------------------------------------------------
-     ACCENT — Teal brand color (buttons, active states, progress)
+     TEXT — Clear 4-level hierarchy
   ----------------------------------------------------------- */
-  --color-accent:          #2dd4bf;   /* Primary accent — teal */
-  --color-accent-hover:    #14b8a6;   /* Accent on hover */
-  --color-accent-muted:    #0d3330;   /* Accent background tint (liked, active bg) */
-  --color-accent-subtle:   #134e4a;   /* Slightly stronger accent tint */
+  --color-text-primary:    #e5e7eb;   /* Song titles, headings, main labels */
+  --color-text-secondary:  #9ca3af;   /* Artist names, nav labels */
+  --color-text-muted:      #4b5563;   /* Row numbers, timestamps, placeholders */
+  --color-text-disabled:   #374151;   /* Disabled states, empty dashes */
+  --color-text-inverse:    #000000;   /* Text on accent/green backgrounds */
+
+  /* -----------------------------------------------------------
+     ACCENT — Green brand color
+     Matches active states, genre badges, progress bar, liked songs
+  ----------------------------------------------------------- */
+  --color-accent:          #22c55e;   /* Primary green accent */
+  --color-accent-hover:    #16a34a;   /* Accent on hover */
+  --color-accent-dim:      #4ade80;   /* Lighter green for links on dark */
+  --color-accent-muted:    rgba(34, 197, 94, 0.10);  /* Badge/chip background */
+  --color-accent-subtle:   rgba(34, 197, 94, 0.18);  /* Badge border */
+  --color-accent-glow:     rgba(34, 197, 94, 0.10);  /* Focus ring */
 
   /* -----------------------------------------------------------
      SEMANTIC — Feedback colors
   ----------------------------------------------------------- */
-  --color-danger:          #f85149;   /* Errors, delete, destructive actions */
-  --color-danger-muted:    #3d1a19;   /* Danger background tint */
-  --color-success:         #3fb950;   /* Success states, confirmations */
-  --color-success-muted:   #122117;   /* Success background tint */
-  --color-warning:         #d29922;   /* Warnings, caution states */
-  --color-warning-muted:   #2d2006;   /* Warning background tint */
+  --color-danger:          #f43f5e;   /* Errors, delete, unlike */
+  --color-danger-hover:    #fb7185;   /* Danger hover */
+  --color-danger-muted:    rgba(244, 63, 94, 0.10);  /* Danger background tint */
+  --color-success:         #22c55e;   /* Success = accent in this theme */
+  --color-success-muted:   rgba(34, 197, 94, 0.08);  /* Success tint */
+  --color-warning:         #f59e0b;   /* Warnings, featured star */
+  --color-warning-muted:   rgba(245, 158, 11, 0.10); /* Warning tint */
 
   /* -----------------------------------------------------------
-     PLAYER — Fixed bottom bar specific
+     SONG ROW — Specific tokens for the song list
   ----------------------------------------------------------- */
-  --color-player-bg:       #161b22;   /* Player bar background */
-  --color-player-border:   #30363d;   /* Player bar top border */
-  --color-progress-bg:     #30363d;   /* Progress bar track */
-  --color-progress-fill:   #2dd4bf;   /* Progress bar fill — accent */
-  --color-progress-thumb:  #e6edf3;   /* Progress bar thumb dot */
+  --color-row-hover:       rgba(255, 255, 255, 0.05);  /* Row hover */
+  --color-row-active-bg:   rgba(34, 197, 94, 0.06);    /* Active playing row */
+  --color-row-active-border: #22c55e;                  /* Active left border */
+  --color-row-divider:     rgba(255, 255, 255, 0.04);  /* Between rows */
+  --color-row-num:         #4b5563;                    /* Row number text */
 
   /* -----------------------------------------------------------
-     SPACING — 8px base system
-     Use these as reference. In Tailwind: p-1=4px p-2=8px p-4=16px etc.
+     GENRE BADGE — from screenshot: green pill on dark
+  ----------------------------------------------------------- */
+  --color-badge-genre-bg:      rgba(34, 197, 94, 0.08);
+  --color-badge-genre-text:    #22c55e;
+  --color-badge-genre-border:  rgba(34, 197, 94, 0.18);
+
+  /* -----------------------------------------------------------
+     PLAYER BAR — Fixed bottom
+  ----------------------------------------------------------- */
+  --color-player-bg:       #111111;   /* Player bar background */
+  --color-player-border:   #2a2a2a;   /* Player bar top border */
+  --color-progress-track:  #2d2d2d;   /* Progress bar track */
+  --color-progress-fill:   #22c55e;   /* Progress bar fill */
+  --color-progress-thumb:  #ffffff;   /* Progress thumb dot */
+
+  /* -----------------------------------------------------------
+     ARTIST AVATAR PALETTE — Initials avatars on cards
+  ----------------------------------------------------------- */
+  --avatar-1-bg: #E1F5EE;  --avatar-1-fg: #085041;
+  --avatar-2-bg: #EEEDFE;  --avatar-2-fg: #3C3489;
+  --avatar-3-bg: #FAECE7;  --avatar-3-fg: #712B13;
+  --avatar-4-bg: #FBEAF0;  --avatar-4-fg: #72243E;
+  --avatar-5-bg: #E6F1FB;  --avatar-5-fg: #0C447C;
+  --avatar-6-bg: #EAF3DE;  --avatar-6-fg: #27500A;
+  --avatar-7-bg: #FAEEDA;  --avatar-7-fg: #633806;
+
+  /* -----------------------------------------------------------
+     ALBUM COVER PALETTE — Color-coded album art placeholders
+  ----------------------------------------------------------- */
+  --album-1: #9FE1CB;
+  --album-2: #CECBF6;
+  --album-3: #F5C4B3;
+  --album-4: #B5D4F4;
+  --album-5: #FAC775;
+  --album-6: #C0DD97;
+  --album-7: #F4C0D1;
+
+  /* -----------------------------------------------------------
+     SPACING — 4px base system
   ----------------------------------------------------------- */
   --space-1:   4px;
   --space-2:   8px;
   --space-3:   12px;
   --space-4:   16px;
+  --space-5:   20px;
   --space-6:   24px;
   --space-8:   32px;
+  --space-10:  40px;
   --space-12:  48px;
   --space-16:  64px;
 
   /* -----------------------------------------------------------
-     TYPOGRAPHY — Inter font scale
+     TYPOGRAPHY
   ----------------------------------------------------------- */
   --font-family:           'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-size-xs:          11px;   /* Badges, tiny labels */
-  --font-size-sm:          12px;   /* Captions, muted info */
-  --font-size-base:        14px;   /* Body text, default */
-  --font-size-md:          16px;   /* Slightly emphasized body */
-  --font-size-lg:          18px;   /* Section headings */
-  --font-size-xl:          20px;   /* Sub-page titles */
-  --font-size-2xl:         24px;   /* Page titles */
-  --font-size-3xl:         30px;   /* Hero/display text */
+  --font-size-xs:          11px;
+  --font-size-sm:          12px;
+  --font-size-base:        14px;
+  --font-size-md:          15px;
+  --font-size-lg:          17px;
+  --font-size-xl:          20px;
+  --font-size-2xl:         24px;
+  --font-size-3xl:         30px;
 
   --font-weight-regular:   400;
   --font-weight-medium:    500;
   --font-weight-semibold:  600;
   --font-weight-bold:      700;
 
-  --line-height-tight:     1.25;
+  --line-height-tight:     1.2;
   --line-height-normal:    1.5;
   --line-height-relaxed:   1.75;
 
   /* -----------------------------------------------------------
-     BORDER RADIUS — Sharp GitHub style
+     BORDER RADIUS
   ----------------------------------------------------------- */
-  --radius-sm:   4px;      /* Buttons, inputs, cards — default */
-  --radius-md:   6px;      /* Modals, dropdowns */
-  --radius-lg:   8px;      /* Large panels */
-  --radius-full: 9999px;   /* Pill badges, avatar circles */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px;
 
   /* -----------------------------------------------------------
-     SHADOWS — Medium depth card system
+     SHADOWS
   ----------------------------------------------------------- */
-  --shadow-sm:      0 1px 3px rgba(1, 4, 9, 0.4);
-  --shadow-md:      0 4px 12px rgba(1, 4, 9, 0.5);
-  --shadow-lg:      0 8px 24px rgba(1, 4, 9, 0.6);
-  --shadow-overlay: 0 16px 48px rgba(1, 4, 9, 0.8);   /* Modals */
+  --shadow-sm:      0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md:      0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg:      0 8px 24px rgba(0, 0, 0, 0.6);
+  --shadow-overlay: 0 16px 48px rgba(0, 0, 0, 0.8);
+  --shadow-dropdown: 0 8px 24px rgba(0, 0, 0, 0.5);
 
   /* -----------------------------------------------------------
-     TRANSITIONS — Consistent timing
+     TRANSITIONS
   ----------------------------------------------------------- */
-  --transition-fast:   150ms ease;   /* Hover states */
-  --transition-normal: 200ms ease;   /* Modal enter, drawer */
-  --transition-slow:   300ms ease;   /* Page transitions */
+  --transition-fast:   150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow:   300ms ease;
 
   /* -----------------------------------------------------------
      LAYOUT — Fixed dimensions
   ----------------------------------------------------------- */
-  --sidebar-width:      240px;
-  --player-height:      64px;
-  --navbar-height:      56px;
-  --content-max-width:  1200px;
+  --sidebar-width:    260px;
+  --player-height:    72px;
+  --topbar-height:    61px;   /* sticky home topbar */
+  --content-padding:  24px;   /* horizontal page padding */
 
 }
 
 /* =============================================================
-   UTILITY CLASSES — Direct token usage
-   These are helpers for non-Tailwind inline use cases
+   UTILITY CLASSES
 ============================================================= */
 
 .bg-base        { background-color: var(--color-bg); }
 .bg-surface     { background-color: var(--color-surface); }
 .bg-overlay     { background-color: var(--color-overlay); }
+.bg-sidebar     { background-color: var(--color-sidebar-bg); }
 
 .text-primary   { color: var(--color-text-primary); }
 .text-secondary { color: var(--color-text-secondary); }
 .text-muted     { color: var(--color-text-muted); }
 .text-accent    { color: var(--color-accent); }
+.text-danger    { color: var(--color-danger); }
 
 .border-default { border-color: var(--color-border); }
 .border-muted   { border-color: var(--color-border-muted); }
 
 .accent-bg      { background-color: var(--color-accent); color: var(--color-text-inverse); }
 .accent-muted-bg{ background-color: var(--color-accent-muted); }
+.danger-muted-bg{ background-color: var(--color-danger-muted); }

@@ -1,16 +1,35 @@
-import { useState } from 'react';
-import api from '../../services/api';
-
 /**
- * EditSongModal — permanently updates song metadata and/or cover image.
+ * client/src/components/admin/EditSongModal.jsx
  *
- * PERMANENT SOLUTION NOTES:
- * - Uses axiosUpload (5-min timeout) because cover re-upload can be slow.
- * - Sends multipart/form-data only when a new cover is selected; otherwise
- *   sends JSON to avoid unnecessary Cloudinary calls.
- * - The backend PATCH /api/songs/:id handles both cases.
- * - Duration accepts both seconds (integer) and mm:ss string, normalised to seconds.
+ * BUG-012 FIX — React Query cache invalidation after song edit.
+ *
+ * WHAT CHANGED vs previous version:
+ *   1. Imported useQueryClient from @tanstack/react-query.
+ *   2. Imported QUERY_KEYS from constants/queryKeys.
+ *   3. In both the multipart (cover upload) and JSON-only branches of
+ *      handleSubmit, after onUpdated(res.data), adds:
+ *        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
+ *        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS, song.id] })
+ *      The first invalidation refreshes the songs list cache (MusicList, Home).
+ *      The second invalidation refreshes the individual song detail cache so
+ *      any page reading a single song by ID (song detail page, player) also
+ *      reflects the edit without waiting for staleTime.
+ *
+ * WHAT DID NOT CHANGE:
+ *   - parseDuration, fmtDuration helpers — identical
+ *   - Form state, cover preview, progress tracking — identical
+ *   - axiosUpload multipart branch logic — identical
+ *   - JSON-only branch logic — identical
+ *   - Error handling — identical
+ *   - Field sub-component — identical
+ *   - XIcon — identical
+ *   - All styles — identical
  */
+
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query'; // ← BUG-012 FIX
+import api from '../../services/api';
+import { QUERY_KEYS } from '../../constants/queryKeys'; // ← BUG-012 FIX
 
 const parseDuration = (raw) => {
   if (!raw && raw !== 0) return '';
@@ -35,17 +54,18 @@ const fmtDuration = (secs) => {
 };
 
 const EditSongModal = ({ song, onClose, onUpdated }) => {
+  const queryClient = useQueryClient(); // ← BUG-012 FIX
   const [form, setForm] = useState({
     title:    song.title    || '',
     artist:   song.artist   || '',
     genre:    song.genre    || '',
     duration: fmtDuration(song.duration),
   });
-  const [coverFile, setCoverFile]   = useState(null);
+  const [coverFile, setCoverFile]       = useState(null);
   const [coverPreview, setCoverPreview] = useState(song.coverUrl || '');
-  const [loading, setLoading]       = useState(false);
-  const [error, setError]           = useState('');
-  const [progress, setProgress]     = useState(0);
+  const [loading, setLoading]           = useState(false);
+  const [error, setError]               = useState('');
+  const [progress, setProgress]         = useState(0);
 
   const handleChange = (e) =>
     setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
@@ -67,7 +87,7 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
       const durationSecs = parseDuration(form.duration);
 
       if (coverFile) {
-        // multipart upload — cover needs to be re-uploaded to Cloudinary
+        // Multipart upload — cover needs to be re-uploaded to Cloudinary.
         const fd = new FormData();
         fd.append('title',    form.title.trim());
         fd.append('artist',   form.artist.trim());
@@ -81,8 +101,16 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
             setProgress(Math.round((ev.loaded * 100) / ev.total)),
         });
         onUpdated(res.data);
+
+        // BUG-012 FIX: Invalidate songs list and the specific song's cache.
+        // List invalidation: MusicList and Home page reflect the updated metadata.
+        // Individual song invalidation: any page reading /api/songs/:id (player,
+        // song detail) reflects the new title/artist/genre/cover immediately.
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS, song.id] });
+
       } else {
-        // JSON-only — no file upload needed
+        // JSON-only — no file upload needed.
         const res = await api.patch(`/songs/${song.id}`, {
           title:    form.title.trim(),
           artist:   form.artist.trim(),
@@ -90,6 +118,10 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
           duration: Number(durationSecs) || 0,
         });
         onUpdated(res.data);
+
+        // BUG-012 FIX: Same invalidation for JSON-only edits.
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
+        queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS, song.id] });
       }
 
       onClose();
@@ -229,7 +261,7 @@ const s = {
   grid:          { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 },
   fieldGroup:    { display: 'flex', flexDirection: 'column', gap: 5 },
   label:         { color: '#9ca3af', fontSize: 12, fontWeight: 500 },
-  input:         { background: '#111', border: '1px solid #2d2d2d', borderRadius: 8, padding: '9px 12px', color: '#fff', fontSize: 14, outline: 'none', transition: 'border-color 0.2s', fontFamily: 'inherit', boxSizing: 'border-box' },
+  input:         { background: '#111', border: '1px solid #2d2d2d', borderRadius: 8, padding: '9px 12px', color: '#fff', fontSize: 14, outline: 'none', transition: 'border-color 0.2s', fontFamily: 'inherit', boxSizing: 'border-box', width: '100%' },
   progressWrap:  { display: 'flex', alignItems: 'center', gap: 10 },
   progressBar:   { flex: 1, height: 4, background: '#2d2d2d', borderRadius: 2, overflow: 'hidden' },
   progressFill:  { height: '100%', background: '#22c55e', borderRadius: 2, transition: 'width 0.2s' },

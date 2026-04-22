@@ -1,11 +1,12 @@
+/**
+ * client/src/pages/admin/UsersList.jsx
+ * PERMANENT FIX: Navbar import and usage removed.
+ */
+
 import { useState, useEffect } from "react";
-import axiosInstance, { extractUsers } from "../../services/api";
-import Navbar from "../../components/layout/Navbar";
+import axiosInstance from "../../services/api";
 import Loader from "../../components/ui/Loader";
 
-// FIX: createdAt is now an ISO string (serialized server-side in users.controller.js).
-// Previously tried to call .toDate() on it, which always returned undefined on
-// API responses (Firestore Timestamps don't survive JSON serialization).
 const formatDate = (raw) => {
   if (!raw) return "—";
   const d = new Date(raw);
@@ -27,10 +28,8 @@ const UsersList = () => {
     const fetchUsers = async () => {
       try {
         const res = await axiosInstance.get("/users");
-        // FIX: use extractUsers helper — res.data may be { users: [] } or { data: [] }
-        // or a raw array. extractUsers normalizes all shapes to a safe array.
-        // Previously did setUsers(res.data) which set an object → users.filter crash.
-        setUsers(extractUsers(res.data));
+        const body = res?.data ?? {};
+        setUsers(Array.isArray(body) ? body : (Array.isArray(body.users) ? body.users : (Array.isArray(body.data) ? body.data : [])));
       } catch (err) {
         console.error("Failed to fetch users:", err);
       }
@@ -48,108 +47,104 @@ const UsersList = () => {
   if (loading) return <Loader />;
 
   return (
-    <div style={styles.page}>
-      <Navbar />
-      <div style={styles.container}>
-        <div style={styles.pageHeader}>
-          <h1 style={styles.heading}>Users</h1>
-          <p style={styles.subheading}>{users.length} registered accounts</p>
-        </div>
+    <div style={styles.container}>
+      <div style={styles.pageHeader}>
+        <h1 style={styles.heading}>Users</h1>
+        <p style={styles.subheading}>{users.length} registered accounts</p>
+      </div>
 
-        <div
-          style={{
-            ...styles.searchWrap,
-            borderColor: focused ? "#22c55e" : "#2d2d2d",
-          }}
+      <div
+        style={{
+          ...styles.searchWrap,
+          borderColor: focused ? "#22c55e" : "#2d2d2d",
+        }}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 20 20"
+          fill="none"
+          style={{ flexShrink: 0 }}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 20 20"
-            fill="none"
-            style={{ flexShrink: 0 }}
-          >
-            <circle
-              cx="8.5"
-              cy="8.5"
-              r="5.5"
-              stroke={focused ? "#22c55e" : "#6b7280"}
-              strokeWidth="1.5"
-            />
-            <path
-              d="M14 14l3 3"
-              stroke={focused ? "#22c55e" : "#6b7280"}
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-          </svg>
-          <input
-            type="text"
-            placeholder="Search by name or email…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            style={styles.searchInput}
+          <circle
+            cx="8.5"
+            cy="8.5"
+            r="5.5"
+            stroke={focused ? "#22c55e" : "#6b7280"}
+            strokeWidth="1.5"
           />
-        </div>
+          <path
+            d="M14 14l3 3"
+            stroke={focused ? "#22c55e" : "#6b7280"}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+        <input
+          type="text"
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={styles.searchInput}
+        />
+      </div>
 
-        {filtered.length === 0 ? (
-          <p style={styles.noResults}>No users match your search.</p>
-        ) : (
-          <div style={styles.table}>
-            <div style={styles.tableHeader}>
-              <span style={{ ...styles.col, flex: 2 }}>User</span>
-              <span style={{ ...styles.col, flex: 1 }}>Role</span>
-              <span style={{ ...styles.col, flex: 1 }}>Joined</span>
-            </div>
-            {filtered.map((user) => (
-              <div key={user.id} style={styles.tableRow}>
-                <div style={{ flex: 2, minWidth: 0 }}>
-                  <div style={styles.userCell}>
-                    <div style={styles.avatar}>
-                      {(user.displayName || user.email || "?")[0].toUpperCase()}
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={styles.userName}>
-                        {user.displayName || "No name"}
-                      </p>
-                      <p style={styles.userEmail}>{user.email}</p>
-                    </div>
+      {filtered.length === 0 ? (
+        <p style={styles.noResults}>No users match your search.</p>
+      ) : (
+        <div style={styles.table}>
+          <div style={styles.tableHeader}>
+            <span style={{ ...styles.col, flex: 2 }}>User</span>
+            <span style={{ ...styles.col, flex: 1 }}>Role</span>
+            <span style={{ ...styles.col, flex: 1 }}>Joined</span>
+          </div>
+          {filtered.map((user) => (
+            <div key={user.id} style={styles.tableRow}>
+              <div style={{ flex: 2, minWidth: 0 }}>
+                <div style={styles.userCell}>
+                  <div style={styles.avatar}>
+                    {(user.displayName || user.email || "?")[0].toUpperCase()}
+                  </div>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={styles.userName}>
+                      {user.displayName || "No name"}
+                    </p>
+                    <p style={styles.userEmail}>{user.email}</p>
                   </div>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <span
-                    style={{
-                      ...styles.badge,
-                      ...(user.role === "admin"
-                        ? styles.badgeAdmin
-                        : styles.badgeUser),
-                    }}
-                  >
-                    {user.role || "user"}
-                  </span>
-                </div>
-                {/* FIX: Use formatDate() instead of .toDate() — API returns ISO strings */}
-                <span style={{ flex: 1, color: "#6b7280", fontSize: "12px" }}>
-                  {formatDate(user.createdAt)}
+              </div>
+              <div style={{ flex: 1 }}>
+                <span
+                  style={{
+                    ...styles.badge,
+                    ...(user.role === "admin"
+                      ? styles.badgeAdmin
+                      : styles.badgeUser),
+                  }}
+                >
+                  {user.role || "user"}
                 </span>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <span style={{ flex: 1, color: "#6b7280", fontSize: "12px" }}>
+                {formatDate(user.createdAt)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
 
 const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
+  container: {
+    maxWidth: "900px",
+    margin: "0 auto",
+    padding: "32px 20px 80px",
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
-  container: { maxWidth: "900px", margin: "0 auto", padding: "32px 20px 80px" },
   pageHeader: { marginBottom: "24px" },
   heading: {
     color: "#fff",

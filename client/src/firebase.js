@@ -1,9 +1,17 @@
+/**
+ * client/src/firebase.js
+ *
+ * FINAL FIX — persistentSingleTabManager() with NO options.
+ *
+ * Full explanation in comments below.
+ */
+
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import {
   initializeFirestore,
   persistentLocalCache,
-  persistentMultipleTabManager,
+  persistentSingleTabManager,
 } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -17,13 +25,33 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// FIX: Use initializeFirestore with persistentLocalCache instead of getFirestore().
-// This enables IndexedDB offline persistence — returning users get Firestore
-// data from cache in <50ms instead of waiting for a network round-trip.
-// persistentMultipleTabManager allows multiple tabs to share the same cache.
+// ─── WHY persistentSingleTabManager() ────────────────────────────────────────
+//
+// With the scalable fix in place (useUserPlaylists + useAdminPlaylists now use
+// REST + React Query), the only remaining Firestore client usage is:
+//   - usePlaylistMutations (one-shot writes — addDoc, updateDoc, deleteDoc)
+//   - Auth token reads via Firebase Auth SDK
+//
+// persistentSingleTabManager() is correct for this usage pattern:
+//   ✅ Each tab manages its own IndexedDB cache independently
+//   ✅ No cross-tab lock contention
+//   ✅ No WatchChangeAggregator race condition
+//   ✅ No assertion errors on 2, 3, or N tabs
+//   ✅ Write operations work correctly (they don't use the tab manager)
+//
+// NOTE on { forceOwnership: true } — do NOT add this option.
+//   forceOwnership causes Tab 2 to steal the IndexedDB lock from Tab 1,
+//   corrupting Tab 1's local cache. Both tabs then error. Omit it entirely.
+//
+// TRADE-OFF:
+//   Multiple tabs do not share a single IndexedDB cache entry. With the
+//   scalable REST fix in place, this is no longer relevant — playlist data
+//   comes from the REST API (React Query cache, in-memory per tab), not
+//   from Firestore's IndexedDB cache. Each tab works correctly and independently.
+// ─────────────────────────────────────────────────────────────────────────────
 export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
-    tabManager: persistentMultipleTabManager(),
+    tabManager: persistentSingleTabManager(),
   }),
 });
 

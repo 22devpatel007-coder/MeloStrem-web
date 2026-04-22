@@ -1,180 +1,167 @@
+import { useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useLikedSongs } from "../hooks/useLikedSongs";
-import Navbar from "../components/layout/Navbar";
-import SongList from "../components/songs/SongList";
-import Loader from "../components/ui/Loader";
-import { Link } from "react-router-dom";
+import { usePlayerStore } from "../store/playerStore";
+import LikedSongsHero from "../components/songs/LikedSongsHero";
+import LikedSongsFilters from "../components/songs/LikedSongsFilters";
+import LikedSongsTable from "../components/songs/LikedSongsTable";
+import LikedSongsSkeleton from "../components/songs/LikedSongsSkeleton";
 
-// PERMANENT FIX: Removed useSongs dependency entirely.
-// Previously this page cross-referenced liked song IDs against the paginated
-// song library — meaning liked songs were invisible until all pages loaded.
-//
-// Now: useLikedSongs returns full Song[] directly from the backend.
-// This page is fully independent of the song library cursor pagination.
+/**
+ * LikedSongs — Production Fix
+ *
+ * BUG FIXED: playSong(song, "liked", queue) is WRONG.
+ * playerStore.playSong signature is: playSong(song) — one argument only.
+ * The "liked" context and queue were silently dropped, meaning playback
+ * context was never set → skip/shuffle/queue all broken for liked songs.
+ *
+ * CORRECT PATTERN (from playerStore source):
+ *   1. setPlaybackContext(type, id, songs, startIndex) — seeds queue + context
+ *   2. playSong(song) — starts audio for the specific song
+ *
+ * This is the same pattern used by Library and Playlist pages.
+ */
 
 const LikedSongs = () => {
   const { user } = useAuthStore();
-  const { likedSongs, isLoading, isError } = useLikedSongs(user?.uid);
+  const { likedSongs, isLoading, isError, refetch } = useLikedSongs(user?.uid);
 
-  if (isLoading) return <Loader />;
+  // Filter / sort / group — local UI state only
+  const [activeGenre, setActiveGenre] = useState(null);
+  const [sortBy, setSortBy] = useState("default");
+  const [groupByGenre, setGroupByGenre] = useState(false);
 
+  // ── Store access ──────────────────────────────────────────────────────────
+  const setPlaybackContext = usePlayerStore((s) => s.setPlaybackContext);
+  const playSong           = usePlayerStore((s) => s.playSong);
+  const currentSong        = usePlayerStore((s) => s.currentSong);
+  const isGloballyPlaying  = usePlayerStore((s) => s.isPlaying);
+
+  // ── Unified play handler ──────────────────────────────────────────────────
+  // CORRECT: setPlaybackContext first (seeds queue + context), then playSong.
+  // startIndex tells the queue where to start so Next/Prev work correctly.
+  const playSongFromContext = useCallback(
+    (song, index, queue) => {
+      if (!song) return;
+      const safeQueue = Array.isArray(queue) && queue.length > 0 ? queue : [song];
+      const safeIndex = typeof index === "number" && index >= 0 ? index : 0;
+      // Seed the liked context + full queue first
+      setPlaybackContext("liked", "liked-songs", safeQueue, safeIndex);
+      // Then start playback for the clicked song
+      playSong(song);
+    },
+    [setPlaybackContext, playSong],
+  );
+
+  // ── Smart Play queue ──────────────────────────────────────────────────────
+  const buildSmartQueue = useCallback(() => {
+    const genreCount = {};
+    likedSongs.forEach((s) => {
+      if (s.genre) genreCount[s.genre] = (genreCount[s.genre] || 0) + 1;
+    });
+    return [...likedSongs].sort((a, b) => {
+      const diff = (genreCount[b.genre] || 0) - (genreCount[a.genre] || 0);
+      return diff !== 0 ? diff : (a.title || "").localeCompare(b.title || "");
+    });
+  }, [likedSongs]);
+
+  // ── Stage 1: Skeleton ─────────────────────────────────────────────────────
+  if (isLoading) return <LikedSongsSkeleton />;
+
+  // ── Error state ───────────────────────────────────────────────────────────
   if (isError) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.container}>
-          <div style={styles.empty}>
-            <p style={styles.emptyTitle}>Something went wrong</p>
-            <p style={styles.emptySubtitle}>
-              We couldn't load your liked songs. Please try again later.
-            </p>
-          </div>
+      <div className="ls-page ls-page--centered" role="alert">
+        <div className="ls-error-card">
+          <span className="ls-error-card__icon" aria-hidden="true">⚠️</span>
+          <p className="ls-error-card__title">Couldn't load your liked songs</p>
+          <p className="ls-error-card__sub">Check your connection and try again.</p>
+          <button className="ls-btn-retry" onClick={() => refetch()}>
+            Try Again
+          </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <div style={styles.page}>
-      <Navbar />
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <div style={styles.iconWrap}>
-            <HeartIcon />
+  // ── Empty state ───────────────────────────────────────────────────────────
+  if (likedSongs.length === 0) {
+    return (
+      <div className="ls-page ls-page--centered">
+        <div className="ls-empty">
+          <div className="ls-empty__heart-ring" aria-hidden="true">
+            <HeartOutlineIcon />
           </div>
-          <div>
-            <h1 style={styles.heading}>Liked Songs</h1>
-            <p style={styles.subheading}>
-              {likedSongs.length} {likedSongs.length === 1 ? "song" : "songs"} saved
-            </p>
-          </div>
+          <p className="ls-empty__title">Nothing here yet</p>
+          <p className="ls-empty__sub">
+            Heart a song to save it here for quick access.
+          </p>
+          <Link to="/" className="ls-btn-browse">
+            Browse Library
+          </Link>
         </div>
+      </div>
+    );
+  }
 
-        <div style={styles.divider} />
-
-        {likedSongs.length === 0 ? (
-          <div style={styles.empty}>
-            <div style={styles.emptyIconWrap}>
-              <HeartOutlineIcon />
-            </div>
-            <p style={styles.emptyTitle}>No liked songs yet</p>
-            <p style={styles.emptySubtitle}>
-              Like a song to save it here for quick access.
-            </p>
-            <Link to="/" style={styles.browseBtn}>
-              Browse Library
-            </Link>
-          </div>
-        ) : (
-          <SongList songs={likedSongs} />
-        )}
+  // ── Full page ─────────────────────────────────────────────────────────────
+  return (
+    <div className="ls-page">
+      {/* Stage 2 — Hero */}
+      <div className="ls-hero-enter">
+        <LikedSongsHero
+          songs={likedSongs}
+          onPlayAll={() =>
+            likedSongs[0] && playSongFromContext(likedSongs[0], 0, likedSongs)
+          }
+          onSmartPlay={() => {
+            const q = buildSmartQueue();
+            q[0] && playSongFromContext(q[0], 0, q);
+          }}
+        />
       </div>
 
-      {/* Spacer for fixed music player */}
-      <div style={{ height: 88 }} />
+      {/* Stage 3 — Body */}
+      <div className="ls-body">
+        <LikedSongsFilters
+          songs={likedSongs}
+          activeGenre={activeGenre}
+          onGenreChange={setActiveGenre}
+          sortBy={sortBy}
+          onSortChange={setSortBy}
+          groupByGenre={groupByGenre}
+          onGroupToggle={() => setGroupByGenre((g) => !g)}
+        />
+        {/*
+          IMPORTANT: toggleLike and likedSongIds are passed DOWN from here.
+          LikedSongsTable must NOT call useLikedSongs internally — that creates
+          a second React Query subscription and conflicts with optimistic updates.
+        */}
+        <LikedSongsTable
+          songs={likedSongs}
+          sortBy={sortBy}
+          activeGenre={activeGenre}
+          groupByGenreEnabled={groupByGenre}
+          currentSongId={currentSong?.id ?? null}
+          isGloballyPlaying={isGloballyPlaying}
+          onPlaySong={playSongFromContext}
+          uid={user?.uid}
+        />
+      </div>
     </div>
   );
 };
 
-const HeartIcon = () => (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
-    <path
-      d="M12 21C12 21 3 14.5 3 8.5C3 5.42 5.42 3 8.5 3C10.24 3 11.91 3.81 13 5.09C14.09 3.81 15.76 3 17.5 3C20.58 3 23 5.42 23 8.5C23 14.5 14 21 12 21Z"
-      fill="#fff"
-    />
-  </svg>
-);
-
 const HeartOutlineIcon = () => (
-  <svg
-    width="28"
-    height="28"
-    viewBox="0 0 24 24"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path
       d="M12 21C12 21 3 14.5 3 8.5C3 5.42 5.42 3 8.5 3C10.24 3 11.91 3.81 13 5.09C14.09 3.81 15.76 3 17.5 3C20.58 3 23 5.42 23 8.5C23 14.5 14 21 12 21Z"
-      stroke="#4b5563"
+      stroke="#6b7280"
       strokeWidth="1.5"
       strokeLinejoin="round"
-      fill="none"
     />
   </svg>
 );
-
-const styles = {
-  page: {
-    minHeight: "100vh",
-    background: "#0f0f0f",
-    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
-  },
-  container: { maxWidth: "1200px", margin: "0 auto", padding: "36px 20px 0" },
-  header: {
-    display: "flex",
-    alignItems: "center",
-    gap: "16px",
-    marginBottom: "24px",
-  },
-  iconWrap: {
-    width: "52px",
-    height: "52px",
-    background: "#e11d48",
-    borderRadius: "14px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  heading: {
-    color: "#fff",
-    fontSize: "22px",
-    fontWeight: "700",
-    letterSpacing: "-0.3px",
-    marginBottom: "4px",
-  },
-  subheading: { color: "#6b7280", fontSize: "13px" },
-  divider: { height: "1px", background: "#2d2d2d", marginBottom: "28px" },
-  empty: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    textAlign: "center",
-    padding: "72px 20px",
-    gap: "12px",
-  },
-  emptyIconWrap: {
-    width: "60px",
-    height: "60px",
-    background: "#1a1a1a",
-    border: "1px solid #2d2d2d",
-    borderRadius: "16px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: "4px",
-  },
-  emptyTitle: { color: "#fff", fontSize: "16px", fontWeight: "600" },
-  emptySubtitle: { color: "#6b7280", fontSize: "13px", maxWidth: "260px" },
-  browseBtn: {
-    display: "inline-block",
-    marginTop: "8px",
-    background: "#22c55e",
-    color: "#000",
-    textDecoration: "none",
-    borderRadius: "8px",
-    padding: "10px 24px",
-    fontSize: "13px",
-    fontWeight: "600",
-  },
-};
 
 export default LikedSongs;

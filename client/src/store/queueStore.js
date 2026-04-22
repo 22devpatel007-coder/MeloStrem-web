@@ -1,7 +1,22 @@
 /**
  * client/src/store/queueStore.js
  *
- * PLAYBACK CONTEXT CHANGES:
+ * PATCH — appendSongs action added (supports queue auto-pagination).
+ *
+ * NEW ACTION: appendSongs(newSongs)
+ *   Called by playerStore.appendSongsToQueue() when a new React Query page
+ *   arrives after playerStore.playNext() requested a fetch.
+ *   - Deduplicates by song.id before appending (safe to call multiple times)
+ *   - Does NOT reset currentIndex or trigger playback — that is handled by
+ *     playerStore.appendSongsToQueue() after calling this function
+ *   - Does NOT touch shuffledOrder — Classic shuffle is never active during
+ *     library auto-pagination (it uses its own shuffledOrder separately)
+ *
+ * UNCHANGED: Every other action is identical to the previous version.
+ *   setQueueFromContext, setQueue, addToQueue, removeFromQueue, reorderQueue,
+ *   nextSong, prevSong, clearQueue — all preserved exactly.
+ *
+ * PLAYBACK CONTEXT CHANGES (preserved from previous version):
  *
  * setQueueFromContext — new action called exclusively by playerStore.setPlaybackContext().
  *   Replaces setQueue for context-aware playback initiation.
@@ -40,10 +55,6 @@ const useQueueStore = create((set, get) => ({
 
     // In dynamic context, if Classic is somehow active, force it off
     const playerState = usePlayerStore.getState();
-    if (contextType === 'dynamic' && playerState.shuffleMode === 'classic') {
-      usePlayerStore.setState({ shuffleMode: 'smart', shuffledOrder: [], shuffledIndex: -1 });
-    }
-
     // Reset shuffle session with the new pool
     playerState.resetShuffleSession();
 
@@ -63,6 +74,27 @@ const useQueueStore = create((set, get) => ({
 
     usePlayerStore.getState().resetShuffleSession();
     usePlayerStore.getState().playSong(songs[idx]);
+  },
+
+  // ── appendSongs ────────────────────────────────────────────────────────────
+  //
+  // NEW — called by playerStore.appendSongsToQueue() when a new React Query
+  // page arrives after playNext() requested a pagination fetch.
+  //
+  // Deduplicates by song.id so re-fetching a page never creates duplicates.
+  // Does NOT reset currentIndex — playback position is preserved.
+  // Does NOT touch shuffledOrder — Classic shuffle manages its own order;
+  // auto-pagination only applies to linear playback in 'library' context.
+  //
+  appendSongs: (newSongs) => {
+    if (!Array.isArray(newSongs) || newSongs.length === 0) return;
+
+    set((s) => {
+      const existingIds = new Set(s.queue.map((song) => song.id));
+      const unique = newSongs.filter((song) => song?.id && !existingIds.has(song.id));
+      if (unique.length === 0) return s; // no change — all were duplicates
+      return { queue: [...s.queue, ...unique] };
+    });
   },
 
   // ── addToQueue ─────────────────────────────────────────────────────────────

@@ -1,177 +1,289 @@
 /**
  * server/src/controllers/users.controller.js
  *
- * ADDED: logSessionPicks
- *   POST /users/:uid/session-picks
+ * PRODUCTION READY — All Firestore calls wrapped in retryFirestore() to absorb
+ * transient ECONNRESET / socket hang up failures.
  *
- *   Receives batched pick events from the frontend for co-occurrence data
- *   collection (Option B foundation). Each pick records:
- *     - songId: the song that was picked
- *     - previousSongId: the song that was playing before (co-occurrence signal)
- *     - contextType: 'library' | 'playlist' | 'liked' | 'dynamic'
- *     - contextId: playlist ID or null
- *     - ts: client-side timestamp (ms)
- *     - sessionId: generated server-side from uid + date for grouping
+ * PHASE 1 — TASK 1.1 changes (preserved):
+ *   - All res.status(4xx/5xx).json() error calls replaced with AppError throws.
+ *   - Controllers call next(err) instead of res.json() for errors.
+ *   - All success responses, business logic, retryFirestore calls, and session
+ *     pick fire-and-forget pattern: completely untouched.
  *
- *   Storage: Firestore subcollection users/{uid}/sessionPicks/{docId}
- *   Each doc is a batch of picks (not one doc per pick) to minimize write volume.
+ * PHASE 3 — TASK 3.3 changes (preserved):
+ *   - getLikedSongs: MAX_LIKED_SONGS_FETCH cap (500) on db.getAll() IDs.
+ *   - toggleLikedSong: LIKED_SONGS_WARN_THRESHOLD soft warning log.
+ *   - getAllUsers: delegates to firebase.service.getAllUsers (capped).
  *
- *   Non-blocking design: errors are logged but never surfaced to client.
- *   Frontend fire-and-forget — 200 OK always on valid input.
+ * PHASE 3 — TASK 3.4: Background Job Queue for Session Picks
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Changes from previous version (ONLY logSessionPicks changed):
  *
- * PRESERVED: getLikedSongs, toggleLikedSong, getAllUsers unchanged.
+ *   logSessionPicks — replaces the direct retryFirestore Firestore write with
+ *                     sessionPicksQueue.enqueue(). Everything else is identical:
+ *                     - Auth ownership check:  IDENTICAL (req.user.uid !== uid)
+ *                     - picks validation:      IDENTICAL (Array check, 50 cap)
+ *                     - res.json({ success: true }): IDENTICAL — still fires
+ *                       before any write, before enqueue
+ *                     - sanitize / sessionId logic: IDENTICAL — same fields,
+ *                       same contextType whitelist, same clientTs fallback
+ *                     - Error handling for enqueue: not needed — enqueue() is
+ *                       synchronous and never throws. If the queue is shut down,
+ *                       it logs and discards silently (correct behaviour).
+ *
+ * WHY enqueue() NEVER needs try/catch:
+ *   enqueue() is a synchronous Map.set() with no I/O. It cannot throw an
+ *   uncaught async error. The only failure modes (uid cap, shutdown) are
+ *   handled inside SessionPicksQueue with logger.warn — not exceptions.
+ *   The controller has already sent res.json({ success: true }) before calling
+ *   enqueue, so there is no HTTP response to fail regardless.
+ *
+ * Unchanged from previous version:
+ *   - getAllUsers:     completely untouched
+ *   - getLikedSongs:  completely untouched
+ *   - toggleLikedSong: completely untouched
+ *   - All AppError imports and usage: preserved
+ *   - All retryFirestore imports and usage: preserved (still used in liked songs)
  */
 
-const { db } = require('../config/firebase');
-const { getAllUsers } = require('../services/firebase.service');
-const logger = require('../utils/logger');
+'use strict';
+
+const { db }              = require('../config/firebase');
+const { getAllUsers }     = require('../services/firebase.service');
+const { retryFirestore }  = require('../utils/retryFirestore');
+const { sessionPicksQueue } = require('../jobs/SessionPicksQueue'); // ← Task 3.4
+const logger              = require('../utils/logger');
+const { ForbiddenError, ValidationError, InternalError } = require('../errors');
+
+// ── Liked songs caps ──────────────────────────────────────────────────────────
+//
+// MAX_LIKED_SONGS_FETCH: maximum number of liked song IDs resolved via
+//   db.getAll() in a single getLikedSongs request.
+//
+// LIKED_SONGS_WARN_THRESHOLD: log a warning when a user's liked songs array
+//   grows past this size. Does NOT block the toggle action.
+//
+const MAX_LIKED_SONGS_FETCH      = 500;
+const LIKED_SONGS_WARN_THRESHOLD = 500;
 
 // ── GET /users ────────────────────────────────────────────────────────────────
-exports.getAllUsers = async (req, res) => {
+exports.getAllUsers = async (req, res, next) => {
   try {
     let users = await getAllUsers();
     users = users.map((u) => ({ ...u, likedSongs: undefined }));
-    res.json({ success: true, data: users });
+    return res.json({ success: true, data: users });
   } catch (err) {
     logger.error('getAllUsers error:', { error: err.message });
-    res.status(500).json({ success: false, message: err.message });
+    return next(
+      new InternalError(
+        'Failed to fetch users. Please try again.',
+        'INTERNAL_ERROR',
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
 // ── GET /users/:uid/liked-songs ───────────────────────────────────────────────
-exports.getLikedSongs = async (req, res) => {
+exports.getLikedSongs = async (req, res, next) => {
   const { uid } = req.params;
 
   if (req.user.uid !== uid) {
-    return res.status(403).json({ success: false, message: 'Forbidden' });
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
   }
 
   try {
-    const userDoc = await db.collection('users').doc(uid).get();
+    const userDoc = await retryFirestore(
+      () => db.collection('users').doc(uid).get(),
+      { label: 'getLikedSongs:userDoc' },
+    );
 
     if (!userDoc.exists) {
       return res.json({ success: true, data: [] });
     }
 
-    const likedSongIds = userDoc.data().likedSongs ?? [];
+    const allLikedSongIds = userDoc.data().likedSongs ?? [];
 
-    if (likedSongIds.length === 0) {
+    if (allLikedSongIds.length === 0) {
       return res.json({ success: true, data: [] });
     }
 
+    let likedSongIds = allLikedSongIds;
+    if (allLikedSongIds.length > MAX_LIKED_SONGS_FETCH) {
+      logger.warn('getLikedSongs: user has more liked songs than fetch cap', {
+        uid,
+        total:  allLikedSongIds.length,
+        cap:    MAX_LIKED_SONGS_FETCH,
+        action: 'truncating to most recent songs — liked songs pagination needed',
+      });
+      likedSongIds = allLikedSongIds.slice(-MAX_LIKED_SONGS_FETCH);
+    }
+
     const refs  = likedSongIds.map((id) => db.collection('songs').doc(id));
-    const snaps = await db.getAll(...refs);
+    const snaps = await retryFirestore(() => db.getAll(...refs), {
+      label: 'getLikedSongs:getAll',
+    });
 
     const songs = snaps
       .filter((snap) => snap.exists)
-      .map((snap) => ({ id: snap.id, ...snap.data() }));
+      .map((snap) => {
+        const data = snap.data();
+        return {
+          id: snap.id,
+          ...data,
+          createdAt: data.createdAt?.toDate
+            ? data.createdAt.toDate().toISOString()
+            : (data.createdAt ?? null),
+          updatedAt: data.updatedAt?.toDate
+            ? data.updatedAt.toDate().toISOString()
+            : (data.updatedAt ?? null),
+        };
+      });
 
     return res.json({ success: true, data: songs });
   } catch (err) {
     logger.error('getLikedSongs error:', { uid, error: err.message });
-    return res.status(500).json({ success: false, message: 'Failed to fetch liked songs' });
+    return next(
+      new InternalError(
+        'Failed to fetch liked songs. Please try again.',
+        'INTERNAL_ERROR',
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
 // ── POST /users/:uid/liked-songs/:songId ──────────────────────────────────────
-exports.toggleLikedSong = async (req, res) => {
+exports.toggleLikedSong = async (req, res, next) => {
   const { uid, songId } = req.params;
 
   if (req.user.uid !== uid) {
-    return res.status(403).json({ success: false, message: 'Forbidden' });
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
   }
 
   if (!songId) {
-    return res.status(400).json({ success: false, message: 'songId is required' });
+    return next(new ValidationError('songId is required', 'VALIDATION_ERROR'));
   }
 
   try {
     const userRef = db.collection('users').doc(uid);
 
-    const updatedList = await db.runTransaction(async (tx) => {
-      const snap       = await tx.get(userRef);
-      const likedSongs = snap.exists ? (snap.data().likedSongs ?? []) : [];
+    const updatedList = await retryFirestore(
+      () =>
+        db.runTransaction(async (tx) => {
+          const snap       = await tx.get(userRef);
+          const likedSongs = snap.exists ? (snap.data().likedSongs ?? []) : [];
 
-      const nextList = likedSongs.includes(songId)
-        ? likedSongs.filter((id) => id !== songId)
-        : [...likedSongs, songId];
+          if (likedSongs.length >= LIKED_SONGS_WARN_THRESHOLD) {
+            logger.warn('toggleLikedSong: user liked songs array at or above warn threshold', {
+              uid,
+              count:     likedSongs.length,
+              threshold: LIKED_SONGS_WARN_THRESHOLD,
+              action:    'liked songs pagination should be implemented',
+            });
+          }
 
-      tx.set(userRef, { likedSongs: nextList }, { merge: true });
-      return nextList;
-    });
+          const nextList = likedSongs.includes(songId)
+            ? likedSongs.filter((id) => id !== songId)
+            : [...likedSongs, songId];
 
-    res.json({ success: true, data: updatedList });
+          tx.set(userRef, { likedSongs: nextList }, { merge: true });
+          return nextList;
+        }),
+      { label: 'toggleLikedSong' },
+    );
+
+    return res.json({ success: true, data: updatedList });
   } catch (err) {
     logger.error('toggleLikedSong error:', { uid, songId, error: err.message });
-    res.status(500).json({ success: false, message: 'Failed to toggle liked song' });
+    return next(
+      new InternalError(
+        'Failed to update liked songs. Please try again.',
+        'INTERNAL_ERROR',
+        { originalError: err.message },
+      ),
+    );
   }
 };
 
 // ── POST /users/:uid/session-picks ────────────────────────────────────────────
-// Receives batched pick events for co-occurrence data collection.
-// Fire-and-forget from client — always returns 200 on valid input.
-// Errors are logged server-side but never returned to client.
-exports.logSessionPicks = async (req, res) => {
+//
+// PHASE 3 TASK 3.4: Direct Firestore write replaced with sessionPicksQueue.enqueue().
+//
+// What stays IDENTICAL to the previous version:
+//   ✓ Ownership check:         req.user.uid !== uid → ForbiddenError
+//   ✓ picks validation:        Array check + empty check → ValidationError
+//   ✓ MAX_PICKS_PER_BATCH cap: 50 → ValidationError
+//   ✓ Response timing:         res.json({ success: true }) fires FIRST
+//                              before any write or enqueue
+//   ✓ sanitize logic:          identical field mapping, whitelist, fallbacks
+//   ✓ sessionId format:        `${uid}_${YYYY-MM-DD}` unchanged
+//   ✓ sanitized.length guard:  if sanitized is empty after filtering, early return
+//
+// What changed:
+//   ✗ Removed:  direct retryFirestore + db.collection('sessionPicks').add()
+//   ✓ Added:    sessionPicksQueue.enqueue(uid, sanitized, sessionId)
+//
+exports.logSessionPicks = async (req, res, next) => {
   const { uid } = req.params;
 
+  // ── Ownership check (unchanged) ───────────────────────────────────────────
   if (req.user.uid !== uid) {
-    return res.status(403).json({ success: false, message: 'Forbidden' });
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
   }
 
   const { picks } = req.body;
 
-  // Validate payload shape — must be a non-empty array
+  // ── Input validation (unchanged) ─────────────────────────────────────────
   if (!Array.isArray(picks) || picks.length === 0) {
-    return res.status(400).json({ success: false, message: 'picks must be a non-empty array' });
+    return next(
+      new ValidationError(
+        'picks must be a non-empty array',
+        'VALIDATION_ERROR',
+      ),
+    );
   }
 
-  // Cap batch size to prevent abuse — matches frontend FLUSH_EVERY threshold
   const MAX_PICKS_PER_BATCH = 50;
   if (picks.length > MAX_PICKS_PER_BATCH) {
-    return res.status(400).json({
-      success: false,
-      message: `picks batch too large — max ${MAX_PICKS_PER_BATCH} per request`,
-    });
+    return next(
+      new ValidationError(
+        `picks batch too large — max ${MAX_PICKS_PER_BATCH} per request`,
+        'VALIDATION_ERROR',
+      ),
+    );
   }
 
-  // Respond immediately — Firestore write is non-blocking from client's perspective
+  // ── Respond immediately (unchanged) ──────────────────────────────────────
+  // Client receives { success: true } before any write or enqueue.
+  // This preserves the fire-and-forget contract.
   res.json({ success: true });
 
-  // Validate and sanitize each pick entry
+  // ── Sanitize picks (unchanged logic) ─────────────────────────────────────
   const sanitized = picks
     .filter((p) => p && typeof p.songId === 'string' && p.songId.trim())
     .map((p) => ({
-      songId:         p.songId.trim(),
-      previousSongId: typeof p.previousSongId === 'string' ? p.previousSongId.trim() : null,
-      contextType:    ['library', 'playlist', 'liked', 'dynamic'].includes(p.contextType)
-                        ? p.contextType
-                        : 'library',
-      contextId:      typeof p.contextId === 'string' ? p.contextId.trim() : null,
-      // Use server timestamp for storage — client ts kept for ordering within batch
-      clientTs:       typeof p.ts === 'number' ? p.ts : Date.now(),
+      songId: p.songId.trim(),
+      previousSongId:
+        typeof p.previousSongId === 'string' ? p.previousSongId.trim() : null,
+      contextType: ['library', 'playlist', 'liked', 'dynamic'].includes(p.contextType)
+        ? p.contextType
+        : 'library',
+      contextId: typeof p.contextId === 'string' ? p.contextId.trim() : null,
+      clientTs:  typeof p.ts === 'number' ? p.ts : Date.now(),
     }));
 
-  if (!sanitized.length) {
-    // All picks were invalid — already responded 200, just return
-    return;
-  }
+  // Guard: if all picks were filtered out as invalid, nothing to enqueue
+  if (!sanitized.length) return;
 
-  // Session ID: uid + UTC date — groups all picks from a calendar day
+  // ── Build sessionId (unchanged) ───────────────────────────────────────────
   const today     = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
   const sessionId = `${uid}_${today}`;
 
-  try {
-    await db
-      .collection('users')
-      .doc(uid)
-      .collection('sessionPicks')
-      .add({
-        sessionId,
-        picks:    sanitized,
-        pickedAt: new Date(),
-      });
-  } catch (err) {
-    // Non-critical — log but do not re-surface (response already sent)
-    logger.error('logSessionPicks write error:', { uid, error: err.message });
-  }
+  // ── Enqueue — replaces direct Firestore write ─────────────────────────────
+  // enqueue() is synchronous (Map.set) and never throws.
+  // The SessionPicksQueue drainer writes to Firestore every 5 seconds,
+  // batching all pending picks for each uid into one .add() call.
+  // Failed writes are retried up to MAX_RETRIES (3) before dead-lettering.
+  sessionPicksQueue.enqueue(uid, sanitized, sessionId);
 };

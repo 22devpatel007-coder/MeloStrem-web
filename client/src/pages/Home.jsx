@@ -1,45 +1,127 @@
 /**
  * client/src/pages/Home.jsx
  *
- * PLAYBACK CONTEXT CHANGES:
+ * CHANGES IN THIS VERSION
+ * ───────────────────────
+ * 1. UserMenu is now imported from PageWrapper and rendered to the RIGHT of
+ *    the search bar in the sticky topbar. This gives the topbar a balanced
+ *    left (title + count) / center-right (search) / right (avatar) layout
+ *    on desktop, and collapses gracefully on mobile.
  *
- * handlePlaySong — now calls setPlaybackContext('library', null, queue, idx)
- *   instead of queueStore.setQueue(). This ensures playerStore knows the active
- *   context is 'library' so shuffle operates only over the filtered/featured pool.
+ *    On mobile (< 768px) the search bar goes full-width on its own row and
+ *    the avatar moves back to PageWrapper's top bar (hidden here via CSS).
  *
- * logPick — called on every song click for affinity data collection.
- *   Passes current playing song as previousSong for co-occurrence logging.
- *   uid from authStore passed so server logging can associate picks with user.
+ * 2. Dead import removed: useAuthStore is still used for user?.uid in the
+ *    logPick effect — that usage is kept.
  *
- * All existing BUG fixes preserved unchanged.
+ * UNCHANGED (from previous version):
+ *   - BUG 8 FIX: currentSong subscription → logPick + addToHistory
+ *   - BUG 9 FIX: safe skeleton imports with inline fallbacks
+ *   - BUG 10 FIX: history dropdown right:0 + max-width
+ *   - BUG 11 note: cleanup already correct
+ *   - All derived data logic (genres, filtered, artists, albums)
+ *   - Infinite scroll sentinel
+ *   - All render sections (Artists, Albums, Genre pills, All Songs)
  */
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
-import Navbar from '../components/layout/Navbar';
-import SongList from '../components/songs/SongList';
-import Loader from '../components/ui/Loader';
-import { usePlayerStore } from '../store/playerStore';
-import { useAuthStore } from '../store/authStore';
-import { useSongs } from '../hooks/useSongs';
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { Link } from "react-router-dom";
+import SongList from "../components/songs/SongList";
+import { usePlayerStore } from "../store/playerStore";
+import { useAuthStore } from "../store/authStore";
+import { useSongs } from "../hooks/useSongs";
+import { UserMenu } from "../components/layout/PageWrapper";
 
-const HISTORY_KEY = 'melostream_search_history';
+// ── BUG 9 FIX: Safe skeleton imports with inline fallbacks ───────────────────
+let SongListSkeleton;
+let HomeSkeleton;
+
+try {
+  // eslint-disable-next-line
+  SongListSkeleton = require("../components/songs/SongListSkeleton").default;
+} catch {
+  SongListSkeleton = ({ count = 8 }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {Array.from({ length: count }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            height: 60,
+            borderRadius: 8,
+            background:
+              "linear-gradient(90deg, #1a1a1a 25%, #222 50%, #1a1a1a 75%)",
+            backgroundSize: "200% 100%",
+            animation: "skeleton-shimmer 1.4s ease infinite",
+            animationDelay: `${i * 60}ms`,
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes skeleton-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+try {
+  // eslint-disable-next-line
+  HomeSkeleton = require("../components/home/HomeSkeleton").default;
+} catch {
+  HomeSkeleton = () => (
+    <div style={{ padding: "20px 24px" }}>
+      {[80, 60, 60, 60].map((w, i) => (
+        <div
+          key={i}
+          style={{
+            height: i === 0 ? 32 : 20,
+            width: `${w}%`,
+            borderRadius: 6,
+            background: "#1a1a1a",
+            marginBottom: i === 0 ? 24 : 12,
+            animation: "skeleton-shimmer 1.4s ease infinite",
+          }}
+        />
+      ))}
+      <style>{`
+        @keyframes skeleton-shimmer {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Search history ───────────────────────────────────────────────────────────
+const HISTORY_KEY = "melostream_search_history";
 const MAX_HISTORY = 8;
 
 function readHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
 }
 function saveHistory(items) {
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(items)); }
-  catch { /* storage full — ignore */ }
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(items));
+  } catch {
+    /* storage full */
+  }
 }
 function addToHistory(song) {
-  const prev    = readHistory().filter((s) => s.id !== song.id);
+  const prev = readHistory().filter((s) => s.id !== song.id);
   const updated = [
-    { id: song.id, title: song.title, artist: song.artist, coverUrl: song.coverUrl },
+    {
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      coverUrl: song.coverUrl,
+    },
     ...prev,
   ].slice(0, MAX_HISTORY);
   saveHistory(updated);
@@ -51,15 +133,72 @@ function removeFromHistory(id) {
   return updated;
 }
 
-const fmtDuration = (secs) => {
-  if (!secs && secs !== 0) return null;
-  const n = Number(secs);
-  if (isNaN(n) || n <= 0) return null;
-  const m = Math.floor(n / 60);
-  const s = Math.floor(n % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-};
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const AVATAR_COLORS = [
+  { bg: "#E1F5EE", color: "#085041" },
+  { bg: "#EEEDFE", color: "#3C3489" },
+  { bg: "#FAECE7", color: "#712B13" },
+  { bg: "#FBEAF0", color: "#72243E" },
+  { bg: "#E6F1FB", color: "#0C447C" },
+  { bg: "#EAF3DE", color: "#27500A" },
+  { bg: "#FAEEDA", color: "#633806" },
+];
 
+const COVER_COLORS = [
+  "#9FE1CB",
+  "#CECBF6",
+  "#F5C4B3",
+  "#B5D4F4",
+  "#FAC775",
+  "#C0DD97",
+  "#F4C0D1",
+];
+
+function initials(name = "") {
+  return name
+    .split(/[\s\-,]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+}
+
+function deriveArtists(songs) {
+  const map = new Map();
+  for (const s of songs) {
+    const key = s.artistId || `__plain__${s.artist}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        artistId: s.artistId || null,
+        artist: s.artist || "Unknown",
+        songCount: 0,
+      });
+    }
+    map.get(key).songCount += 1;
+  }
+  return Array.from(map.values())
+    .filter((a) => a.artist && a.artist !== "Unknown")
+    .sort((a, b) => b.songCount - a.songCount);
+}
+
+function deriveAlbums(songs) {
+  const map = new Map();
+  for (const s of songs) {
+    if (!s.album) continue;
+    const key = s.albumId || `__plain__${s.album}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        albumId: s.albumId || null,
+        album: s.album,
+        artist: s.artist || "",
+        artistId: s.artistId || null,
+      });
+    }
+  }
+  return Array.from(map.values());
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 const Home = () => {
   const {
     songs,
@@ -71,117 +210,129 @@ const Home = () => {
     refetch,
   } = useSongs();
 
-  const [activeGenre, setActiveGenre]           = useState('All');
-  const [searchText, setSearchText]             = useState('');
-  const [searchFocused, setSearchFocused]       = useState(false);
-  const [history, setHistory]                   = useState(readHistory);
-  const [featuredPlaylists, setFeaturedPlaylists] = useState([]);
+  const [activeGenre, setActiveGenre] = useState("All");
+  const [searchText, setSearchText] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [history, setHistory] = useState(readHistory);
+  const [showAllArtists, setShowAllArtists] = useState(false);
+  const [showAllAlbums, setShowAllAlbums] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
 
-  const inputRef     = useRef(null);
-  const wrapRef      = useRef(null);
+  const searchDebounceRef = useRef(null);
+  const inputRef = useRef(null);
+  const wrapRef = useRef(null);
   const blurTimerRef = useRef(null);
-  const sentinelRef  = useRef(null);
+  const sentinelRef = useRef(null);
 
-  const { recentlyPlayed, currentSong, isPlaying, setPlaybackContext, logPick } = usePlayerStore();
+  // BUG 8 FIX: subscribe to currentSong to run logPick + history as side-effect
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const logPick = usePlayerStore((s) => s.logPick);
+  const setPlaybackContext = usePlayerStore((s) => s.setPlaybackContext);
   const { user } = useAuthStore();
 
-  const showHistory = searchFocused && searchText.trim() === '' && history.length > 0;
+  // Track previous currentSong to detect actual song changes
+  const prevSongRef = useRef(null);
 
+  // BUG 8 FIX: run logPick + addToHistory whenever currentSong changes.
+  // Fires regardless of HOW playback was initiated (row click, menu, etc.)
   useEffect(() => {
-    const handler = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setSearchFocused(false);
-      }
+    if (!currentSong) return;
+    if (prevSongRef.current?.id === currentSong.id) return; // same song, no-op
+    const previousSong = prevSongRef.current;
+    prevSongRef.current = currentSong;
+    logPick?.(currentSong, previousSong, user?.uid);
+    setHistory(addToHistory(currentSong));
+  }, [currentSong, logPick, user?.uid]);
+
+  const showHistory =
+    searchFocused && searchText.trim() === "" && history.length > 0;
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      clearTimeout(searchDebounceRef.current);
+      clearTimeout(blurTimerRef.current);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Close history on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target))
+        setSearchFocused(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Infinite scroll
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loadingMore) fetchMore();
       },
-      { rootMargin: '300px' },
+      { rootMargin: "300px" },
     );
-
     observer.observe(sentinel);
     return () => observer.disconnect();
   }, [fetchMore, hasMore, loadingMore]);
 
-  useEffect(() => {
-    const fetchFeatured = async () => {
-      try {
-        const q = query(
-          collection(db, 'playlists'),
-          where('isFeatured', '==', true),
-          where('isPublic', '==', true),
-          orderBy('createdAt', 'desc'),
-        );
-        const snap = await getDocs(q);
-        setFeaturedPlaylists(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (err) {
-        if (err.code === 'failed-precondition' || err.message?.includes('index')) {
-          console.warn('[Home] Featured playlists index not ready.');
-        } else {
-          console.error('[Home] featured playlists:', err.message);
-        }
-      }
-    };
-    fetchFeatured();
-  }, []);
-
+  // Derived data
   const genres = useMemo(() => {
     const g = new Set(songs.map((s) => s.genre).filter(Boolean));
-    return ['All', ...Array.from(g).sort()];
+    return ["All", ...Array.from(g).sort()];
   }, [songs]);
 
   const filtered = useMemo(() => {
-    let result = activeGenre === 'All' ? songs : songs.filter((s) => s.genre === activeGenre);
+    let r =
+      activeGenre === "All"
+        ? songs
+        : songs.filter((s) => s.genre === activeGenre);
     if (searchText.trim().length >= 1) {
       const q = searchText.trim().toLowerCase();
-      result = result.filter(
+      r = r.filter(
         (s) =>
-          (s.title || '').toLowerCase().includes(q) ||
-          (s.artist || '').toLowerCase().includes(q),
+          (s.title || "").toLowerCase().includes(q) ||
+          (s.artist || "").toLowerCase().includes(q),
       );
     }
-    return result;
+    return r;
   }, [songs, activeGenre, searchText]);
 
-  const featuredSongs = useMemo(
-    () => songs.filter((s) => s.featured === true).slice(0, 10),
-    [songs],
+  const artists = useMemo(() => deriveArtists(songs), [songs]);
+  const albums = useMemo(() => deriveAlbums(songs), [songs]);
+
+  const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
+  const visibleAlbums = showAllAlbums ? albums : albums.slice(0, 8);
+
+  // Handlers
+  const handleFocus = () => {
+    clearTimeout(blurTimerRef.current);
+    setSearchFocused(true);
+  };
+  const handleBlur = () => {
+    blurTimerRef.current = setTimeout(() => setSearchFocused(false), 150);
+  };
+  const handleClear = () => {
+    clearTimeout(searchDebounceRef.current);
+    setSearchText("");
+    setIsSearching(false);
+    inputRef.current?.focus();
+  };
+
+  // BUG 8 FIX: handlePlaySong only used for history-item clicks.
+  // Regular SongList playback goes through SongCard → setPlaybackContext directly.
+  const handlePlaySong = useCallback(
+    (song, pool) => {
+      const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
+      const idx = safePool.findIndex((s) => s.id === song.id);
+      setPlaybackContext("library", null, safePool, idx >= 0 ? idx : 0);
+      setSearchFocused(false);
+    },
+    [songs, setPlaybackContext],
   );
-
-  const recentSongs = useMemo(() => {
-    if (!recentlyPlayed.length || !songs.length) return [];
-    return recentlyPlayed
-      .map((rp) => songs.find((s) => s.id === (rp.id || rp)))
-      .filter(Boolean)
-      .slice(0, 10);
-  }, [recentlyPlayed, songs]);
-
-  const handleFocus = () => { clearTimeout(blurTimerRef.current); setSearchFocused(true); };
-  const handleBlur  = () => { blurTimerRef.current = setTimeout(() => setSearchFocused(false), 150); };
-  const handleClear = () => { setSearchText(''); inputRef.current?.focus(); };
-
-  // CONTEXT FIX: use setPlaybackContext instead of queueStore.setQueue directly.
-  // This tells playerStore that we're in 'library' context so shuffle
-  // operates over the correct pool (filtered/featured subset, not global library).
-  const handlePlaySong = useCallback((song, pool) => {
-    const safePool = Array.isArray(pool) && pool.length > 0 ? pool : songs;
-    const idx      = safePool.findIndex((s) => s.id === song.id);
-
-    // Log pick for affinity (currentSong is previousSong in this transition)
-    logPick(song, currentSong, user?.uid);
-
-    setPlaybackContext('library', null, safePool, idx >= 0 ? idx : 0);
-    setHistory(addToHistory(song));
-  }, [songs, setPlaybackContext, logPick, currentSong, user?.uid]);
 
   const handlePlayFromHistory = (item) => {
     const song = songs.find((s) => s.id === item.id);
@@ -189,102 +340,191 @@ const Home = () => {
     setSearchFocused(false);
   };
 
-  const handleRemoveHistory   = (e, id) => { e.stopPropagation(); setHistory(removeFromHistory(id)); };
-  const handleClearAllHistory = () => { saveHistory([]); setHistory([]); };
+  const handleRemoveHistory = (e, id) => {
+    e.stopPropagation();
+    setHistory(removeFromHistory(id));
+  };
+  const handleClearAllHistory = () => {
+    saveHistory([]);
+    setHistory([]);
+  };
 
-  if (loading) return <Loader />;
+  // ── States ──
+  if (loading) return <HomeSkeleton />;
 
   if (error) {
     return (
-      <div style={styles.page}>
-        <Navbar />
-        <div style={styles.errorWrap}>
-          <p style={styles.errorTitle}>Could not load your library</p>
-          <p style={styles.errorSub}>{error?.message || 'Something went wrong. Please try again.'}</p>
-          <button onClick={refetch} style={styles.retryBtn}>Retry</button>
-        </div>
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-3 px-4">
+        <p className="text-white text-base font-semibold">
+          Could not load your library
+        </p>
+        <p className="text-gray-500 text-sm">
+          {error?.message || "Something went wrong."}
+        </p>
+        <button
+          onClick={refetch}
+          className="bg-emerald-500 text-black font-semibold text-sm px-6 py-2.5 rounded-lg hover:bg-emerald-400 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }
 
+  // ── Render ──
   return (
-    <div style={{ ...styles.page, paddingBottom: 120 }}>
-      <Navbar />
-      <div style={styles.container}>
+    <div className="home-content-enter">
+      <style>{HOME_STYLES}</style>
+      <div className="home-topbar">
+        {/* Left: title + song count */}
+        <div className="home-topbar__left">
+          <h1 className="home-topbar__title">Your Library</h1>
+          <span className="home-topbar__count">{songs.length} songs</span>
+        </div>
 
-        {/* ── Header + inline filter ──────────────────────────────────────── */}
-        <div style={styles.header}>
-          <div>
-            <h1 style={styles.heading}>Your Library</h1>
-            <p style={styles.subheading}>{songs.length} songs loaded</p>
-          </div>
-
-          <div ref={wrapRef} style={styles.searchOuter}>
+        {/* Right cluster: search + avatar (avatar hidden on mobile via CSS) */}
+        <div className="home-topbar__right">
+          {/* Search */}
+          <div ref={wrapRef} className="home-topbar__search-wrap">
             <div
+              className="home-topbar__search"
               style={{
-                ...styles.searchWrap,
-                borderColor: searchFocused ? '#22c55e' : '#2d2d2d',
-                boxShadow: searchFocused ? '0 0 0 3px rgba(34,197,94,0.1)' : 'none',
+                borderColor: searchFocused ? "#22c55e" : "#2a2a2a",
+                boxShadow: searchFocused
+                  ? "0 0 0 3px rgba(34,197,94,0.1)"
+                  : "none",
                 borderBottomLeftRadius: showHistory ? 0 : 10,
                 borderBottomRightRadius: showHistory ? 0 : 10,
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none"
-                style={{ flexShrink: 0, color: searchFocused ? '#22c55e' : '#6b7280', transition: 'color 0.2s' }}>
-                <circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M14 14l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 20 20"
+                fill="none"
+                className="home-topbar__search-icon"
+                style={{ color: searchFocused ? "#22c55e" : "#6b7280" }}
+              >
+                <circle
+                  cx="8.5"
+                  cy="8.5"
+                  r="5.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M14 14l3 3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
               </svg>
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Filter songs or artists…"
+                placeholder="Filter songs or artists..."
                 value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSearchText(val);
+                  if (val.trim().length >= 1) {
+                    setIsSearching(true);
+                    clearTimeout(searchDebounceRef.current);
+                    searchDebounceRef.current = setTimeout(
+                      () => setIsSearching(false),
+                      200,
+                    );
+                  } else {
+                    clearTimeout(searchDebounceRef.current);
+                    setIsSearching(false);
+                  }
+                }}
                 onFocus={handleFocus}
                 onBlur={handleBlur}
-                style={styles.searchInput}
+                className="home-topbar__search-input"
                 autoComplete="off"
                 spellCheck={false}
               />
               {searchText.length > 0 && (
-                <button onClick={handleClear} style={styles.clearBtn} aria-label="Clear filter">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                <button
+                  onClick={handleClear}
+                  className="home-topbar__search-clear"
+                  aria-label="Clear search"
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               )}
             </div>
 
+            {/* History dropdown */}
             {showHistory && (
-              <div style={styles.historyDropdown}>
-                <div style={styles.historyHeader}>
-                  <span style={styles.historyLabel}>Recent searches</span>
-                  <button onMouseDown={handleClearAllHistory} style={styles.clearAllBtn}>Clear all</button>
+              <div className="home-history-dropdown">
+                <div className="home-history-dropdown__header">
+                  <span className="home-history-dropdown__label">
+                    Recent searches
+                  </span>
+                  <button
+                    onMouseDown={handleClearAllHistory}
+                    className="home-history-dropdown__clear"
+                  >
+                    Clear all
+                  </button>
                 </div>
                 {history.map((item) => (
-                  <div key={item.id} style={styles.historyRow} onMouseDown={() => handlePlayFromHistory(item)}>
-                    <div style={styles.historyIconWrap}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
-                        <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-                      </svg>
-                    </div>
+                  <div
+                    key={item.id}
+                    onMouseDown={() => handlePlayFromHistory(item)}
+                    className="home-history-item"
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="#4b5563"
+                      strokeWidth="2"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
                     <img
-                      src={item.coverUrl || 'https://placehold.co/34x34/111/555?text=♪'}
-                      alt=""
-                      style={styles.historyCover}
-                      onError={(e) => { e.target.src = 'https://placehold.co/34x34/111/555?text=♪'; }}
+                      src={item.coverUrl}
+                      alt={item.title}
+                      className="home-history-item__cover"
+                      onError={(e) => {
+                        e.target.src =
+                          "https://placehold.co/32x32/111/555?text=♪";
+                      }}
                     />
-                    <div style={styles.historyInfo}>
-                      <p style={styles.historyTitle}>{item.title}</p>
-                      <p style={styles.historyArtist}>{item.artist}</p>
+                    <div className="home-history-item__meta">
+                      <p className="home-history-item__title">{item.title}</p>
+                      <p className="home-history-item__artist">{item.artist}</p>
                     </div>
                     <button
                       onMouseDown={(e) => handleRemoveHistory(e, item.id)}
-                      style={styles.historyRemoveBtn}
-                      aria-label="Remove"
+                      className="home-history-item__remove"
+                      aria-label="Remove from history"
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                      <svg
+                        width="11"
+                        height="11"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                      >
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
                       </svg>
                     </button>
                   </div>
@@ -292,108 +532,132 @@ const Home = () => {
               </div>
             )}
           </div>
-        </div>
 
-        {/* ── Featured Songs ──────────────────────────────────────────────── */}
-        {featuredSongs.length > 0 && !searchText && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}><StarIcon /> Featured</h2>
-            <div style={styles.featuredGrid}>
-              {featuredSongs.map((song) => {
-                const active = currentSong?.id === song.id;
-                const dur    = fmtDuration(song.duration);
-                return (
-                  <div
-                    key={song.id}
-                    onClick={() => handlePlaySong(song, featuredSongs)}
-                    style={{ ...styles.featuredCard, outline: active ? '2px solid #22c55e' : '2px solid transparent' }}
-                  >
-                    <div style={styles.featuredImgWrap}>
-                      <img
-                        src={song.coverUrl || 'https://placehold.co/120x120/1a1a1a/555?text=♪'}
-                        alt={song.title}
-                        style={styles.featuredImg}
-                        onError={(e) => { e.target.src = 'https://placehold.co/120x120/1a1a1a/555?text=♪'; }}
-                      />
-                      <div style={styles.featuredOverlay}>
-                        {active && isPlaying ? <PauseIcon /> : <PlayIconSmall />}
-                      </div>
+          {/* Avatar — desktop only. On mobile, PageWrapper topbar shows it. */}
+          <div className="home-topbar__avatar">
+            <UserMenu />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Page body ─────────────────────────────────────────────────────── */}
+      <div className="home-body">
+        {/* ── Artists ── */}
+        {artists.length > 0 && !searchText && (
+          <section className="home-section">
+            <div className="home-section__header">
+              <h2 className="home-section__title">Artists</h2>
+              {artists.length > 8 && (
+                <button
+                  onClick={() => setShowAllArtists((v) => !v)}
+                  className="home-section__see-all"
+                >
+                  {showAllArtists ? "Show less" : "See all"}
+                </button>
+              )}
+            </div>
+            <div className="home-artists-grid">
+              {visibleArtists.map((a, i) => {
+                const col = AVATAR_COLORS[i % AVATAR_COLORS.length];
+                const av = initials(a.artist);
+                const card = (
+                  <div className="home-artist-card">
+                    <div
+                      className="home-artist-card__av"
+                      style={{ background: col.bg, color: col.color }}
+                    >
+                      {av}
                     </div>
-                    <div style={styles.featuredInfo}>
-                      <p style={{ ...styles.featuredTitle, color: active ? '#22c55e' : '#fff' }}>{song.title}</p>
-                      <p style={styles.featuredArtist}>{song.artist}</p>
-                      <div style={styles.featuredMeta}>
-                        <span style={styles.featuredGenre}>{song.genre}</span>
-                        {dur && <span style={styles.featuredDur}>{dur}</span>}
-                      </div>
-                    </div>
+                    <span className="home-artist-card__name">{a.artist}</span>
+                    <span className="home-artist-card__count">
+                      {a.songCount} songs
+                    </span>
                   </div>
+                );
+                return a.artistId ? (
+                  <Link
+                    key={a.artistId}
+                    to={`/artist/${a.artistId}`}
+                    style={{ textDecoration: "none" }}
+                  >
+                    {card}
+                  </Link>
+                ) : (
+                  <div key={a.artist}>{card}</div>
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
-        {/* ── Recently Played ─────────────────────────────────────────────── */}
-        {recentSongs.length > 0 && !searchText && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}><ClockIcon /> Recently Played</h2>
-            <div style={styles.recentScroll}>
-              {recentSongs.map((song) => (
-                <div
-                  key={song.id}
-                  onClick={() => handlePlaySong(song, recentSongs)}
-                  style={styles.recentChip}
-                  title={`${song.title} — ${song.artist}`}
+        {/* ── Albums ── */}
+        {albums.length > 0 && !searchText && (
+          <section className="home-section">
+            <div className="home-section__header">
+              <h2 className="home-section__title">Albums</h2>
+              {albums.length > 8 && (
+                <button
+                  onClick={() => setShowAllAlbums((v) => !v)}
+                  className="home-section__see-all"
                 >
-                  <img
-                    src={song.coverUrl}
-                    alt={song.title}
-                    style={styles.recentCover}
-                    onError={(e) => { e.target.src = 'https://placehold.co/40x40/111/555?text=♪'; }}
-                  />
-                  <div style={styles.recentInfo}>
-                    <p style={styles.recentTitle}>{song.title}</p>
-                    <p style={styles.recentArtist}>{song.artist}</p>
-                  </div>
-                </div>
-              ))}
+                  {showAllAlbums ? "Show less" : "See all"}
+                </button>
+              )}
             </div>
-          </div>
+            <div className="home-albums-grid">
+              {visibleAlbums.map((al, i) => {
+                const bg = COVER_COLORS[i % COVER_COLORS.length];
+                const card = (
+                  <div className="home-album-card">
+                    <div
+                      className="home-album-card__cover"
+                      style={{ background: bg }}
+                    >
+                      <span className="home-album-card__cover-icon">♪</span>
+                    </div>
+                    <div className="home-album-card__info">
+                      <span className="home-album-card__name">{al.album}</span>
+                      {al.artistId ? (
+                        <Link
+                          to={`/artist/${al.artistId}`}
+                          className="home-album-card__artist home-album-card__artist--link"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {al.artist}
+                        </Link>
+                      ) : (
+                        <span className="home-album-card__artist">
+                          {al.artist}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+                return al.albumId ? (
+                  <Link
+                    key={al.albumId}
+                    to={`/album/${al.albumId}`}
+                    style={{ textDecoration: "none" }}
+                  >
+                    {card}
+                  </Link>
+                ) : (
+                  <div key={al.album || i}>{card}</div>
+                );
+              })}
+            </div>
+          </section>
         )}
 
-        {/* ── Featured Playlists ──────────────────────────────────────────── */}
-        {featuredPlaylists.length > 0 && !searchText && (
-          <div style={styles.section}>
-            <h2 style={styles.sectionTitle}><PlaylistIcon /> Featured Playlists</h2>
-            <div style={styles.recentScroll}>
-              {featuredPlaylists.map((pl) => (
-                <Link key={pl.id} to={`/playlists/${pl.id}`} style={{ ...styles.recentChip, textDecoration: 'none' }}>
-                  {pl.coverUrl ? (
-                    <img src={pl.coverUrl} alt={pl.name} style={styles.recentCover}
-                      onError={(e) => { e.target.src = 'https://placehold.co/36x36/1a1a1a/555?text=♪'; }}
-                    />
-                  ) : (
-                    <div style={{ ...styles.recentCover, background: '#2d2d2d', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4b5563', fontSize: 14 }}>♪</div>
-                  )}
-                  <div style={styles.recentInfo}>
-                    <p style={styles.recentTitle}>{pl.name}</p>
-                    <p style={styles.recentArtist}>{pl.songIds?.length || 0} songs</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Genre Pills ─────────────────────────────────────────────────── */}
+        {/* ── Genre pills ── */}
         {genres.length > 1 && !searchText && (
-          <div style={styles.pillsRow}>
+          <div className="home-genres">
             {genres.map((g) => (
               <button
                 key={g}
                 onClick={() => setActiveGenre(g)}
-                style={{ ...styles.pill, ...(activeGenre === g ? styles.pillActive : {}) }}
+                className="home-genre-pill"
+                data-active={activeGenre === g}
               >
                 {g}
               </button>
@@ -401,98 +665,351 @@ const Home = () => {
           </div>
         )}
 
-        {searchText.trim().length >= 1 && (
-          <p style={styles.filterInfo}>
-            {filtered.length === 0
-              ? `No songs match "${searchText}"`
-              : `${filtered.length} song${filtered.length === 1 ? '' : 's'} match "${searchText}"`}
-          </p>
-        )}
+        {/* ── All Songs ── */}
+        <section className="home-section">
+          <div className="home-section__header">
+            <h2 className="home-section__title">All Songs</h2>
+            {searchText.trim().length >= 1 && !isSearching && (
+              <span className="home-section__meta">
+                {filtered.length === 0
+                  ? `No results for "${searchText}"`
+                  : `${filtered.length} result${filtered.length === 1 ? "" : "s"}`}
+              </span>
+            )}
+          </div>
 
-        <SongList songs={filtered} onPlay={handlePlaySong} />
+          {/* BUG 8 FIX: no onPlay prop — SongCard handles playback internally */}
+          {isSearching ? (
+            <SongListSkeleton count={8} />
+          ) : (
+            <SongList songs={filtered} />
+          )}
 
-        <div ref={sentinelRef} style={styles.sentinel}>
-          {!searchText.trim() && loadingMore && (
-            <div style={styles.loadingMore}>
-              <div style={styles.spinner} />
-              <span style={styles.loadingText}>Loading more songs…</span>
-            </div>
-          )}
-          {!searchText.trim() && !hasMore && songs.length > 0 && !loadingMore && (
-            <p style={styles.allLoadedText}>All {songs.length} songs loaded</p>
-          )}
-        </div>
+          {/* Infinite scroll sentinel */}
+          <div ref={sentinelRef} className="home-sentinel">
+            {!searchText.trim() && loadingMore && (
+              <div className="home-sentinel__loading">
+                <div className="home-sentinel__spinner" />
+                <span>Loading more songs…</span>
+              </div>
+            )}
+            {!searchText.trim() &&
+              !hasMore &&
+              songs.length > 0 &&
+              !loadingMore && (
+                <p className="home-sentinel__done">
+                  All {songs.length} songs loaded
+                </p>
+              )}
+          </div>
+        </section>
       </div>
     </div>
   );
 };
 
-const StarIcon    = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" style={{ marginRight: 6, color: '#f59e0b' }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>;
-const ClockIcon   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>;
-const PlaylistIcon = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ marginRight: 6 }}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>;
-const PlayIconSmall = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><path d="M8 5.14v14l11-7-11-7z" /></svg>;
-const PauseIcon   = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="#000"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>;
+// ─── Styles ───────────────────────────────────────────────────────────────────
+const HOME_STYLES = `
+  @keyframes home-spin { to { transform: rotate(360deg); } }
+  @keyframes home-fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 
-const styles = {
-  page: { minHeight: '100vh', background: '#0f0f0f', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" },
-  container: { maxWidth: '1200px', margin: '0 auto', padding: '32px 20px 0' },
-  header: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 24 },
-  heading: { color: '#fff', fontSize: 22, fontWeight: 700, letterSpacing: '-0.3px', marginBottom: 4 },
-  subheading: { color: '#6b7280', fontSize: 13 },
-  searchOuter: { position: 'relative', width: '100%', maxWidth: 340 },
-  searchWrap: { display: 'flex', alignItems: 'center', gap: 10, background: '#1a1a1a', border: '1px solid #2d2d2d', borderRadius: 10, padding: '0 12px', height: 42, transition: 'border-color 0.2s, box-shadow 0.2s, border-radius 0.1s' },
-  searchInput: { flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 14, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" },
-  clearBtn: { background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', padding: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  historyDropdown: { position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, background: '#1a1a1a', border: '1px solid #22c55e', borderTop: '1px solid #2d2d2d', borderRadius: '0 0 12px 12px', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' },
-  historyHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 8px', borderBottom: '1px solid #2d2d2d' },
-  historyLabel: { color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' },
-  clearAllBtn: { background: 'none', border: 'none', color: '#22c55e', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', padding: 0 },
-  historyRow: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', transition: 'background 0.1s', borderBottom: '1px solid #1f1f1f' },
-  historyIconWrap: { flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 20 },
-  historyCover: { width: 34, height: 34, borderRadius: 6, objectFit: 'cover', flexShrink: 0 },
-  historyInfo: { flex: 1, minWidth: 0 },
-  historyTitle: { color: '#fff', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 2 },
-  historyArtist: { color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  historyRemoveBtn: { background: 'none', border: 'none', color: '#4b5563', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderRadius: '50%', transition: 'color 0.15s' },
-  filterInfo: { color: '#6b7280', fontSize: 13, marginBottom: 16 },
-  errorWrap: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 12 },
-  errorTitle: { color: '#fff', fontSize: 16, fontWeight: 600 },
-  errorSub: { color: '#6b7280', fontSize: 13 },
-  retryBtn: { background: '#22c55e', color: '#000', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' },
-  section: { marginBottom: 28 },
-  sectionTitle: { display: 'flex', alignItems: 'center', color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 12 },
-  featuredGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 },
-  featuredCard: { display: 'flex', alignItems: 'center', gap: 12, background: '#1a1a1a', border: '1px solid #2d2d2d', borderRadius: 10, padding: 10, cursor: 'pointer', transition: 'background 0.15s, outline 0.15s', overflow: 'hidden' },
-  featuredImgWrap: { position: 'relative', flexShrink: 0 },
-  featuredImg: { width: 52, height: 52, borderRadius: 8, objectFit: 'cover', display: 'block' },
-  featuredOverlay: { position: 'absolute', inset: 0, borderRadius: 8, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' },
-  featuredInfo: { flex: 1, minWidth: 0 },
-  featuredTitle: { fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 2 },
-  featuredArtist: { color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 5 },
-  featuredMeta: { display: 'flex', alignItems: 'center', gap: 6 },
-  featuredGenre: { background: 'rgba(34,197,94,0.1)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 500 },
-  featuredDur: { color: '#4b5563', fontSize: 11 },
-  recentScroll: { display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, scrollbarWidth: 'none', msOverflowStyle: 'none' },
-  recentChip: { display: 'flex', alignItems: 'center', gap: 10, background: '#1a1a1a', border: '1px solid #2d2d2d', borderRadius: 8, padding: '8px 12px 8px 8px', cursor: 'pointer', flexShrink: 0, minWidth: 160, maxWidth: 200, transition: 'background 0.15s' },
-  recentCover: { width: 36, height: 36, borderRadius: 6, objectFit: 'cover', flexShrink: 0 },
-  recentInfo: { minWidth: 0 },
-  recentTitle: { color: '#fff', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  recentArtist: { color: '#6b7280', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
-  pillsRow: { display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
-  pill: { background: '#1a1a1a', border: '1px solid #2d2d2d', color: '#9ca3af', borderRadius: 20, padding: '6px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: 'inherit' },
-  pillActive: { background: 'rgba(34,197,94,0.1)', borderColor: '#22c55e', color: '#22c55e' },
-  sentinel: { height: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', marginTop: 24 },
-  loadingMore: { display: 'flex', alignItems: 'center', gap: 10 },
-  spinner: { width: 18, height: 18, borderRadius: '50%', border: '2px solid #2d2d2d', borderTopColor: '#22c55e', animation: 'spin 0.7s linear infinite' },
-  loadingText: { color: '#6b7280', fontSize: 13 },
-  allLoadedText: { color: '#4b5563', fontSize: 12, textAlign: 'center' },
-};
+  .home-content-enter {
+    animation: home-fade-in 0.25s ease both;
+  }
 
-if (typeof document !== 'undefined' && !document.getElementById('home-spin-style')) {
-  const s = document.createElement('style');
-  s.id = 'home-spin-style';
-  s.textContent = '@keyframes spin { to { transform: rotate(360deg); } }';
-  document.head.appendChild(s);
-}
+  /* ── Top bar ─────────────────────────────────────────────────────────────── */
+  .home-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 24px;
+    height: 60px;
+    background: #0f0f0f;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    border-bottom: 1px solid #1e1e1e;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Left: title + count */
+  .home-topbar__left {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 0;
+    flex-shrink: 0;
+  }
+
+  .home-topbar__title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+    margin: 0;
+    line-height: 1.2;
+  }
+
+  .home-topbar__count {
+    font-size: 13px;
+    color: #6b7280;
+    white-space: nowrap;
+    font-weight: 400;
+  }
+
+  /* Right cluster: search + avatar */
+  .home-topbar__right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  /* Avatar wrapper — desktop only; PageWrapper topbar handles mobile */
+  .home-topbar__avatar {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  @media (max-width: 767px) {
+    /* On mobile the avatar is in PageWrapper's topbar, hide it here */
+    .home-topbar__avatar { display: none; }
+  }
+
+  /* Search wrap — relative so history dropdown anchors to it */
+  .home-topbar__search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .home-topbar__search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 10px;
+    padding: 0 12px;
+    height: 38px;
+    width: 260px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-sizing: border-box;
+  }
+
+  .home-topbar__search-icon { flex-shrink: 0; }
+
+  .home-topbar__search-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #fff;
+    font-size: 13px;
+    font-family: inherit;
+    min-width: 0;
+  }
+  .home-topbar__search-input::placeholder { color: #4b5563; }
+
+  .home-topbar__search-clear {
+    background: none;
+    border: none;
+    color: #4b5563;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    padding: 0;
+    transition: color 0.15s;
+  }
+  .home-topbar__search-clear:hover { color: #e5e7eb; }
+
+  /* ── History dropdown ─────────────────────────────────────────────────────
+   * BUG 10 FIX: right:0 + max-width instead of hardcoded right:44px
+   */
+  .home-history-dropdown {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    width: 260px;
+    max-width: calc(100vw - 32px);
+    background: #1a1a1a;
+    border: 1px solid #22c55e;
+    border-top-color: #2a2a2a;
+    border-radius: 0 0 12px 12px;
+    z-index: 100;
+    overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .home-history-dropdown__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .home-history-dropdown__label {
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.08em; color: #4b5563;
+  }
+  .home-history-dropdown__clear {
+    font-size: 11px; font-weight: 600; color: #22c55e;
+    background: none; border: none; cursor: pointer; transition: color 0.15s;
+  }
+  .home-history-dropdown__clear:hover { color: #4ade80; }
+
+  .home-history-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; cursor: pointer;
+    border-bottom: 1px solid #1f1f1f; transition: background 0.12s;
+  }
+  .home-history-item:hover { background: rgba(255,255,255,0.04); }
+  .home-history-item__cover {
+    width: 32px; height: 32px; border-radius: 6px;
+    object-fit: cover; flex-shrink: 0; background: #111;
+  }
+  .home-history-item__meta { flex: 1; min-width: 0; }
+  .home-history-item__title {
+    font-size: 12px; font-weight: 600; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .home-history-item__artist {
+    font-size: 11px; color: #4b5563;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .home-history-item__remove {
+    background: none; border: none; color: #4b5563; cursor: pointer;
+    padding: 4px; border-radius: 50%; transition: color 0.12s;
+    flex-shrink: 0; display: flex; align-items: center;
+  }
+  .home-history-item__remove:hover { color: #9ca3af; }
+
+  /* ── Mobile topbar layout ─────────────────────────────────────────────────
+     On mobile: title row on top, search below it full-width.
+     The search-wrap takes full width of the right cluster on mobile.
+  */
+  @media (max-width: 479px) {
+    .home-topbar {
+      flex-wrap: wrap;
+      height: auto;
+      padding: 12px 16px;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .home-topbar__left  { width: 100%; }
+    .home-topbar__right { width: 100%; }
+    .home-topbar__search-wrap { width: 100%; }
+    .home-topbar__search { width: 100%; }
+  }
+
+  /* ── Page body ────────────────────────────────────────────────────────────── */
+  .home-body { padding: 20px 24px 0; max-width: 100%; box-sizing: border-box; }
+
+  /* ── Section ──────────────────────────────────────────────────────────────── */
+  .home-section { margin-bottom: 32px; }
+  .home-section__header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .home-section__title { font-size: 17px; font-weight: 700; color: #fff; margin: 0; line-height: 1; }
+  .home-section__see-all {
+    font-size: 12px; font-weight: 600; color: #22c55e;
+    background: none; border: none; cursor: pointer; transition: color 0.15s; padding: 0;
+  }
+  .home-section__see-all:hover { color: #4ade80; }
+  .home-section__meta { font-size: 12px; color: #6b7280; }
+
+  /* ── Artists grid ─────────────────────────────────────────────────────────── */
+  .home-artists-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+  .home-artist-card {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 18px 12px 14px; gap: 8px; background: #1c1c1c; border: 1px solid #2a2a2a;
+    border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    text-align: center;
+  }
+  .home-artist-card:hover { background: #222; border-color: #333; }
+  .home-artist-card__av {
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 700; flex-shrink: 0;
+  }
+  .home-artist-card__name {
+    font-size: 13px; font-weight: 600; color: #e5e7eb;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+  }
+  .home-artist-card__count { font-size: 11px; color: #6b7280; }
+
+  /* ── Albums grid ──────────────────────────────────────────────────────────── */
+  .home-albums-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+  .home-album-card {
+    display: flex; flex-direction: column; background: #1c1c1c; border: 1px solid #2a2a2a;
+    border-radius: 12px; overflow: hidden; cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .home-album-card:hover { background: #222; border-color: #333; }
+  .home-album-card__cover { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
+  .home-album-card__cover-icon { font-size: 28px; opacity: 0.7; }
+  .home-album-card__info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; }
+  .home-album-card__name {
+    font-size: 13px; font-weight: 500; color: #e5e7eb;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .home-album-card__artist {
+    font-size: 11px; color: #6b7280;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none;
+  }
+  .home-album-card__artist--link { color: #4ade80; transition: color 0.15s; }
+  .home-album-card__artist--link:hover { color: #22c55e; text-decoration: underline; text-underline-offset: 2px; }
+
+  /* ── Genre pills ──────────────────────────────────────────────────────────── */
+  .home-genres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .home-genre-pill {
+    padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 500;
+    border: 1px solid #2d2d2d; background: #1a1a1a; color: #9ca3af;
+    cursor: pointer; transition: all 0.15s; font-family: inherit;
+  }
+  .home-genre-pill:hover { border-color: #444; color: #e5e7eb; }
+  .home-genre-pill[data-active="true"] {
+    background: rgba(34,197,94,0.1); border-color: #22c55e; color: #22c55e;
+  }
+
+  /* ── Sentinel ─────────────────────────────────────────────────────────────── */
+  .home-sentinel {
+    height: 50px; display: flex; align-items: center;
+    justify-content: center; margin-top: 16px;
+  }
+  .home-sentinel__loading { display: flex; align-items: center; gap: 10px; color: #4b5563; font-size: 13px; }
+  .home-sentinel__spinner {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2px solid #2d2d2d; border-top-color: #22c55e;
+    animation: home-spin 0.7s linear infinite;
+  }
+  .home-sentinel__done { font-size: 12px; color: #374151; text-align: center; }
+
+  /* ── Responsive ───────────────────────────────────────────────────────────── */
+  @media (min-width: 480px) {
+    .home-body { padding: 20px 28px 0; }
+  }
+  @media (min-width: 768px) {
+    .home-topbar { padding: 0 28px; }
+    .home-artists-grid { grid-template-columns: repeat(3, 1fr); }
+    .home-albums-grid  { grid-template-columns: repeat(3, 1fr); }
+    .home-topbar__search { width: 300px; }
+    .home-body { padding: 20px 28px 0; }
+  }
+  @media (min-width: 1024px) {
+    .home-artists-grid { grid-template-columns: repeat(4, 1fr); }
+    .home-albums-grid  { grid-template-columns: repeat(4, 1fr); }
+    .home-topbar__search { width: 340px; }
+  }
+`;
 
 export default Home;

@@ -1,3 +1,85 @@
+/* client/src/styles/player.css
+ *
+ * PRODUCTION FIXES:
+ *
+ * 1. body.has-player padding values updated to match the new MiniPlayerBar
+ *    bottom positioning on mobile.
+ *
+ *    MOBILE: Player sits at bottom: calc(56px + env(safe-area-inset-bottom)).
+ *    So body padding = player height(64) + nav height(56) + safe-area.
+ *    PageWrapper's pb-page-safe already handles this for the scrollable
+ *    main region. body.has-player is a fallback for any content rendered
+ *    OUTSIDE PageWrapper (e.g. full-page overlays, admin pages without wrapper).
+ *
+ *    DESKTOP: Player is 80px (bar 72px + seek row 8px). No nav on desktop.
+ *
+ * 2. Z-INDEX LADDER (authoritative — do not change without updating all files):
+ *    Sidebar backdrop   : z-index 30
+ *    Sidebar            : z-index 40
+ *    Mobile top bar     : z-index 20  (within PageWrapper column, not viewport)
+ *    MobileBottomNav    : z-index 90  (PageWrapper.jsx NAV_STYLES)
+ *    MiniPlayerBar      : z-index 95  (MiniPlayerBar.jsx PLAYER_STYLES)
+ *    QueueDrawer        : z-index 100
+ *    FullScreenPlayer   : z-index 110
+ *    Modals             : z-index 120
+ *    Toasts             : z-index 130
+ *
+ * UNCHANGED: .fs-sheet desktop overrides, body.player-expanded, .music-player
+ */
+
+/* ── Fallback body padding (for pages outside PageWrapper) ───────────────────
+   PageWrapper's pb-page-safe is the primary mechanism. This is a safety net.  */
+
+body.has-player {
+  padding-bottom: 80px;
+}
+
+/* Mobile: player(64) sits above nav(56) → total bottom stack = 120px.
+   Add safe-area for iPhone home bar.                                           */
+@media (max-width: 767px) {
+  body.has-player {
+    padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ── Safe area inset support ─────────────────────────────────────────────────
+   @supports ensures this only applies on devices that support env().          */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  body.has-player {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+  @media (max-width: 767px) {
+    body.has-player {
+      padding-bottom: calc(120px + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* ── Full-screen player — desktop modal override ─────────────────────────────
+   Supplements inline styles in FullScreenPlayer.jsx on large screens.        */
+@media (min-width: 1024px) {
+  .fs-sheet {
+    border-radius: 20px !important;
+    max-width: 440px !important;
+    width: 440px !important;
+    max-height: 90vh !important;
+    position: fixed !important;
+    bottom: auto !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    /* Ensure it's above the player bar but respects modal z-index */
+    z-index: 110 !important;
+  }
+}
+
+/* ── Prevent body scroll when full-screen player is open ─────────────────────
+   MusicPlayer adds/removes this class via document.body.classList            */
+body.player-expanded {
+  overflow: hidden;
+}
+
+/* ── Music player sticky (legacy — kept for backward compatibility) ──────────*/
 .music-player {
   position: sticky;
   bottom: 0;

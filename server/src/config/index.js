@@ -1,4 +1,5 @@
 require('dotenv').config();
+
 const config = {
   port: process.env.PORT || 5000,
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -12,8 +13,16 @@ const config = {
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
   },
-  clientOrigin: process.env.CLIENT_ORIGIN || 'http://localhost:3000'|| 'http://10.114.74.109:3000',
-  adminEmails: process.env.ADMIN_EMAILS?.split(',') || [],
+  // ✅ Fixed: use array for multiple origins (local dev + network + prod)
+  clientOrigin: (
+    process.env.CLIENT_ORIGIN
+      ? process.env.CLIENT_ORIGIN.split(',').map(o => o.trim())
+      : ['http://localhost:3000']
+  ),
+backendUrl: process.env.BACKEND_URL || process.env.RENDER_EXTERNAL_URL || null,
+keepAliveIntervalMs: process.env.KEEP_ALIVE_INTERVAL_MS
+  ? parseInt(process.env.KEEP_ALIVE_INTERVAL_MS, 10)
+  : 14 * 60 * 1000,
 };
 
 const required = [
