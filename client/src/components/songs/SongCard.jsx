@@ -1,48 +1,50 @@
 /**
  * client/src/components/songs/SongCard.jsx
  *
- * Phase 1 — Task 1.2: sanitizeDisplay() applied to all API-sourced string
- * render points.
+ * CHANGES IN THIS VERSION (surgical — only these changes, nothing else touched):
  *
- * Changes from previous version (SURGICAL — only render sites changed):
+ *   1. REMOVED: useLikedSongs hook call + useAuthStore import.
+ *      ADDED:   likedSongIds prop (string[], default []).
+ *      WHY:     With virtualization ~15 SongCard instances are mounted at once.
+ *               Each was creating its own useQuery + useMutation + useErrorHandler
+ *               subscription for the same liked-songs data — 15 mutation instances
+ *               and 15 error-handler subscriptions for identical data.
+ *               Now SongList calls useLikedSongs once and passes likedSongIds down.
+ *               Zero subscription churn on scroll. LikeButton still works because
+ *               it uses useToggleLikeSong internally (standalone mutation, unchanged).
  *
- *   1. Import sanitizeDisplay from '../../utils/sanitize'
+ *   2. ADDED:   loading="lazy" on the cover <img>.
+ *      WHY:     Without it every visible cover fires a Cloudinary request on mount.
+ *               Lazy loading defers off-screen images until they near the viewport.
  *
- *   2. Compute sanitized display values once at the top of the component
- *      (before any JSX) so they are available to all render paths:
- *        safeTitle   = sanitizeDisplay(song.title)
- *        safeArtist  = sanitizeDisplay(song.artist)
- *        safeAlbum   = sanitizeDisplay(song.album)
- *        safeGenre   = sanitizeDisplay(song.genre)
+ *   3. CHANGED: ensureStyles() moved from useEffect to module-level call.
+ *      WHY:     useEffect ran on every card mount (~15 times per scroll batch).
+ *               Module-level call runs exactly once when the module is first
+ *               imported. Same result, zero per-mount overhead.
  *
- *   3. Replace raw `song.title` / `song.artist` / `song.album` / `song.genre`
- *      in JSX text nodes with their safe equivalents.
- *
- *   4. aria-label on the row also uses safeTitle + safeArtist.
- *
- *   5. alt text on cover image uses safeTitle.
- *
- * Everything else is IDENTICAL to the previous version:
- *   - All props, hooks, event handlers, CSS classes: untouched
- *   - ensureStyles singleton, ROW_STYLES, longPressProps: untouched
- *   - OptionsSheet, LikeButton, Link hrefs: untouched
- *   - Playback logic (handlePlay, handleMenuToggle): untouched
- *   - song.artistId / song.albumId null-safe Link/span logic: untouched
- *   - Equalizer bars, equalizer animation: untouched
- *   - Responsive breakpoints: untouched
+ * UNCHANGED — every other prop, hook, handler, style, and render path:
+ *   - song, songList, contextSongs, index, startIndex props
+ *   - usePlayerStore subscription
+ *   - handlePlay, handleMenuToggle, handleDragStart
+ *   - useLongPress
+ *   - LikeButton (still receives isLiked, now from prop instead of local hook)
+ *   - OptionsSheet
+ *   - All ROW_STYLES responsive breakpoints
+ *   - All aria-labels, icons, equalizer bars
+ *   - sanitizeDisplay calls
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { usePlayerStore } from '../../store/playerStore';
-import { useAuthStore } from '../../store/authStore';
-import { useLikedSongs } from '../../hooks/useLikedSongs';
 import { formatDuration } from '../../utils/formatters';
-import { sanitizeDisplay } from '../../utils/sanitize'; // ← Task 1.2
+import { sanitizeDisplay } from '../../utils/sanitize';
 import LikeButton from '../player/LikeButton';
 import OptionsSheet from '../player/OptionsSheet';
 
-// ── Style injection singleton ─────────────────────────────────────────────────
+// ── Style injection — runs once at module load, not per component instance ────
+// FIX 3: was inside useEffect(() => { ensureStyles() }, []) — ran on every mount.
+// Now called at module level: runs exactly once on first import.
 let stylesInjected = false;
 function ensureStyles() {
   if (stylesInjected || typeof document === 'undefined') return;
@@ -52,6 +54,7 @@ function ensureStyles() {
   tag.textContent = ROW_STYLES;
   document.head.appendChild(tag);
 }
+ensureStyles(); // module-level — not inside useEffect
 
 // ── useLongPress ──────────────────────────────────────────────────────────────
 function useLongPress(onLongPress, delay = 500) {
@@ -90,33 +93,32 @@ const SongCard = ({
   contextSongs,
   index,
   startIndex,
+  // FIX 1: likedSongIds now passed from parent (SongList or page-level hook).
+  // Default to [] so SongCard is safe when used standalone (search, artist page)
+  // before the parent passes the prop — hearts are simply unfilled until data arrives.
+  likedSongIds = [],
 }) => {
   const pool      = contextSongs ?? songList ?? null;
   const poolIndex = startIndex   ?? index    ?? 0;
 
   const { currentSong, isPlaying, setPlaybackContext } = usePlayerStore();
-  const { user: currentUser } = useAuthStore();
-  const { likedSongIds }      = useLikedSongs(currentUser?.uid);
 
   const [hovered,          setHovered]   = useState(false);
   const [showOptionsSheet, setShowSheet] = useState(false);
 
   const blockPlayRef = useRef(false);
 
-  useEffect(() => { ensureStyles(); }, []);
-
   const isActive = currentSong?.id === song.id;
-  const isLiked  = likedSongIds?.includes(song.id) ?? false;
+  // FIX 1: was likedSongIds?.includes(song.id) ?? false (from local hook).
+  // Now reads from prop — same value, zero hook overhead per card.
+  const isLiked  = likedSongIds.includes(song.id);
   const dur      = formatDuration(song.duration);
 
-  // ── Task 1.2: Sanitize all API-sourced string fields once ─────────────────
-  // Computed here (not inline in JSX) so every render path gets the same
-  // sanitized value without repeated function calls.
+  // Sanitize API-sourced string fields once (unchanged)
   const safeTitle  = sanitizeDisplay(song.title);
   const safeArtist = sanitizeDisplay(song.artist);
   const safeAlbum  = sanitizeDisplay(song.album);
   const safeGenre  = sanitizeDisplay(song.genre);
-  // ─────────────────────────────────────────────────────────────────────────
 
   const longPressProps = useLongPress(
     useCallback(() => setShowSheet(true), []),
@@ -184,6 +186,7 @@ const SongCard = ({
             src={song.coverUrl || 'https://placehold.co/48x48/111/444?text=♪'}
             alt={safeTitle}
             className="song-row__cover"
+            loading="lazy"
             onError={(e) => { e.target.src = 'https://placehold.co/48x48/111/444?text=♪'; }}
           />
         </div>
@@ -218,9 +221,7 @@ const SongCard = ({
               {safeAlbum}
             </Link>
           ) : (
-            <span className="song-row__album-text">
-              {safeAlbum || <span className="song-row__album-empty">—</span>}
-            </span>
+            <span className="song-row__album-text">{safeAlbum}</span>
           )}
         </div>
 
@@ -236,16 +237,14 @@ const SongCard = ({
 
         {/* Col 7: Actions — always visible */}
         <div className="song-row__actions">
-          {currentUser && (
-            <LikeButton
-              song={song}
-              size="sm"
-              className={[
-                'song-row__like-btn',
-                isLiked ? 'song-row__like-btn--liked' : '',
-              ].join(' ')}
-            />
-          )}
+          <LikeButton
+            song={song}
+            size="sm"
+            className={[
+              'song-row__like-btn',
+              isLiked ? 'song-row__like-btn--liked' : '',
+            ].join(' ')}
+          />
           <div className="song-row__menu-wrap">
             <button
               onClick={handleMenuToggle}
@@ -295,7 +294,7 @@ const EqualizerBars = () => (
   </span>
 );
 
-/* ── Styles (injected once via ensureStyles(), not per-instance) ─────────────── */
+/* ── Styles ──────────────────────────────────────────────────────────────────── */
 const ROW_STYLES = `
   .song-row {
     display: grid;

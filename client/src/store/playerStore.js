@@ -60,6 +60,29 @@ async function safePlay(src) {
     await new Promise((resolve, reject) => {
       if (signal.aborted) return reject(new DOMException('Aborted', 'AbortError'));
 
+      // FIX: canplay race condition.
+      // HTMLMediaElement.readyState >= 3 (HAVE_FUTURE_DATA) means the browser
+      // already has enough data to begin playback — canplay has already fired
+      // or will never fire again for this load. If we only attached the
+      // 'canplay' listener we would hang forever waiting for an event that
+      // already happened (common on CDN edge cache hits or fast connections).
+      //
+      // readyState values:
+      //   0 HAVE_NOTHING    — no data loaded
+      //   1 HAVE_METADATA   — duration/dimensions known, no playable data
+      //   2 HAVE_CURRENT_DATA — current frame/sample available, can't advance
+      //   3 HAVE_FUTURE_DATA  — enough to play and advance (canplay fires here)
+      //   4 HAVE_ENOUGH_DATA  — fully buffered or streaming fine
+      //
+      // We check >= 3 after audio.load() because audio.load() resets readyState
+      // to 0 synchronously. If by the time we reach here readyState is already
+      // >= 3, the canplay event fired between audio.load() and this check —
+      // resolve immediately without waiting for an event that will never come.
+      if (audio.readyState >= 3) {
+        resolve();
+        return;
+      }
+
       const onCanPlay = () => { cleanup(); resolve(); };
       const onError   = () => { cleanup(); reject(new Error(audio.error?.message || 'Audio load failed')); };
       const onAbort   = () => { cleanup(); reject(new DOMException('Aborted', 'AbortError')); };
@@ -390,7 +413,34 @@ setShuffleMode: (mode) => {
 
   // ── playSong ───────────────────────────────────────────────────────────────
   playSong: async (song) => {
-    const src = song?.audioUrl || song?.fileUrl || '';
+    if (!song?.id) {
+      console.warn('[playerStore] playSong — song has no id:', song);
+      return;
+    }
+
+    // FIX: fetch audioUrl on-demand rather than reading from the song object.
+    // The list normalizer (extractSong) intentionally strips audioUrl to keep
+    // the list cache lean. We fetch it here — exactly when it is needed.
+    //
+    // GET /api/songs/:id is cached at 300s TTL on the backend, so repeated
+    // play/pause/skip cycles for the same song hit the in-memory cache and
+    // never make a Firestore read.
+    //
+    // Fallback chain:
+    //   1. song.audioUrl / song.fileUrl — present if song came from getSongById()
+    //      (admin edit, album/artist detail pages pass full objects)
+    //   2. getSongAudioUrl(song.id) — fetch from /api/songs/:id
+    //   3. '' — warn and bail
+    let src = song.audioUrl || song.fileUrl || '';
+    if (!src) {
+      try {
+        const { getSongAudioUrl } = await import('../services/songs.service');
+        src = await getSongAudioUrl(song.id);
+      } catch (err) {
+        console.warn('[playerStore] playSong — getSongAudioUrl failed:', err.message);
+      }
+    }
+
     if (!src) {
       console.warn('[playerStore] playSong — no audio URL on song:', song);
       return;
