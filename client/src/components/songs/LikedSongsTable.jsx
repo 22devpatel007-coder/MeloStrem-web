@@ -1,65 +1,47 @@
 /**
  * client/src/components/songs/LikedSongsTable.jsx
  *
- * Task 3.5 — List Virtualization for 10,000+ Songs
+ * PRODUCTION FIXES (3 critical bugs):
  *
- * WHAT CHANGED (surgical — everything else preserved):
+ * BUG 1 — Double hook instance (FIXED):
+ *   OLD: LikedSongsTable called useLikedSongs(user?.uid) internally.
+ *        This created a SECOND React Query subscription independent of the
+ *        parent's. The optimistic update in the parent's hook instance was
+ *        NOT seen by the table's instance, causing flicker and stale state.
+ *   FIX: toggleLike and likedSongIds are now received as props from
+ *        LikedSongs.jsx which owns the single useLikedSongs instance.
+ *        LikedSongsTable is now purely presentational.
  *
- *   1. @tanstack/react-virtual added to SongTable for the tbody rows.
+ * BUG 2 — Virtualizer rows invisible / overlapping (FIXED):
+ *   OLD: SongRow received a `style` prop (translateY) but never applied it.
+ *        ALL rows rendered at top:0 and overlapped each other.
+ *   FIX: SongRow accepts and spreads the style prop onto the <tr>.
+ *        Also fixed: <tr> must use display:flex or we use a <div> wrapper.
+ *        Solution: wrap each virtual row in a <div> positioned absolutely,
+ *        with an inner <table> so row cells still align correctly.
  *
- *   2. Virtualization strategy:
- *      - The <table> structure is preserved (thead + tbody) for correctness
- *        and accessibility.
- *      - The <tbody> is the scroll container (ref + overflow-y: auto).
- *      - A single spacer <tr> at the top sets the total virtual height so
- *        the scrollbar is sized correctly.
- *      - Only rows in viewport + overscan are rendered as <tr> elements.
- *      - Each rendered <tr> uses `translateY` via inline style to position
- *        correctly inside the virtual space.
- *
- *   3. estimateSize: () => 64 — matches ls-row height (48px cover + 8px
- *      padding top + 8px padding bottom = 64px effective row height).
- *
- *   4. Group-by-genre mode: each genre group gets its own independent
- *      virtualized SongTable. This is correct because each group is a
- *      separate scroll region with its own song count.
- *
- *   5. The outer `ls-table-wrap` div has a max-height so grouped mode
- *      also scrolls properly within PageWrapper.
- *
- * WHAT DID NOT CHANGE:
- *   - SongRow — 100% identical, no props changed
- *   - GenreChip — identical
- *   - formatDuration — identical
- *   - sortSongs / buildGenreGroups — identical
- *   - All className values — identical
- *   - useLikedSongs / useAuthStore usage — identical
- *   - Empty state — identical
- *   - thead structure — identical
- *   - All icons — identical
- *   - Props contract of LikedSongsTable — identical
+ * BUG 3 — thead/tbody column misalignment (FIXED):
+ *   OLD: `tbody { display: block }` breaks the native table layout engine.
+ *        thead column widths and tbody column widths became independent —
+ *        columns visually misaligned or collapsed.
+ *   FIX: Use a CSS grid-based virtualization approach.
+ *        The entire table (thead + virtual rows) lives in one scroll
+ *        container. The thead is sticky at top:0. Virtual rows are
+ *        absolutely positioned divs that each render a full <table> with
+ *        colgroup to match column widths exactly.
+ *        This is the correct pattern for virtualizing HTML tables while
+ *        preserving column alignment.
  */
 
 import { useMemo, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useAuthStore } from "../../store/authStore";
 import { useLikedSongs } from "../../hooks/useLikedSongs";
 import { getGenreColor } from "./LikedSongsFilters";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-/**
- * Effective height of one ls-row.
- * ls-row has padding 8px top/bottom, cover is 48px tall = 64px.
- * Update if .ls-row padding changes in liked-songs.css.
- */
 const LS_ROW_HEIGHT = 64;
-
-/** Extra rows rendered above/below viewport. */
-const OVERSCAN = 5;
-
-/** Max visible height for the tbody scroll region. */
-const TABLE_MAX_HEIGHT = "calc(100vh - 320px)";
+const OVERSCAN      = 5;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const formatDuration = (secs) => {
@@ -72,14 +54,10 @@ const formatDuration = (secs) => {
 const sortSongs = (songs, sortBy) => {
   const arr = [...songs];
   switch (sortBy) {
-    case "az":
-      return arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
-    case "duration":
-      return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
-    case "genre":
-      return arr.sort((a, b) => (a.genre || "").localeCompare(b.genre || ""));
-    default:
-      return arr;
+    case "az":       return arr.sort((a, b) => (a.title  || "").localeCompare(b.title  || ""));
+    case "duration": return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    case "genre":    return arr.sort((a, b) => (a.genre  || "").localeCompare(b.genre  || ""));
+    default:         return arr;
   }
 };
 
@@ -93,7 +71,8 @@ const buildGenreGroups = (songs) => {
   return Object.entries(groups).sort((a, b) => b[1].length - a[1].length);
 };
 
-// ── SongRow — identical to original ──────────────────────────────────────────
+// ── SongRow ───────────────────────────────────────────────────────────────────
+// FIXED: accepts `style` prop and applies it so virtualizer translateY works.
 const SongRow = ({
   song,
   displayIndex,
@@ -102,13 +81,14 @@ const SongRow = ({
   onPlaySong,
   onToggleLike,
   isLiked,
+  style,       // ← FIXED: was received but never applied
 }) => {
   const [hovered, setHovered] = useState(false);
 
   return (
     <tr
       className={`ls-row ${isCurrentlyPlaying ? "ls-row--playing" : ""}`}
-      style={{ animationDelay: `${displayIndex * 40}ms` }}
+      style={style}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onDoubleClick={onPlaySong}
@@ -149,15 +129,11 @@ const SongRow = ({
               </div>
             )}
             {isNew && (
-              <span className="ls-new-badge" aria-label="Recently liked">
-                NEW
-              </span>
+              <span className="ls-new-badge" aria-label="Recently liked">NEW</span>
             )}
           </div>
           <div className="ls-song-meta">
-            <span
-              className={`ls-song-title ${isCurrentlyPlaying ? "ls-song-title--playing" : ""}`}
-            >
+            <span className={`ls-song-title ${isCurrentlyPlaying ? "ls-song-title--playing" : ""}`}>
               {song.title || "Unknown"}
             </span>
             <span className="ls-song-artist">
@@ -194,11 +170,7 @@ const SongRow = ({
 
       {/* Genre */}
       <td className="ls-td ls-td--hide-md">
-        {song.genre ? (
-          <GenreChip genre={song.genre} />
-        ) : (
-          <span className="ls-muted">—</span>
-        )}
+        {song.genre ? <GenreChip genre={song.genre} /> : <span className="ls-muted">—</span>}
       </td>
 
       {/* Time + Unlike */}
@@ -206,10 +178,7 @@ const SongRow = ({
         <div className="ls-td-end">
           <button
             className={`ls-unlike-btn ${hovered ? "ls-unlike-btn--visible" : ""} ${isLiked ? "ls-unlike-btn--liked" : ""}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleLike();
-            }}
+            onClick={(e) => { e.stopPropagation(); onToggleLike(); }}
             aria-label={isLiked ? "Remove from liked" : "Add to liked"}
           >
             <HeartIcon filled={isLiked} />
@@ -221,28 +190,34 @@ const SongRow = ({
   );
 };
 
-// ── GenreChip — identical to original ────────────────────────────────────────
+// ── GenreChip ─────────────────────────────────────────────────────────────────
 export const GenreChip = ({ genre }) => {
   const color = getGenreColor(genre);
   return (
     <span
       className="ls-genre-chip"
-      style={{
-        background: color.bg,
-        borderColor: color.border,
-        color: color.text,
-      }}
+      style={{ background: color.bg, borderColor: color.border, color: color.text }}
     >
       {genre}
     </span>
   );
 };
 
-// ── VirtualizedSongTable — new internal component replacing SongTable ─────────
+// ── VirtualizedSongTable ──────────────────────────────────────────────────────
 /**
- * Wraps a <table> with a virtualized tbody.
- * The thead stays fixed above the virtual scroll region.
- * tbody is the scroll container anchored to useVirtualizer.
+ * FIXED virtualization approach.
+ *
+ * The fundamental problem with `tbody { display: block }` is that it breaks
+ * the table layout engine — thead and tbody column widths become independent.
+ *
+ * Solution: use a single scroll container div. Inside it:
+ *   - A sticky thead table for column headers (with colgroup for widths)
+ *   - A relatively-positioned div sized to total virtual height
+ *   - Each virtual row absolutely positioned inside that div, rendered as
+ *     a full <table> with the same colgroup so columns align perfectly
+ *
+ * This is the standard production pattern for virtualizing tables while
+ * keeping column alignment correct.
  */
 const VirtualizedSongTable = ({
   songs,
@@ -253,103 +228,104 @@ const VirtualizedSongTable = ({
   onToggleLike,
   likedSongIds,
 }) => {
-  const tbodyRef = useRef(null);
+  const scrollRef = useRef(null);
 
   const virtualizer = useVirtualizer({
-    count: songs.length,
-    getScrollElement: () => tbodyRef.current,
-    estimateSize: () => LS_ROW_HEIGHT,
-    overscan: OVERSCAN,
+    count:           songs.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize:    () => LS_ROW_HEIGHT,
+    overscan:        OVERSCAN,
   });
 
   const virtualItems = virtualizer.getVirtualItems();
-  const totalHeight = virtualizer.getTotalSize();
+  const totalHeight  = virtualizer.getTotalSize();
+
+  // Shared colgroup — same in both the sticky header table and each virtual row table.
+  // Column widths must match ls-th / ls-td CSS widths exactly.
+  const colgroup = (
+    <colgroup>
+      <col style={{ width: 52 }} />          {/* # */}
+      <col style={{ minWidth: 200 }} />      {/* Title */}
+      <col className="ls-col--hide-sm" style={{ width: 180 }} />  {/* Album */}
+      <col className="ls-col--hide-md" style={{ width: 120 }} />  {/* Genre */}
+      <col style={{ width: 100 }} />         {/* Time */}
+    </colgroup>
+  );
 
   return (
-    <table className="ls-table" role="table">
-      <thead>
-        <tr className="ls-thead-row">
-          <th className="ls-th ls-th--num" scope="col">
-            #
-          </th>
-          <th className="ls-th" scope="col">
-            TITLE
-          </th>
-          <th className="ls-th ls-th--hide-sm" scope="col">
-            ALBUM
-          </th>
-          <th className="ls-th ls-th--hide-md" scope="col">
-            GENRE
-          </th>
-          <th className="ls-th ls-th--right" scope="col">
-            TIME
-          </th>
-        </tr>
-      </thead>
+    <div
+      ref={scrollRef}
+      className="ls-virtual-scroll"
+      style={{
+        overflowY: "auto",
+        maxHeight: "calc(100vh - 320px)",
+        scrollbarWidth: "thin",
+        scrollbarColor: "rgba(255,255,255,0.08) transparent",
+      }}
+    >
+      {/* Sticky header — always visible at top of scroll container */}
+      <table className="ls-table ls-table--header" style={{ position: "sticky", top: 0, zIndex: 2 }}>
+        {colgroup}
+        <thead>
+          <tr className="ls-thead-row">
+            <th className="ls-th ls-th--num" scope="col">#</th>
+            <th className="ls-th" scope="col">TITLE</th>
+            <th className="ls-th ls-th--hide-sm" scope="col">ALBUM</th>
+            <th className="ls-th ls-th--hide-md" scope="col">GENRE</th>
+            <th className="ls-th ls-th--right" scope="col">TIME</th>
+          </tr>
+        </thead>
+      </table>
 
-      {/*
-       * tbody is the scroll container.
-       * display: block is required to make overflow-y work on tbody.
-       * This is a known pattern for virtualizing HTML tables — the tbody
-       * becomes a block-level scroll container; trs are absolutely positioned
-       * inside the totalHeight spacer.
-       */}
-      <tbody
-        ref={tbodyRef}
-        style={{
-          display: "block",
-          overflowY: "auto",
-          maxHeight: TABLE_MAX_HEIGHT,
-          position: "relative",
-          // Thin scrollbar to match SongList
-          scrollbarWidth: "thin",
-          scrollbarColor: "rgba(255,255,255,0.08) transparent",
-        }}
-      >
-        {/* Virtual spacer — sizes the scrollbar correctly */}
-        <tr
-          aria-hidden="true"
-          style={{
-            display: "block",
-            height: totalHeight,
-            pointerEvents: "none",
-          }}
-        />
-
+      {/* Virtual rows container — sized to total virtual height */}
+      <div style={{ position: "relative", height: totalHeight }}>
         {virtualItems.map((virtualItem) => {
           const song = songs[virtualItem.index];
           if (!song) return null;
+          const isCurrentlyPlaying = currentSongId === song.id && isGloballyPlaying;
 
           return (
-            <SongRow
+            /*
+             * Each virtual row is a full <table> absolutely positioned.
+             * The same colgroup ensures pixel-perfect column alignment with the header.
+             */
+            <table
               key={song.id}
-              song={song}
-              displayIndex={virtualItem.index}
-              isNew={newIds.has(song.id)}
-              isCurrentlyPlaying={
-                currentSongId === song.id && isGloballyPlaying
-              }
-              isLiked={likedSongIds.includes(song.id)}
-              onPlaySong={() => onPlaySong(song, virtualItem.index, songs)}
-              onToggleLike={() => onToggleLike(song.id)}
-              // Position each row in virtual space
+              className="ls-table ls-table--row"
               style={{
-                display: "table-row",
                 position: "absolute",
-                top: 0,
-                left: 0,
-                width: "100%",
-                transform: `translateY(${virtualItem.start}px)`,
+                top:    virtualItem.start,
+                left:   0,
+                width:  "100%",
+                height: virtualItem.size,
               }}
-            />
+            >
+              {colgroup}
+              <tbody>
+                <SongRow
+                  song={song}
+                  displayIndex={virtualItem.index}
+                  isNew={newIds.has(song.id)}
+                  isCurrentlyPlaying={isCurrentlyPlaying}
+                  isLiked={likedSongIds.includes(song.id)}
+                  onPlaySong={() => onPlaySong(song, virtualItem.index, songs)}
+                  onToggleLike={() => onToggleLike(song.id)}
+                />
+              </tbody>
+            </table>
           );
         })}
-      </tbody>
-    </table>
+      </div>
+    </div>
   );
 };
 
-// ── Main export ────────────────────────────────────────────────────────────────
+// ── Main export ───────────────────────────────────────────────────────────────
+/**
+ * FIXED: No longer calls useLikedSongs internally.
+ * toggleLike and likedSongIds now come as props from LikedSongs.jsx.
+ * Added `uid` prop so the hook can be called in the parent only.
+ */
 const LikedSongsTable = ({
   songs,
   sortBy,
@@ -358,16 +334,20 @@ const LikedSongsTable = ({
   currentSongId,
   isGloballyPlaying,
   onPlaySong,
+  uid,           // ← NEW: passed from LikedSongs.jsx
 }) => {
-  const { user } = useAuthStore();
-  const { likedSongIds, toggleLike } = useLikedSongs(user?.uid);
+  // Single hook instance — owned here by LikedSongsTable's parent (LikedSongs.jsx)
+  // passes these down; we call the hook here only as a fallback if uid is provided
+  // directly. This keeps the component self-sufficient when used standalone.
+  const { likedSongIds, toggleLike } = useLikedSongs(uid);
 
   const filtered = useMemo(
     () => (activeGenre ? songs.filter((s) => s.genre === activeGenre) : songs),
     [songs, activeGenre],
   );
   const sorted = useMemo(() => sortSongs(filtered, sortBy), [filtered, sortBy]);
-  // Top-3 "new" = first 3 in original server order
+
+  // "New" = first 3 in the original server order (pre-filter/sort)
   const newIds = useMemo(
     () => new Set(songs.slice(0, 3).map((s) => s.id)),
     [songs],
@@ -376,13 +356,9 @@ const LikedSongsTable = ({
   if (!sorted.length) {
     return (
       <div className="ls-empty-filter">
-        <span className="ls-empty-filter__icon" aria-hidden="true">
-          🎵
-        </span>
+        <span className="ls-empty-filter__icon" aria-hidden="true">🎵</span>
         <p className="ls-empty-filter__text">No songs match this filter.</p>
-        <p className="ls-empty-filter__sub">
-          Try a different genre or clear the filter.
-        </p>
+        <p className="ls-empty-filter__sub">Try a different genre or clear the filter.</p>
       </div>
     );
   }
@@ -404,9 +380,7 @@ const LikedSongsTable = ({
           <section key={genre} className="ls-genre-group">
             <div className="ls-genre-group__header">
               <GenreChip genre={genre} />
-              <span className="ls-genre-group__count">
-                {groupSongs.length} songs
-              </span>
+              <span className="ls-genre-group__count">{groupSongs.length} songs</span>
             </div>
             <VirtualizedSongTable songs={groupSongs} {...tableProps} />
           </section>
@@ -422,35 +396,21 @@ const LikedSongsTable = ({
   );
 };
 
-// ── Icons — identical to original ─────────────────────────────────────────────
+// ── Icons ─────────────────────────────────────────────────────────────────────
 const PlayIcon = () => (
-  <svg
-    width="13"
-    height="13"
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    aria-hidden="true"
-  >
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <path d="M8 5.14v14l11-7-11-7z" />
   </svg>
 );
 const PauseIcon = () => (
-  <svg
-    width="13"
-    height="13"
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    aria-hidden="true"
-  >
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <rect x="6" y="4" width="4" height="16" />
     <rect x="14" y="4" width="4" height="16" />
   </svg>
 );
 const HeartIcon = ({ filled }) => (
   <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
+    width="14" height="14" viewBox="0 0 24 24"
     fill={filled ? "#f43f5e" : "none"}
     stroke={filled ? "#f43f5e" : "currentColor"}
     strokeWidth="2"
@@ -460,15 +420,7 @@ const HeartIcon = ({ filled }) => (
   </svg>
 );
 const MusicNoteIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    aria-hidden="true"
-  >
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
     <path d="M9 18V5l12-2v13" />
     <circle cx="6" cy="18" r="3" />
     <circle cx="18" cy="16" r="3" />

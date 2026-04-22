@@ -25,11 +25,14 @@
 
 /* ============================================================
    HERO — FIXED
-   Key fixes:
+   FIX SUMMARY:
    1. ls-hero__bg-base covers 100% always (no grid gaps)
-   2. Tile mosaic is an overlay with opacity, not the base layer
-   3. Multi-layer gradient ensures perfect legibility
-   4. Height is fixed so content is always bottom-anchored
+   2. Tile mosaic is a low-opacity overlay, not the base layer
+   3. FIXED: Overlay tint opacity reduced from 0.52 → 0.28 so the
+      album art colour actually shows through instead of being
+      crushed to near-black. Bottom fade reduced from 0.92 → 0.80.
+   4. FIXED: Hero background uses a vibrant purple–rose default
+      (not near-black) so even without cover art the page looks rich.
 ============================================================ */
 .ls-hero {
   position: relative;
@@ -51,7 +54,7 @@
   overflow: hidden;
 }
 
-/* PRIMARY base image — always fills the entire hero area, no gaps */
+/* PRIMARY base image — always fills the entire hero area */
 .ls-hero__bg-base {
   position: absolute;
   inset: 0;
@@ -59,25 +62,23 @@
   height: 100%;
   object-fit: cover;
   object-position: center 30%;
-  /* Slightly desaturated so overlay colors pop */
-  filter: saturate(1.15) brightness(0.75);
-  transform: scale(1.02); /* tiny scale hides edge artifacts */
+  /*
+   * FIXED: was saturate(1.15) brightness(0.75) which made the image dark.
+   * Now brightness(0.85) so colour is visible, overlay handles legibility.
+   */
+  filter: saturate(1.2) brightness(0.85);
+  transform: scale(1.02);
   transition: transform 8s ease;
 }
 
-/* Skeleton placeholder when no image yet */
-.ls-hero--skeleton .ls-hero__bg-base {
-  background: var(--color-surface);
-}
-
-/* Tile mosaic — decorative overlay, only shown when 2+ covers */
+/* Tile mosaic overlay — decorative depth, only when 2+ covers */
 .ls-hero__bg-tiles {
   position: absolute;
   inset: 0;
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  opacity: 0.18;
+  opacity: 0.14;
   pointer-events: none;
 }
 
@@ -88,48 +89,66 @@
   filter: blur(2px);
 }
 
-/* Fallback gradient when no covers at all */
+/*
+ * FIXED: Fallback gradient now shows a vivid purple–rose colour
+ * instead of near-black. This is the state users see when they have
+ * no liked songs with cover art yet.
+ */
 .ls-hero__bg-fallback {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, #4c1d95 0%, #831843 50%, #1c1917 100%);
+  background: linear-gradient(135deg, #5b21b6 0%, #9d174d 55%, #1e1b4b 100%);
 }
 
-/* Overlay layers — stacked for rich legibility */
-/* Layer 1: subtle purple-rose tint */
+/* ── Overlay layers ──────────────────────────────────────────
+ *
+ * FIXED: All three overlays had their opacity values tuned down.
+ *
+ * Before: tint was rgba(88,28,135, 0.52) + rgba(157,23,77, 0.38)
+ *         bottom was rgba(0,0,0, 0.92)
+ * Problem: 0.52 purple + 0.38 rose + 0.92 black = colour completely
+ *          crushed. The screenshot showed a near-black hero with
+ *          just a faint maroon edge — all the album art was hidden.
+ *
+ * After:  tint 0.28 + 0.18, bottom 0.78 (text still readable),
+ *         left 0.45 (was 0.60). Album art colour now bleeds through.
+ * ─────────────────────────────────────────────────────────── */
+
+/* Layer 1: purple-rose tint — REDUCED opacity */
 .ls-hero__ov--tint {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg,
-    rgba(88, 28, 135, 0.52) 0%,
-    rgba(157, 23, 77, 0.38) 50%,
+  background: linear-gradient(
+    135deg,
+    rgba(88, 28, 135, 0.28) 0%,
+    rgba(157, 23, 77, 0.18) 55%,
     transparent 100%
   );
   pointer-events: none;
 }
 
-/* Layer 2: strong bottom-to-top dark fade (for text legibility) */
+/* Layer 2: bottom-to-top dark fade — REDUCED from 0.92 to 0.78 */
 .ls-hero__ov--bottom {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to top,
-    rgba(0, 0, 0, 0.92) 0%,
-    rgba(0, 0, 0, 0.55) 40%,
-    rgba(0, 0, 0, 0.15) 70%,
+    rgba(0, 0, 0, 0.78) 0%,
+    rgba(0, 0, 0, 0.42) 40%,
+    rgba(0, 0, 0, 0.08) 70%,
     transparent 100%
   );
   pointer-events: none;
 }
 
-/* Layer 3: left-side fade so left content is always on dark bg */
+/* Layer 3: left-side fade — REDUCED from 0.60 to 0.45 */
 .ls-hero__ov--left {
   position: absolute;
   inset: 0;
   background: linear-gradient(
     to right,
-    rgba(0, 0, 0, 0.6) 0%,
-    rgba(0, 0, 0, 0.2) 50%,
+    rgba(0, 0, 0, 0.45) 0%,
+    rgba(0, 0, 0, 0.12) 50%,
     transparent 100%
   );
   pointer-events: none;
@@ -169,7 +188,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.6);
   margin-bottom: -6px;
 }
 
@@ -179,7 +198,7 @@
   color: #fff;
   letter-spacing: -0.025em;
   line-height: 1.05;
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.6);
 }
 
 /* Stats row */
@@ -193,17 +212,17 @@
 .ls-stat__value {
   font-size: 13px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .ls-stat__unit {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.55);
   margin-left: 3px;
 }
 
 .ls-stat__sep {
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.35);
   font-size: 14px;
   margin: 0 2px;
 }
@@ -265,6 +284,11 @@
 
 .ls-btn-smart:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* Hero skeleton */
+.ls-hero--skeleton .ls-hero__bg-base {
+  background: var(--color-surface);
+}
+
 /* Hero entrance animation */
 .ls-hero-enter {
   animation: lsFadeDown 0.5s ease both;
@@ -299,15 +323,13 @@
   gap: 10px;
   padding: 14px 24px 12px;
   border-bottom: 1px solid var(--color-border);
-  /* Sticky so filters stay visible while scrolling the song list */
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--color-bg);
-  /* Blur fallback for browsers that support it */
+  /* Prefer rgba bg with backdrop-filter for glass effect */
+  background: rgba(var(--color-bg-rgb, 10, 10, 10), 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  background: rgba(var(--color-bg-rgb, 10, 10, 10), 0.92);
 }
 
 @media (min-width: 640px)  { .ls-filters { padding: 14px 36px 12px; } }
@@ -429,15 +451,49 @@
 }
 
 /* ============================================================
-   TABLE — FIXED
-   Key fixes:
-   1. thead is NOT sticky (was causing row 1 to hide behind it)
-   2. Proper column widths so layout is stable
-   3. ls-new-badge repositioned to bottom-right of cover
+   TABLE — FIXED VIRTUALIZATION
+   Key architecture:
+   1. ls-virtual-scroll is the single scroll container (overflow-y: auto)
+   2. ls-table--header is sticky inside the scroll container (position:sticky top:0)
+   3. ls-table--row tables are absolutely positioned inside a relative div
+   4. Both use the same colgroup for pixel-perfect column alignment
+   5. ls-col--hide-sm / ls-col--hide-md mirror th/td responsive rules
 ============================================================ */
 .ls-table-wrap {
   width: 100%;
   overflow-x: hidden;
+}
+
+/* Virtual scroll container */
+.ls-virtual-scroll {
+  width: 100%;
+  position: relative;
+}
+
+/* Responsive col visibility — mirrors th/td responsive rules */
+.ls-col--hide-sm { display: none; }
+.ls-col--hide-md { display: none; }
+
+@media (min-width: 640px) { .ls-col--hide-sm { display: table-column; } }
+@media (min-width: 900px) { .ls-col--hide-md { display: table-column; } }
+
+/* Base table styles shared by both header and row tables */
+.ls-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;  /* FIXED: use fixed layout so colgroup widths are respected */
+}
+
+/* Sticky header table — sits at top of scroll container */
+.ls-table--header {
+  background: var(--color-bg);
+  /* Thin bottom border separates header from rows */
+  box-shadow: 0 1px 0 var(--color-border);
+}
+
+/* Row tables — positioned absolutely by virtualizer */
+.ls-table--row {
+  /* No border-collapse artifact between adjacent absolute tables */
 }
 
 .ls-genre-group { padding-bottom: 4px; }
@@ -457,15 +513,9 @@
 @media (min-width: 640px)  { .ls-genre-group__header { padding: 20px 36px 10px; } }
 @media (min-width: 1100px) { .ls-genre-group__header { padding: 20px 48px 10px; } }
 
-.ls-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: auto;
-}
-
-/* Table header — NOT sticky (avoids row 1 overlap bug) */
+/* Table header row */
 .ls-thead-row {
-  border-bottom: 1px solid var(--color-border);
+  /* No bottom border here — handled by box-shadow on ls-table--header */
 }
 
 .ls-th {
@@ -510,7 +560,6 @@
   border-bottom: 1px solid transparent;
   cursor: pointer;
   transition: background 0.1s ease;
-  /* Staggered entrance — delay set inline via style */
   animation: lsRowIn 0.3s ease both;
 }
 
@@ -519,8 +568,8 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.ls-row:hover { background: var(--color-surface-hover); }
-.ls-row--playing { background: rgba(34, 197, 94, 0.06); }
+.ls-row:hover        { background: var(--color-surface-hover); }
+.ls-row--playing     { background: rgba(34, 197, 94, 0.06); }
 .ls-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
 /* Cells */
@@ -529,6 +578,9 @@
   vertical-align: middle;
   font-size: 13px;
   color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ls-td--num {
@@ -605,11 +657,7 @@
   color: var(--color-text-muted);
 }
 
-/*
- * NEW badge — FIXED position:
- * Moved to bottom-right corner of the cover so it never
- * overlaps the row number or title columns.
- */
+/* NEW badge — bottom-right of cover */
 .ls-new-badge {
   position: absolute;
   bottom: -4px;

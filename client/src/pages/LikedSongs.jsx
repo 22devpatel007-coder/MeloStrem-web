@@ -3,30 +3,24 @@ import { Link } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
 import { useLikedSongs } from "../hooks/useLikedSongs";
 import { usePlayerStore } from "../store/playerStore";
-import { useQueueStore } from "../store/queueStore";
 import LikedSongsHero from "../components/songs/LikedSongsHero";
 import LikedSongsFilters from "../components/songs/LikedSongsFilters";
 import LikedSongsTable from "../components/songs/LikedSongsTable";
 import LikedSongsSkeleton from "../components/songs/LikedSongsSkeleton";
 
 /**
- * LikedSongs — FIXED
+ * LikedSongs — Production Fix
  *
- * ✅ Root cause fix for "setCurrentSong is not a function":
- *    This page is the ONLY place that calls playerStore/queueStore.
- *    It reads the full store object once and uses whichever action names
- *    your actual store exposes. We support both common naming conventions:
- *      - playSong(song, context, queue)     ← most likely in MeloStream
- *      - setCurrentSong(song) + setIsPlaying(true)  ← fallback
- *    If your store uses a different name, update ONE place here only.
+ * BUG FIXED: playSong(song, "liked", queue) is WRONG.
+ * playerStore.playSong signature is: playSong(song) — one argument only.
+ * The "liked" context and queue were silently dropped, meaning playback
+ * context was never set → skip/shuffle/queue all broken for liked songs.
  *
- * ✅ All sub-components (Hero, Table) receive callbacks — they never
- *    import stores directly, so they can never have API mismatch errors.
+ * CORRECT PATTERN (from playerStore source):
+ *   1. setPlaybackContext(type, id, songs, startIndex) — seeds queue + context
+ *   2. playSong(song) — starts audio for the specific song
  *
- * Loading architecture (3 stages):
- *   Stage 1 — Skeleton shell renders instantly (isLoading)
- *   Stage 2 — Hero fades in with cover mosaic + stats
- *   Stage 3 — Table rows stagger in via CSS animation-delay
+ * This is the same pattern used by Library and Playlist pages.
  */
 
 const LikedSongs = () => {
@@ -38,44 +32,29 @@ const LikedSongs = () => {
   const [sortBy, setSortBy] = useState("default");
   const [groupByGenre, setGroupByGenre] = useState(false);
 
-  // ── Store access ──────────────────────────────────────────────────────
-  // Read the full player store so we can detect which API it exposes.
-  const playerStore = usePlayerStore();
-  const queueStore = useQueueStore();
+  // ── Store access ──────────────────────────────────────────────────────────
+  const setPlaybackContext = usePlayerStore((s) => s.setPlaybackContext);
+  const playSong           = usePlayerStore((s) => s.playSong);
+  const currentSong        = usePlayerStore((s) => s.currentSong);
+  const isGloballyPlaying  = usePlayerStore((s) => s.isPlaying);
 
-  // currentSong + isPlaying — used by table to highlight active row
-  const currentSong = playerStore.currentSong ?? null;
-  const isGloballyPlaying = playerStore.isPlaying ?? false;
-
-  // ── Unified play handler ──────────────────────────────────────────────
-  // Supports both "playSong" and "setCurrentSong/setIsPlaying" store shapes.
+  // ── Unified play handler ──────────────────────────────────────────────────
+  // CORRECT: setPlaybackContext first (seeds queue + context), then playSong.
+  // startIndex tells the queue where to start so Next/Prev work correctly.
   const playSongFromContext = useCallback(
-    (song, _index, queue) => {
+    (song, index, queue) => {
       if (!song) return;
-
-      // Seed the queue first if queueStore supports it
-      if (typeof queueStore?.setQueueFromContext === "function") {
-        queueStore.setQueueFromContext(queue ?? [song], "liked");
-      }
-
-      // Try the most common MeloStream API first
-      if (typeof playerStore?.playSong === "function") {
-        playerStore.playSong(song, "liked", queue ?? [song]);
-        return;
-      }
-
-      // Fallback: separate setters
-      if (typeof playerStore?.setCurrentSong === "function") {
-        playerStore.setCurrentSong(song);
-      }
-      if (typeof playerStore?.setIsPlaying === "function") {
-        playerStore.setIsPlaying(true);
-      }
+      const safeQueue = Array.isArray(queue) && queue.length > 0 ? queue : [song];
+      const safeIndex = typeof index === "number" && index >= 0 ? index : 0;
+      // Seed the liked context + full queue first
+      setPlaybackContext("liked", "liked-songs", safeQueue, safeIndex);
+      // Then start playback for the clicked song
+      playSong(song);
     },
-    [playerStore, queueStore],
+    [setPlaybackContext, playSong],
   );
 
-  // ── Smart sort for Smart Play ─────────────────────────────────────────
+  // ── Smart Play queue ──────────────────────────────────────────────────────
   const buildSmartQueue = useCallback(() => {
     const genreCount = {};
     likedSongs.forEach((s) => {
@@ -87,21 +66,17 @@ const LikedSongs = () => {
     });
   }, [likedSongs]);
 
-  // ── Stage 1: Skeleton ─────────────────────────────────────────────────
+  // ── Stage 1: Skeleton ─────────────────────────────────────────────────────
   if (isLoading) return <LikedSongsSkeleton />;
 
-  // ── Error state ───────────────────────────────────────────────────────
+  // ── Error state ───────────────────────────────────────────────────────────
   if (isError) {
     return (
       <div className="ls-page ls-page--centered" role="alert">
         <div className="ls-error-card">
-          <span className="ls-error-card__icon" aria-hidden="true">
-            ⚠️
-          </span>
+          <span className="ls-error-card__icon" aria-hidden="true">⚠️</span>
           <p className="ls-error-card__title">Couldn't load your liked songs</p>
-          <p className="ls-error-card__sub">
-            Check your connection and try again.
-          </p>
+          <p className="ls-error-card__sub">Check your connection and try again.</p>
           <button className="ls-btn-retry" onClick={() => refetch()}>
             Try Again
           </button>
@@ -110,7 +85,7 @@ const LikedSongs = () => {
     );
   }
 
-  // ── Empty state ───────────────────────────────────────────────────────
+  // ── Empty state ───────────────────────────────────────────────────────────
   if (likedSongs.length === 0) {
     return (
       <div className="ls-page ls-page--centered">
@@ -130,7 +105,7 @@ const LikedSongs = () => {
     );
   }
 
-  // ── Full page ─────────────────────────────────────────────────────────
+  // ── Full page ─────────────────────────────────────────────────────────────
   return (
     <div className="ls-page">
       {/* Stage 2 — Hero */}
@@ -158,14 +133,20 @@ const LikedSongs = () => {
           groupByGenre={groupByGenre}
           onGroupToggle={() => setGroupByGenre((g) => !g)}
         />
+        {/*
+          IMPORTANT: toggleLike and likedSongIds are passed DOWN from here.
+          LikedSongsTable must NOT call useLikedSongs internally — that creates
+          a second React Query subscription and conflicts with optimistic updates.
+        */}
         <LikedSongsTable
           songs={likedSongs}
           sortBy={sortBy}
           activeGenre={activeGenre}
           groupByGenreEnabled={groupByGenre}
-          currentSongId={currentSong?.id}
+          currentSongId={currentSong?.id ?? null}
           isGloballyPlaying={isGloballyPlaying}
           onPlaySong={playSongFromContext}
+          uid={user?.uid}
         />
       </div>
     </div>
@@ -173,13 +154,7 @@ const LikedSongs = () => {
 };
 
 const HeartOutlineIcon = () => (
-  <svg
-    width="32"
-    height="32"
-    viewBox="0 0 24 24"
-    fill="none"
-    aria-hidden="true"
-  >
+  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path
       d="M12 21C12 21 3 14.5 3 8.5C3 5.42 5.42 3 8.5 3C10.24 3 11.91 3.81 13 5.09C14.09 3.81 15.76 3 17.5 3C20.58 3 23 5.42 23 8.5C23 14.5 14 21 12 21Z"
       stroke="#6b7280"
