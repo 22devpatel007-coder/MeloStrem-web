@@ -25,7 +25,7 @@
 
 import { create } from 'zustand';
 import { logout as authServiceLogout } from '../services/auth.service';
-
+import { setUserId } from '../services/errorReporter';
 let _queryClient = null;
 
 export const registerQueryClient = (qc) => {
@@ -62,7 +62,7 @@ const useAuthStore = create((set) => ({
   loading:    true,
   likedSongs: [],
 
-  setUser:       (user)       => set({ user }),
+  setUser: (user) => { setUserId(user?.uid ?? null); set({ user }); },
   setAdmin:      (isAdmin)    => set({ isAdmin }),
   setLoading:    (loading)    => set({ loading }),
   setLikedSongs: (likedSongs) => set({ likedSongs }),

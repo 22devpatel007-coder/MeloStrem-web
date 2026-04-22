@@ -31,6 +31,7 @@ import useAuthStore, { registerQueryClient } from './store/authStore';
 import AppRoutes from './routes/index';
 import MusicPlayer from './components/player/MusicPlayer';
 import { ToastProvider } from './components/ui/Toast';
+import { QUERY_KEYS } from './constants/queryKeys';
 import {
   AppErrorBoundary,
   PlayerErrorBoundary,
@@ -73,6 +74,11 @@ const queryClient = new QueryClient({
 });
 
 registerQueryClient(queryClient);
+
+queryClient.setQueryDefaults(QUERY_KEYS.SONGS,            { staleTime: 0 });
+queryClient.setQueryDefaults(QUERY_KEYS.PLAYLISTS,        { staleTime: 0 });
+queryClient.setQueryDefaults(QUERY_KEYS.ADMIN_PLAYLISTS,  { staleTime: 0 });
+queryClient.setQueryDefaults(QUERY_KEYS.USER_PLAYLISTS,   { staleTime: 0 });
 window.__reactQueryClient = queryClient;
 // ── BUG-012 FIX: Per-key staleTime overrides for admin-critical data ──────────
 //

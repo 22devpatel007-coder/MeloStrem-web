@@ -1,28 +1,45 @@
 /**
  * client/src/store/playerStore.js
  *
- * PATCH — stopAndClose action added (permanent fix for close button).
+ * PATCH — Queue auto-pagination (permanent fix for "stops at 50 songs").
  *
- * ROOT CAUSE OF CLOSE BUTTON NOT WORKING:
- *   MiniPlayerBar reads `usePlayerStore((s) => s.stopAndClose)` but this
- *   action never existed in the store. `stopAndClose` was always `undefined`,
- *   so `onClick={undefined}` silently did nothing — no error, no feedback.
+ * ROOT CAUSE:
+ *   playNext() in linear mode hits the last song in the queue (e.g. index 49
+ *   out of 50) and calls `set({ isPlaying: false }); return;` — it has no
+ *   awareness that React Query has more pages available via fetchNextPage().
+ *   The queue and the infinite-scroll pagination were completely disconnected.
  *
- * FIX:
- *   Added `stopAndClose` as an alias that calls the existing `stop()` action
- *   and additionally clears the queue via the registered queueStore accessor.
- *   This is the correct production pattern — same accessor used by all other
- *   queue operations, no new imports, no circular dependency risk.
+ * FIX — THREE PARTS:
  *
- * WHAT stopAndClose DOES (in order):
- *   1. Aborts any in-flight audio load (currentAbortController)
- *   2. Pauses and clears audio.src
- *   3. Sets currentSong → null  (triggers MiniPlayerBar to return null)
- *   4. Resets all playback state (isPlaying, shuffleMode, playCountMap, etc.)
- *   5. Clears the queue via registered queueStore accessor
+ *   1. registerPaginationBridge(bridge) — new export.
+ *      Called once by useSongs() after the hook mounts.
+ *      bridge = { fetchNextPage, hasNextPage, appendSongs }
+ *        - fetchNextPage:  React Query's fetchNextPage()
+ *        - hasNextPage:    reactive boolean (passed as a getter fn so it stays live)
+ *        - appendSongs:    function(songs[]) → appends to the current queue
+ *
+ *   2. playNext() — two new lines added inside the "end of queue" branch:
+ *      BEFORE stopping, check if hasNextPage() is true.
+ *      If yes: call fetchNextPage() and set a pending flag.
+ *      The player stays in isPlaying:true state — do NOT stop.
+ *      When appendSongs() is called (by useSongs effect), the queue grows
+ *      and the pending "play next" resumes automatically.
+ *
+ *   3. _pendingNextAfterFetch flag (module-level, not in Zustand state).
+ *      When playNext() triggers a fetch, this flag is set to true.
+ *      appendSongsToQueue() (called by useSongs) checks this flag:
+ *        - If true: immediately call playNext() on the newly appended songs.
+ *        - Always resets the flag after consuming it.
+ *      Module-level (not Zustand) because it is transient fetch coordination
+ *      state, not UI state — it never needs to trigger a re-render.
+ *
+ * CONTEXT SCOPING:
+ *   Auto-pagination only triggers when playbackContext.type === 'library'.
+ *   Playlist / liked / dynamic contexts have a fixed song pool and never
+ *   need to fetch more — they continue their existing stop/loop behaviour.
  *
  * UNCHANGED: Every other action, algorithm, and export is untouched.
- * All previously fixed bugs (BUG 1–4) are preserved exactly as-is.
+ *   All previously fixed bugs (BUG 1–4, stopAndClose) are preserved exactly.
  */
 
 import { create } from 'zustand';
@@ -42,6 +59,68 @@ function getQueueState() {
     return { queue: [], setQueueFromContext: null };
   }
   return _getQueueState();
+}
+
+// ── Pagination bridge ─────────────────────────────────────────────────────────
+//
+// Registered by useSongs() after mount. Allows playerStore to request more
+// songs from React Query when the queue runs dry in library context.
+//
+// Shape: {
+//   fetchNextPage: () => void          — triggers React Query page fetch
+//   hasNextPage:   () => boolean       — getter so value stays live
+//   appendSongs:   (songs[]) => void   — called by useSongs to grow the queue
+// }
+//
+let _paginationBridge = null;
+
+export function registerPaginationBridge(bridge) {
+  if (
+    bridge &&
+    typeof bridge.fetchNextPage === 'function' &&
+    typeof bridge.hasNextPage   === 'function' &&
+    typeof bridge.appendSongs   === 'function'
+  ) {
+    _paginationBridge = bridge;
+  } else {
+    console.warn('[playerStore] registerPaginationBridge: invalid bridge shape', bridge);
+  }
+}
+
+// Transient flag — set when playNext() requests a fetch and is waiting for
+// appendSongsToQueue() to fire. Never stored in Zustand (no re-render needed).
+let _pendingNextAfterFetch = false;
+
+/**
+ * Called by useSongs() when a new page of songs arrives.
+ * Appends songs to the queue and, if a playNext() was waiting, continues.
+ *
+ * @param {Song[]} newSongs  — freshly fetched page (already normalized)
+ */
+export function appendSongsToQueue(newSongs) {
+  if (!Array.isArray(newSongs) || newSongs.length === 0) {
+    _pendingNextAfterFetch = false;
+    return;
+  }
+
+  // Grow the queue
+  const qs = getQueueState();
+  if (typeof qs?.appendSongs === 'function') {
+    qs.appendSongs(newSongs);
+  } else {
+    console.warn('[playerStore] appendSongsToQueue — queueStore.appendSongs not available');
+    _pendingNextAfterFetch = false;
+    return;
+  }
+
+  // If playNext() was waiting for this page, resume playback now
+  if (_pendingNextAfterFetch) {
+    _pendingNextAfterFetch = false;
+    // Small tick so the queue state has settled before playNext reads it
+    setTimeout(() => {
+      usePlayerStore.getState().playNext();
+    }, 0);
+  }
 }
 
 // ── safePlay ──────────────────────────────────────────────────────────────────
@@ -66,18 +145,6 @@ async function safePlay(src) {
       // or will never fire again for this load. If we only attached the
       // 'canplay' listener we would hang forever waiting for an event that
       // already happened (common on CDN edge cache hits or fast connections).
-      //
-      // readyState values:
-      //   0 HAVE_NOTHING    — no data loaded
-      //   1 HAVE_METADATA   — duration/dimensions known, no playable data
-      //   2 HAVE_CURRENT_DATA — current frame/sample available, can't advance
-      //   3 HAVE_FUTURE_DATA  — enough to play and advance (canplay fires here)
-      //   4 HAVE_ENOUGH_DATA  — fully buffered or streaming fine
-      //
-      // We check >= 3 after audio.load() because audio.load() resets readyState
-      // to 0 synchronously. If by the time we reach here readyState is already
-      // >= 3, the canplay event fired between audio.load() and this check —
-      // resolve immediately without waiting for an event that will never come.
       if (audio.readyState >= 3) {
         resolve();
         return;
@@ -326,50 +393,49 @@ const usePlayerStore = create((set, get) => ({
   },
 
   // ── cycleShuffleMode ───────────────────────────────────────────────────────
- cycleShuffleMode: () => {
-  const { shuffleMode, playbackContext, setShuffleMode } = get();
-  const isDynamic = playbackContext.type === 'dynamic';
+  cycleShuffleMode: () => {
+    const { shuffleMode, playbackContext, setShuffleMode } = get();
+    const isDynamic = playbackContext.type === 'dynamic';
 
-  let next;
-  if (shuffleMode === 'none')         next = isDynamic ? 'smart' : 'classic';
-  else if (shuffleMode === 'classic') next = 'smart';
-  else                                next = 'none';
+    let next;
+    if (shuffleMode === 'none')         next = isDynamic ? 'smart' : 'classic';
+    else if (shuffleMode === 'classic') next = 'smart';
+    else                                next = 'none';
 
-  setShuffleMode(next); // always routes through the hard guard
-},
+    setShuffleMode(next);
+  },
+
   // ── setShuffleMode ─────────────────────────────────────────────────────────
-// HARD GUARD — single enforced entry point for all shuffle state changes.
-// Classic shuffle is unconditionally blocked in dynamic context regardless
-// of caller (UI button, keyboard shortcut, external setState).
-setShuffleMode: (mode) => {
-  const { playbackContext } = get();
-  const isDynamic = playbackContext.type === 'dynamic';
+  // HARD GUARD — single enforced entry point for all shuffle state changes.
+  setShuffleMode: (mode) => {
+    const { playbackContext } = get();
+    const isDynamic = playbackContext.type === 'dynamic';
 
-  // Hard block: dynamic context never permits classic shuffle
-  const safeMode = (isDynamic && mode === 'classic') ? 'smart' : mode;
+    const safeMode = (isDynamic && mode === 'classic') ? 'smart' : mode;
 
-  if (process.env.NODE_ENV !== 'production' && safeMode !== mode) {
-    console.warn(
-      '[playerStore] setShuffleMode: classic shuffle blocked in dynamic context — coerced to smart'
-    );
-  }
-
-  if (safeMode === 'classic') {
-    const pool = playbackContext.songs.length > 0
-      ? playbackContext.songs
-      : getQueueState().queue;
-
-    if (pool.length > 0) {
-      const { currentSong } = get();
-      const rolled = vinylRoll(pool);
-      const idx    = rolled.findIndex((s) => s.id === currentSong?.id);
-      set({ shuffleMode: 'classic', shuffledOrder: rolled, shuffledIndex: idx >= 0 ? idx : 0 });
-      return;
+    if (process.env.NODE_ENV !== 'production' && safeMode !== mode) {
+      console.warn(
+        '[playerStore] setShuffleMode: classic shuffle blocked in dynamic context — coerced to smart'
+      );
     }
-  }
 
-  set({ shuffleMode: safeMode, shuffledOrder: [], shuffledIndex: -1 });
-},
+    if (safeMode === 'classic') {
+      const pool = playbackContext.songs.length > 0
+        ? playbackContext.songs
+        : getQueueState().queue;
+
+      if (pool.length > 0) {
+        const { currentSong } = get();
+        const rolled = vinylRoll(pool);
+        const idx    = rolled.findIndex((s) => s.id === currentSong?.id);
+        set({ shuffleMode: 'classic', shuffledOrder: rolled, shuffledIndex: idx >= 0 ? idx : 0 });
+        return;
+      }
+    }
+
+    set({ shuffleMode: safeMode, shuffledOrder: [], shuffledIndex: -1 });
+  },
+
   toggleShuffle: () => get().cycleShuffleMode(),
 
   // ── logPick ────────────────────────────────────────────────────────────────
@@ -418,19 +484,8 @@ setShuffleMode: (mode) => {
       return;
     }
 
-    // FIX: fetch audioUrl on-demand rather than reading from the song object.
-    // The list normalizer (extractSong) intentionally strips audioUrl to keep
-    // the list cache lean. We fetch it here — exactly when it is needed.
-    //
-    // GET /api/songs/:id is cached at 300s TTL on the backend, so repeated
-    // play/pause/skip cycles for the same song hit the in-memory cache and
-    // never make a Firestore read.
-    //
-    // Fallback chain:
-    //   1. song.audioUrl / song.fileUrl — present if song came from getSongById()
-    //      (admin edit, album/artist detail pages pass full objects)
-    //   2. getSongAudioUrl(song.id) — fetch from /api/songs/:id
-    //   3. '' — warn and bail
+    // Fetch audioUrl on-demand — list normalizer intentionally strips it.
+    // GET /api/songs/:id is cached at 300s TTL on the backend.
     let src = song.audioUrl || song.fileUrl || '';
     if (!src) {
       try {
@@ -487,6 +542,7 @@ setShuffleMode: (mode) => {
 
     const { queue } = getQueueState();
 
+    // Dynamic context — always smart-pick from pool, never paginate
     if (playbackContext.type === 'dynamic') {
       const pool = dynamicPool.length > 0
         ? dynamicPool
@@ -499,6 +555,7 @@ setShuffleMode: (mode) => {
     const pool = playbackContext.songs.length > 0 ? playbackContext.songs : queue;
     if (!pool.length) return;
 
+    // ── Classic shuffle ──────────────────────────────────────────────────────
     if (shuffleMode === 'classic') {
       let order = shuffledOrder;
       let idx   = shuffledIndex;
@@ -516,22 +573,48 @@ setShuffleMode: (mode) => {
       return;
     }
 
+    // ── Smart shuffle ────────────────────────────────────────────────────────
     if (shuffleMode === 'smart') {
       const nextSong = smartPick(pool, currentSong, playCountMap, recentlyPlayed);
       if (nextSong) playSong(nextSong);
       return;
     }
 
+    // ── Linear playback ──────────────────────────────────────────────────────
     if (!queue.length) return;
+
     const currentIndex = queue.findIndex((s) => s.id === currentSong?.id);
     let nextIndex = currentIndex + 1;
 
-    if (nextIndex >= queue.length) {
-      if (repeatMode === 'all') nextIndex = 0;
-      else { set({ isPlaying: false }); return; }
+    if (nextIndex < queue.length) {
+      // Normal case — next song is already in queue
+      playSong(queue[nextIndex]);
+      return;
     }
 
-    playSong(queue[nextIndex]);
+    // ── End of queue reached ─────────────────────────────────────────────────
+    //
+    // Only auto-paginate in 'library' context. Other contexts (playlist, liked)
+    // have a fixed pool and should respect repeatMode instead.
+    //
+    if (playbackContext.type === 'library' && _paginationBridge) {
+      const hasMore = _paginationBridge.hasNextPage();
+      if (hasMore) {
+        // Signal that we want to play next as soon as the new page arrives.
+        // Keep isPlaying:true so the UI doesn't flash to a stopped state.
+        _pendingNextAfterFetch = true;
+        _paginationBridge.fetchNextPage();
+        // Do NOT stop — appendSongsToQueue() will resume playback
+        return;
+      }
+    }
+
+    // No more pages — respect repeatMode
+    if (repeatMode === 'all') {
+      playSong(queue[0]);
+    } else {
+      set({ isPlaying: false });
+    }
   },
 
   // ── playPrev ───────────────────────────────────────────────────────────────
@@ -614,6 +697,7 @@ setShuffleMode: (mode) => {
     audio.pause();
     audio.src     = '';
     audio.onended = null;
+    _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
     set({
       currentSong:     null,
       isPlaying:       false,
@@ -629,30 +713,15 @@ setShuffleMode: (mode) => {
   },
 
   // ── stopAndClose ──────────────────────────────────────────────────────────
-  //
-  // NEW — this is what the close button in MiniPlayerBar calls.
-  //
-  // Why a separate action instead of just aliasing stop()?
-  //   stop() resets playbackContext, shuffleMode, and sessionLog — correct for
-  //   a full teardown. stopAndClose does the same PLUS clears the queue via the
-  //   registered queueStore accessor, so the QueueDrawer also empties and there
-  //   is no stale queue state if the user opens a new context afterward.
-  //
-  // Queue clearing is best-effort: if queueStore hasn't registered yet
-  // (edge case during app boot), the audio and player state are still fully
-  // reset — the queue will be overwritten on the next setPlaybackContext call.
-  //
   stopAndClose: () => {
-    // 1. Abort any in-flight audio load
     if (currentAbortController) currentAbortController.abort();
 
-    // 2. Pause and release the audio source
     audio.pause();
     audio.src     = '';
     audio.onended = null;
 
-    // 3. Reset all player state — currentSong → null triggers MiniPlayerBar
-    //    to return null and remove itself from the DOM.
+    _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
+
     set({
       currentSong:     null,
       isPlaying:       false,
@@ -666,14 +735,12 @@ setShuffleMode: (mode) => {
       sessionLog:      [],
     });
 
-    // 4. Clear the queue — best-effort via registered accessor
     try {
       const qs = getQueueState();
       if (typeof qs?.setQueueFromContext === 'function') {
         qs.setQueueFromContext([], 0, 'library');
       }
     } catch (err) {
-      // Non-critical — queue will be replaced on next playback context set
       console.warn('[playerStore] stopAndClose — could not clear queue:', err.message);
     }
   },

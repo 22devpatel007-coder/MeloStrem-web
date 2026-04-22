@@ -119,7 +119,8 @@ function sanitizeReport(raw) {
     componentStack: truncate(raw.componentStack,  3_000),
     boundary:       truncate(raw.boundary,        100),
     userId:         truncate(raw.userId,          128),
-    correlationId:  truncate(raw.correlationId,   64),
+    correlationId:        truncate(raw.relatedCorrelationId, 64),
+reportId:             truncate(raw.reportId,             64),
     userAgent:      truncate(raw.userAgent,       300),
     // Preserve client timestamp as a string — we add server timestamp separately.
     clientTimestamp: typeof raw.timestamp === 'string'
@@ -205,7 +206,8 @@ const receiveErrorReports = (req, res, next) => {
         page:             report.page,
         action:           report.action,
         userId:           report.userId,
-        correlationId:    report.correlationId,
+        correlationId:    report.correlationId, 
+        reportId:         report.reportId,
 
         // Dedup / session metadata
         occurrences:      report.occurrences,
