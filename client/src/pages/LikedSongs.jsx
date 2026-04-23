@@ -37,7 +37,7 @@ const LikedSongs = () => {
   const playSong           = usePlayerStore((s) => s.playSong);
   const currentSong        = usePlayerStore((s) => s.currentSong);
   const isGloballyPlaying  = usePlayerStore((s) => s.isPlaying);
-
+  const setShuffleMode     = usePlayerStore((s) => s.setShuffleMode);
   // ── Unified play handler ──────────────────────────────────────────────────
   // CORRECT: setPlaybackContext first (seeds queue + context), then playSong.
   // startIndex tells the queue where to start so Next/Prev work correctly.
@@ -49,22 +49,13 @@ const LikedSongs = () => {
       // Seed the liked context + full queue first
       setPlaybackContext("liked", "liked-songs", safeQueue, safeIndex);
       // Then start playback for the clicked song
-      playSong(song);
+      
     },
     [setPlaybackContext, playSong],
   );
 
   // ── Smart Play queue ──────────────────────────────────────────────────────
-  const buildSmartQueue = useCallback(() => {
-    const genreCount = {};
-    likedSongs.forEach((s) => {
-      if (s.genre) genreCount[s.genre] = (genreCount[s.genre] || 0) + 1;
-    });
-    return [...likedSongs].sort((a, b) => {
-      const diff = (genreCount[b.genre] || 0) - (genreCount[a.genre] || 0);
-      return diff !== 0 ? diff : (a.title || "").localeCompare(b.title || "");
-    });
-  }, [likedSongs]);
+  
 
   // ── Stage 1: Skeleton ─────────────────────────────────────────────────────
   if (isLoading) return <LikedSongsSkeleton />;
@@ -116,9 +107,11 @@ const LikedSongs = () => {
             likedSongs[0] && playSongFromContext(likedSongs[0], 0, likedSongs)
           }
           onSmartPlay={() => {
-            const q = buildSmartQueue();
-            q[0] && playSongFromContext(q[0], 0, q);
-          }}
+  if (!likedSongs.length) return;
+  const randomIndex = Math.floor(Math.random() * likedSongs.length);
+  setPlaybackContext("liked", "liked-songs", likedSongs, randomIndex);
+  setShuffleMode("smart");
+}}
         />
       </div>
 
