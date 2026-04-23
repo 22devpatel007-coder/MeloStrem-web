@@ -29,7 +29,7 @@ const UsersList = () => {
       try {
         const res = await axiosInstance.get("/users");
         const body = res?.data ?? {};
-        setUsers(Array.isArray(body) ? body : (Array.isArray(body.users) ? body.users : (Array.isArray(body.data) ? body.data : [])));
+        setUsers(Array.isArray(body.data) ? body.data : []);
       } catch (err) {
         console.error("Failed to fetch users:", err);
       }

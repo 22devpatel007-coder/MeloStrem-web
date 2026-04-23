@@ -227,24 +227,18 @@ const updateUser = async (uid, data) => {
     return { uid, ...data };
   }, { label: 'updateUser' });
 };
-
 const getAllUsers = async () => {
-  // Task 3.3: was a full collection scan — no limit at all.
-  // At 1000+ users, returning every user doc in one query risks:
-  //   - 1000+ Firestore reads billed in a single request
-  //   - ~500 KB+ response payload for a UI that shows paginated rows
-  //   - Memory pressure if the admin page is opened by multiple admins
-  // 500 is generous enough for any real admin user management UI today.
-  // When the user base exceeds 500, the admin UI needs cursor pagination —
-  // at that point replace this with a paginated getAllUsers(limit, cursor).
-  return retryFirestore(async () => {
-    const snapshot = await db
-      .collection('users')
-      .orderBy('createdAt', 'desc')
-      .limit(MAX_USERS_LIMIT)  // Task 3.3: was .get() with no limit
-      .get();
-    return snapshot.docs.map(formatDoc);
-  }, { label: 'getAllUsers' });
+  const { admin } = require('../config/firebase');
+  const listResult = await admin.auth().listUsers(MAX_USERS_LIMIT);
+  return listResult.users.map((u) => ({
+    id: u.uid,
+    uid: u.uid,
+    email: u.email ?? null,
+    displayName: u.displayName ?? null,
+    role: u.customClaims?.admin === true ? 'admin' : 'user',
+    createdAt: u.metadata.creationTime ?? null,
+    updatedAt: u.metadata.lastSignInTime ?? null,
+  }));
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
