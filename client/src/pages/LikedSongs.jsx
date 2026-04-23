@@ -8,21 +8,6 @@ import LikedSongsFilters from "../components/songs/LikedSongsFilters";
 import LikedSongsTable from "../components/songs/LikedSongsTable";
 import LikedSongsSkeleton from "../components/songs/LikedSongsSkeleton";
 
-/**
- * LikedSongs — Production Fix
- *
- * BUG FIXED: playSong(song, "liked", queue) is WRONG.
- * playerStore.playSong signature is: playSong(song) — one argument only.
- * The "liked" context and queue were silently dropped, meaning playback
- * context was never set → skip/shuffle/queue all broken for liked songs.
- *
- * CORRECT PATTERN (from playerStore source):
- *   1. setPlaybackContext(type, id, songs, startIndex) — seeds queue + context
- *   2. playSong(song) — starts audio for the specific song
- *
- * This is the same pattern used by Library and Playlist pages.
- */
-
 const LikedSongs = () => {
   const { user } = useAuthStore();
   const { likedSongs, isLoading, isError, refetch } = useLikedSongs(user?.uid);
@@ -34,17 +19,18 @@ const LikedSongs = () => {
 
   // ── Store access ──────────────────────────────────────────────────────────
   const setPlaybackContext = usePlayerStore((s) => s.setPlaybackContext);
-  const playSong           = usePlayerStore((s) => s.playSong);
-  const currentSong        = usePlayerStore((s) => s.currentSong);
-  const isGloballyPlaying  = usePlayerStore((s) => s.isPlaying);
-
+  const playSong = usePlayerStore((s) => s.playSong);
+  const currentSong = usePlayerStore((s) => s.currentSong);
+  const isGloballyPlaying = usePlayerStore((s) => s.isPlaying);
+  const setShuffleMode = usePlayerStore((s) => s.setShuffleMode);
   // ── Unified play handler ──────────────────────────────────────────────────
   // CORRECT: setPlaybackContext first (seeds queue + context), then playSong.
   // startIndex tells the queue where to start so Next/Prev work correctly.
   const playSongFromContext = useCallback(
     (song, index, queue) => {
       if (!song) return;
-      const safeQueue = Array.isArray(queue) && queue.length > 0 ? queue : [song];
+      const safeQueue =
+        Array.isArray(queue) && queue.length > 0 ? queue : [song];
       const safeIndex = typeof index === "number" && index >= 0 ? index : 0;
       // Seed the liked context + full queue first
       setPlaybackContext("liked", "liked-songs", safeQueue, safeIndex);
@@ -55,16 +41,6 @@ const LikedSongs = () => {
   );
 
   // ── Smart Play queue ──────────────────────────────────────────────────────
-  const buildSmartQueue = useCallback(() => {
-    const genreCount = {};
-    likedSongs.forEach((s) => {
-      if (s.genre) genreCount[s.genre] = (genreCount[s.genre] || 0) + 1;
-    });
-    return [...likedSongs].sort((a, b) => {
-      const diff = (genreCount[b.genre] || 0) - (genreCount[a.genre] || 0);
-      return diff !== 0 ? diff : (a.title || "").localeCompare(b.title || "");
-    });
-  }, [likedSongs]);
 
   // ── Stage 1: Skeleton ─────────────────────────────────────────────────────
   if (isLoading) return <LikedSongsSkeleton />;
@@ -74,9 +50,13 @@ const LikedSongs = () => {
     return (
       <div className="ls-page ls-page--centered" role="alert">
         <div className="ls-error-card">
-          <span className="ls-error-card__icon" aria-hidden="true">⚠️</span>
+          <span className="ls-error-card__icon" aria-hidden="true">
+            ⚠️
+          </span>
           <p className="ls-error-card__title">Couldn't load your liked songs</p>
-          <p className="ls-error-card__sub">Check your connection and try again.</p>
+          <p className="ls-error-card__sub">
+            Check your connection and try again.
+          </p>
           <button className="ls-btn-retry" onClick={() => refetch()}>
             Try Again
           </button>
@@ -116,8 +96,10 @@ const LikedSongs = () => {
             likedSongs[0] && playSongFromContext(likedSongs[0], 0, likedSongs)
           }
           onSmartPlay={() => {
-            const q = buildSmartQueue();
-            q[0] && playSongFromContext(q[0], 0, q);
+            if (!likedSongs.length) return;
+            const randomIndex = Math.floor(Math.random() * likedSongs.length);
+            setPlaybackContext("liked", "liked-songs", likedSongs, randomIndex);
+            setShuffleMode("smart");
           }}
         />
       </div>
@@ -154,7 +136,13 @@ const LikedSongs = () => {
 };
 
 const HeartOutlineIcon = () => (
-  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <svg
+    width="32"
+    height="32"
+    viewBox="0 0 24 24"
+    fill="none"
+    aria-hidden="true"
+  >
     <path
       d="M12 21C12 21 3 14.5 3 8.5C3 5.42 5.42 3 8.5 3C10.24 3 11.91 3.81 13 5.09C14.09 3.81 15.76 3 17.5 3C20.58 3 23 5.42 23 8.5C23 14.5 14 21 12 21Z"
       stroke="#6b7280"
