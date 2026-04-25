@@ -33,7 +33,9 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query"; // ← BUG-012 FIX
 import axiosInstance from "../../services/api";
 import { extractSong as normalizeSong } from "../../services/songs.service";
-import { QUERY_KEYS } from "../../constants/queryKeys"; // ← BUG-012 FIX
+import { QUERY_KEYS } from "../../constants/queryKeys"; 
+import { useAdminPlaylists } from "../../hooks/usePlaylists";
+import { usePlaylists } from "../../hooks/usePlaylists";
 import {
   BarChart,
   Bar,
@@ -62,7 +64,10 @@ const COLORS = [
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
-
+    const [deletingId, setDeletingId] = useState(null);
+  const [confirmId, setConfirmId] = useState(null);
+    const { adminPlaylists, isLoading: playlistsLoading } = useAdminPlaylists();
+const { deletePlaylist } = usePlaylists();
   // BUG-012 FIX: Use React Query for songs so this component participates in
   // the shared cache. When UploadMusic/BulkUpload/MusicList invalidate
   // QUERY_KEYS.SONGS, this query refetches automatically — the dashboard stats
@@ -85,6 +90,13 @@ const AdminDashboard = () => {
   const songs = Array.isArray(songsData) ? songsData : [];
 
   // Users fetch stays as a direct call — not mutated by any current admin flow.
+  const handleDeletePlaylist = (id) => {
+  deletePlaylist(id, {
+    onSuccess: () => setConfirmId(null),
+    onError: () => setConfirmId(null),
+  });
+  setDeletingId(id);
+};
   useEffect(() => {
     const fetchUsers = async () => {
       try {
@@ -121,6 +133,7 @@ const AdminDashboard = () => {
   const uploadsByMonth = buildMonthlyData(songs, "createdAt", "uploads");
   const usersByMonth = buildMonthlyData(users, "createdAt", "users");
 
+
   return (
     <div style={styles.container}>
       <div style={styles.pageHeader}>
@@ -156,7 +169,55 @@ const AdminDashboard = () => {
           color="#8b5cf6"
         />
       </div>
-
+          <div style={styles.section}>
+  <h2 style={styles.sectionTitle}>Admin Playlists</h2>
+  {playlistsLoading ? (
+    <p style={{ color: "#6b7280", fontSize: 13 }}>Loading playlists…</p>
+  ) : adminPlaylists.length === 0 ? (
+    <p style={{ color: "#6b7280", fontSize: 13 }}>No admin playlists yet.</p>
+  ) : (
+    <div style={styles.recentList}>
+      {adminPlaylists.map((pl) => (
+        <div key={pl.id} style={styles.recentItem}>
+          <img
+            src={pl.coverUrl || "https://placehold.co/40x40/111/555?text=♪"}
+            alt={pl.name}
+            style={styles.recentCover}
+            onError={(e) => { e.target.src = "https://placehold.co/40x40/111/555?text=♪"; }}
+          />
+          <div style={styles.recentInfo}>
+            <p style={styles.recentTitle}>{pl.name}</p>
+            <p style={styles.recentArtist}>{pl.songIds?.length ?? 0} songs</p>
+          </div>
+          {confirmId === pl.id ? (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => handleDeletePlaylist(pl.id)}
+                disabled={deletingId === pl.id}
+                style={styles.btnDanger}
+              >
+                {deletingId === pl.id ? "Deleting…" : "Confirm"}
+              </button>
+              <button
+                onClick={() => setConfirmId(null)}
+                style={styles.btnGhost}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmId(pl.id)}
+              style={styles.btnDanger}
+            >
+              Delete
+            </button>
+          )}
+        </div>
+      ))}
+    </div>
+  )}
+</div>
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Quick Actions</h2>
         <div style={styles.actionsRow}>
@@ -695,6 +756,28 @@ const styles = {
     fontWeight: "500",
     flexShrink: 0,
   },
+  btnDanger: {
+  background: "rgba(239,68,68,0.12)",
+  color: "#ef4444",
+  border: "1px solid rgba(239,68,68,0.3)",
+  borderRadius: "7px",
+  padding: "6px 14px",
+  fontSize: "12px",
+  fontWeight: "600",
+  cursor: "pointer",
+  flexShrink: 0,
+},
+btnGhost: {
+  background: "transparent",
+  color: "#6b7280",
+  border: "1px solid #2d2d2d",
+  borderRadius: "7px",
+  padding: "6px 14px",
+  fontSize: "12px",
+  fontWeight: "600",
+  cursor: "pointer",
+  flexShrink: 0,
+},
 };
 
 export default AdminDashboard;
