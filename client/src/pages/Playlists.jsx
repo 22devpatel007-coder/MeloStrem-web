@@ -3,6 +3,7 @@ import {
   useUserPlaylists,
   useAdminPlaylists,
   usePlaylistMutations,
+  usePlaylists,
 } from "../hooks/usePlaylists";
 import { usePlaylistMeta } from "../hooks/usePlaylistMeta";
 import { usePlayerStore } from "../store/playerStore";
@@ -261,7 +262,7 @@ const Playlists = () => {
   const { playlists: userPlaylists, loading: userLoading } = useUserPlaylists();
   const { adminPlaylists, loading: adminLoading } = useAdminPlaylists();
   const { deletePlaylist: deleteUserPlaylistMutation } = usePlaylistMutations();
-  const { deletePlaylist: deleteAdminPlaylistMutation } = useAdminPlaylists();
+  const { deletePlaylist: deleteAdminPlaylistMutation } = usePlaylists();
   // ── Meta hook ────────────────────────────────────────────────────────────
   const {
     pinnedIds,
