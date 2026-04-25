@@ -238,13 +238,17 @@ export function smartPick(queue, currentSong, playCountMap, recentHistory) {
   const recentIds    = new Set(recentHistory.slice(0, recentWindow).map((s) => s.id));
   const last3Artists = new Set(recentHistory.slice(0, 3).map((s) => s.artist).filter(Boolean));
 
-  const maxPlayCount = Object.values(playCountMap).reduce((m, v) => Math.max(m, v), 1);
+  // Exhaustion check — if every song (except current) has been played, reset counts
+  const exhausted    = queue.every((s) => s.id === currentSong?.id || (playCountMap[s.id] ?? 0) > 0);
+  const effectiveMap = exhausted ? {} : playCountMap;
+
+  const maxPlayCount = Object.values(effectiveMap).reduce((m, v) => Math.max(m, v), 1);
 
   const weights = queue.map((song) => {
     if (song.id === currentSong?.id) return 0;
     if (recentIds.has(song.id))      return 0.05;
 
-    const playCount     = playCountMap[song.id] ?? 0;
+    const playCount     = effectiveMap[song.id] ?? 0;
     const countWeight   = (maxPlayCount - playCount + 1) / (maxPlayCount + 1);
     const artistPenalty = last3Artists.has(song.artist) ? 0.15 : 1.0;
 
@@ -261,10 +265,13 @@ export function smartPick(queue, currentSong, playCountMap, recentHistory) {
 
   let rand = Math.random() * totalWeight;
   for (let i = 0; i < queue.length; i++) {
+    if (weights[i] === 0) continue;
     rand -= weights[i];
     if (rand <= 0) return queue[i];
   }
-
+  for (let i = queue.length - 1; i >= 0; i--) {
+    if (weights[i] > 0) return queue[i];
+  }
   return queue[queue.length - 1];
 }
 
@@ -293,8 +300,14 @@ function updateAffinityMap(prevMap, song) {
 function scoreDynamicPool(candidates, currentSong, affinityMap, recentHistory) {
   if (!candidates.length) return [];
 
-  const recentIds    = new Set(recentHistory.slice(0, 10).map((s) => s.id));
+  const recentWindow = Math.max(5, Math.ceil(recentHistory.length * 0.3));
+  const recentIds    = new Set(recentHistory.slice(0, recentWindow).map((s) => s.id));
   const last3Artists = new Set(recentHistory.slice(0, 3).map((s) => s.artist).filter(Boolean));
+
+  const allExhausted = candidates
+    .filter((s) => s.id !== currentSong?.id)
+    .every((s) => recentIds.has(s.id));
+  const effectiveRecentIds = allExhausted ? new Set() : recentIds;
 
   return candidates
     .filter((s) => s.id !== currentSong?.id)
@@ -309,8 +322,8 @@ function scoreDynamicPool(candidates, currentSong, affinityMap, recentHistory) {
       if (song.artist) affinityScore += affinityMap[`artist::${song.artist}`] ?? 0;
       if (song.genre)  affinityScore += affinityMap[`genre::${song.genre}`]   ?? 0;
 
-      const recentPenalty = recentIds.has(song.id)        ? 0.1 : 1.0;
-      const artistPenalty = last3Artists.has(song.artist) ? 0.3 : 1.0;
+      const recentPenalty = effectiveRecentIds.has(song.id)  ? 0.1 : 1.0;
+      const artistPenalty = last3Artists.has(song.artist)    ? 0.3 : 1.0;
 
       return { song, score: (similarityScore + affinityScore) * recentPenalty * artistPenalty };
     })
