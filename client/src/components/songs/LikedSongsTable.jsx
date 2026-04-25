@@ -41,7 +41,7 @@ import { getGenreColor } from "./LikedSongsFilters";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const LS_ROW_HEIGHT = 64;
-const OVERSCAN      = 5;
+const OVERSCAN = 5;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const formatDuration = (secs) => {
@@ -54,10 +54,14 @@ const formatDuration = (secs) => {
 const sortSongs = (songs, sortBy) => {
   const arr = [...songs];
   switch (sortBy) {
-    case "az":       return arr.sort((a, b) => (a.title  || "").localeCompare(b.title  || ""));
-    case "duration": return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
-    case "genre":    return arr.sort((a, b) => (a.genre  || "").localeCompare(b.genre  || ""));
-    default:         return arr;
+    case "az":
+      return arr.sort((a, b) => (a.title || "").localeCompare(b.title || ""));
+    case "duration":
+      return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
+    case "genre":
+      return arr.sort((a, b) => (a.genre || "").localeCompare(b.genre || ""));
+    default:
+      return arr;
   }
 };
 
@@ -81,7 +85,7 @@ const SongRow = ({
   onPlaySong,
   onToggleLike,
   isLiked,
-  style,       // ← FIXED: was received but never applied
+  style, // ← FIXED: was received but never applied
 }) => {
   const [hovered, setHovered] = useState(false);
 
@@ -129,11 +133,15 @@ const SongRow = ({
               </div>
             )}
             {isNew && (
-              <span className="ls-new-badge" aria-label="Recently liked">NEW</span>
+              <span className="ls-new-badge" aria-label="Recently liked">
+                NEW
+              </span>
             )}
           </div>
           <div className="ls-song-meta">
-            <span className={`ls-song-title ${isCurrentlyPlaying ? "ls-song-title--playing" : ""}`}>
+            <span
+              className={`ls-song-title ${isCurrentlyPlaying ? "ls-song-title--playing" : ""}`}
+            >
               {song.title || "Unknown"}
             </span>
             <span className="ls-song-artist">
@@ -170,7 +178,11 @@ const SongRow = ({
 
       {/* Genre */}
       <td className="ls-td ls-td--hide-md">
-        {song.genre ? <GenreChip genre={song.genre} /> : <span className="ls-muted">—</span>}
+        {song.genre ? (
+          <GenreChip genre={song.genre} />
+        ) : (
+          <span className="ls-muted">—</span>
+        )}
       </td>
 
       {/* Time + Unlike */}
@@ -178,7 +190,10 @@ const SongRow = ({
         <div className="ls-td-end">
           <button
             className={`ls-unlike-btn ${hovered ? "ls-unlike-btn--visible" : ""} ${isLiked ? "ls-unlike-btn--liked" : ""}`}
-            onClick={(e) => { e.stopPropagation(); onToggleLike(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleLike();
+            }}
             aria-label={isLiked ? "Remove from liked" : "Add to liked"}
           >
             <HeartIcon filled={isLiked} />
@@ -196,7 +211,11 @@ export const GenreChip = ({ genre }) => {
   return (
     <span
       className="ls-genre-chip"
-      style={{ background: color.bg, borderColor: color.border, color: color.text }}
+      style={{
+        background: color.bg,
+        borderColor: color.border,
+        color: color.text,
+      }}
     >
       {genre}
     </span>
@@ -231,24 +250,29 @@ const VirtualizedSongTable = ({
   const scrollRef = useRef(null);
 
   const virtualizer = useVirtualizer({
-    count:           songs.length,
+    count: songs.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize:    () => LS_ROW_HEIGHT,
-    overscan:        OVERSCAN,
+    estimateSize: () => LS_ROW_HEIGHT,
+    overscan: OVERSCAN,
   });
 
   const virtualItems = virtualizer.getVirtualItems();
-  const totalHeight  = virtualizer.getTotalSize();
+  const totalHeight = virtualizer.getTotalSize();
 
   // Shared colgroup — same in both the sticky header table and each virtual row table.
   // Column widths must match ls-th / ls-td CSS widths exactly.
+  // colgroup title album genre and time
   const colgroup = (
     <colgroup>
-      <col style={{ width: 52 }} />          {/* # */}
-      <col style={{ minWidth: 200 }} />      {/* Title */}
-      <col className="ls-col--hide-sm" style={{ width: 180 }} />  {/* Album */}
-      <col className="ls-col--hide-md" style={{ width: 120 }} />  {/* Genre */}
-      <col style={{ width: 100 }} />         {/* Time */}
+      <col style={{ width: 52 }}/>
+
+      <col style={{ minWidth: 200 }}/>
+
+      <col className="ls-col--hide-sm" style={{ width: 180 }}/>
+
+      <col className="ls-col--hide-md" style={{ width: 120 }}/> 
+      <col style={{ width: 100 }}/>
+
     </colgroup>
   );
 
@@ -264,15 +288,28 @@ const VirtualizedSongTable = ({
       }}
     >
       {/* Sticky header — always visible at top of scroll container */}
-      <table className="ls-table ls-table--header" style={{ position: "sticky", top: 0, zIndex: 2 }}>
+      <table
+        className="ls-table ls-table--header"
+        style={{ position: "sticky", top: 0, zIndex: 2 }}
+      >
         {colgroup}
         <thead>
           <tr className="ls-thead-row">
-            <th className="ls-th ls-th--num" scope="col">#</th>
-            <th className="ls-th" scope="col">TITLE</th>
-            <th className="ls-th ls-th--hide-sm" scope="col">ALBUM</th>
-            <th className="ls-th ls-th--hide-md" scope="col">GENRE</th>
-            <th className="ls-th ls-th--right" scope="col">TIME</th>
+            <th className="ls-th ls-th--num" scope="col">
+              #
+            </th>
+            <th className="ls-th" scope="col">
+              TITLE
+            </th>
+            <th className="ls-th ls-th--hide-sm" scope="col">
+              ALBUM
+            </th>
+            <th className="ls-th ls-th--hide-md" scope="col">
+              GENRE
+            </th>
+            <th className="ls-th ls-th--right" scope="col">
+              TIME
+            </th>
           </tr>
         </thead>
       </table>
@@ -282,7 +319,8 @@ const VirtualizedSongTable = ({
         {virtualItems.map((virtualItem) => {
           const song = songs[virtualItem.index];
           if (!song) return null;
-          const isCurrentlyPlaying = currentSongId === song.id && isGloballyPlaying;
+          const isCurrentlyPlaying =
+            currentSongId === song.id && isGloballyPlaying;
 
           return (
             /*
@@ -294,9 +332,9 @@ const VirtualizedSongTable = ({
               className="ls-table ls-table--row"
               style={{
                 position: "absolute",
-                top:    virtualItem.start,
-                left:   0,
-                width:  "100%",
+                top: virtualItem.start,
+                left: 0,
+                width: "100%",
                 height: virtualItem.size,
               }}
             >
@@ -334,7 +372,7 @@ const LikedSongsTable = ({
   currentSongId,
   isGloballyPlaying,
   onPlaySong,
-  uid,           // ← NEW: passed from LikedSongs.jsx
+  uid, // ← NEW: passed from LikedSongs.jsx
 }) => {
   // Single hook instance — owned here by LikedSongsTable's parent (LikedSongs.jsx)
   // passes these down; we call the hook here only as a fallback if uid is provided
@@ -356,9 +394,13 @@ const LikedSongsTable = ({
   if (!sorted.length) {
     return (
       <div className="ls-empty-filter">
-        <span className="ls-empty-filter__icon" aria-hidden="true">🎵</span>
+        <span className="ls-empty-filter__icon" aria-hidden="true">
+          🎵
+        </span>
         <p className="ls-empty-filter__text">No songs match this filter.</p>
-        <p className="ls-empty-filter__sub">Try a different genre or clear the filter.</p>
+        <p className="ls-empty-filter__sub">
+          Try a different genre or clear the filter.
+        </p>
       </div>
     );
   }
@@ -380,7 +422,9 @@ const LikedSongsTable = ({
           <section key={genre} className="ls-genre-group">
             <div className="ls-genre-group__header">
               <GenreChip genre={genre} />
-              <span className="ls-genre-group__count">{groupSongs.length} songs</span>
+              <span className="ls-genre-group__count">
+                {groupSongs.length} songs
+              </span>
             </div>
             <VirtualizedSongTable songs={groupSongs} {...tableProps} />
           </section>
@@ -398,19 +442,33 @@ const LikedSongsTable = ({
 
 // ── Icons ─────────────────────────────────────────────────────────────────────
 const PlayIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
     <path d="M8 5.14v14l11-7-11-7z" />
   </svg>
 );
 const PauseIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    aria-hidden="true"
+  >
     <rect x="6" y="4" width="4" height="16" />
     <rect x="14" y="4" width="4" height="16" />
   </svg>
 );
 const HeartIcon = ({ filled }) => (
   <svg
-    width="14" height="14" viewBox="0 0 24 24"
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
     fill={filled ? "#f43f5e" : "none"}
     stroke={filled ? "#f43f5e" : "currentColor"}
     strokeWidth="2"
@@ -420,7 +478,15 @@ const HeartIcon = ({ filled }) => (
   </svg>
 );
 const MusicNoteIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    aria-hidden="true"
+  >
     <path d="M9 18V5l12-2v13" />
     <circle cx="6" cy="18" r="3" />
     <circle cx="18" cy="16" r="3" />

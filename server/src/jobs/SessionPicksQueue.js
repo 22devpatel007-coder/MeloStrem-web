@@ -590,21 +590,47 @@ class SessionPicksQueue {
    * @returns {Promise<void>}
    */
   async _writeToFirestore(uid, picks, sessionId) {
-    await retryFirestore(
-      () =>
-        db
-          .collection('users')
-          .doc(uid)
-          .collection('sessionPicks')
-          .add({
-            sessionId,
-            picks,
-            pickedAt:  new Date(),
-            batchSize: picks.length,
-          }),
-      { maxAttempts: 2, label: `SessionPicksQueue.write(${uid})` },
-    );
+  const { FieldValue } = require('firebase-admin/firestore');
+  const cache = require('../services/cache.service');
+
+  // 1. Write session history (unchanged)
+  await retryFirestore(
+    () =>
+      db
+        .collection('users')
+        .doc(uid)
+        .collection('sessionPicks')
+        .add({
+          sessionId,
+          picks,
+          pickedAt:  new Date(),
+          batchSize: picks.length,
+        }),
+    { maxAttempts: 2, label: `SessionPicksQueue.write(${uid})` },
+  );
+
+  // 2. Increment playCount for each unique songId in this batch
+  const songPlayCounts = {};
+  for (const pick of picks) {
+    if (pick.songId) {
+      songPlayCounts[pick.songId] = (songPlayCounts[pick.songId] || 0) + 1;
+    }
   }
+
+  await Promise.allSettled(
+    Object.entries(songPlayCounts).map(([songId, count]) =>
+      db.collection('songs').doc(songId).update({
+        playCount: FieldValue.increment(count),
+      })
+    )
+  );
+
+  // 3. Invalidate cache so dashboard reads fresh playCount
+  Object.keys(songPlayCounts).forEach(songId => {
+    cache.del(`songs:id:${songId}`);
+  });
+  cache.delPattern('songs:list:');
+}
 
   /**
    * _waitForDrainComplete() → Promise<void>
