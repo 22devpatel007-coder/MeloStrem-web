@@ -1,9 +1,15 @@
 const cloudinary = require('../config/cloudinary');
 const streamifier = require('streamifier');
 
-const uploadBuffer = (buffer, options) => {
+// CHANGE: add timeoutMs param (default 60s for audio, 30s for images)
+const uploadBuffer = (buffer, options, timeoutMs = 60000) => {
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(Object.assign(new Error('Cloudinary upload timed out'), { code: 'CLOUDINARY_TIMEOUT' }));
+    }, timeoutMs);
+
     const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
+      clearTimeout(timer);
       if (err) reject(err);
       else resolve(result);
     });
@@ -11,19 +17,13 @@ const uploadBuffer = (buffer, options) => {
   });
 };
 
+// Pass timeoutMs through
 const uploadAudio = async (fileBuffer, options = {}) => {
-  return uploadBuffer(fileBuffer, {
-    resource_type: 'video',
-    format: 'mp3',
-    ...options
-  });
+  return uploadBuffer(fileBuffer, { resource_type: 'video', format: 'mp3', ...options }, 200000); // 2min for audio
 };
 
 const uploadCover = async (fileBuffer, options = {}) => {
-  return uploadBuffer(fileBuffer, {
-    resource_type: 'image',
-    ...options
-  });
+  return uploadBuffer(fileBuffer, { resource_type: 'image', ...options }, 30000); // 30s for images
 };
 
 const deleteAsset = async (publicId, options = {}) => {

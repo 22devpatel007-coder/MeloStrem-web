@@ -162,10 +162,19 @@ exports.uploadPlaylistSong = async (req, res, next) => {
     const songFile  = req.files['song'][0];
     const coverFile = req.files['cover'][0];
 
-    const [songResult, coverResult] = await Promise.all([
-      uploadAudio(songFile.buffer,  { folder: 'melostream/songs',  public_id: `${Date.now()}-${title}` }),
-      uploadCover(coverFile.buffer, { folder: 'melostream/covers', public_id: `${Date.now()}-${title}-cover` }),
-    ]);
+    let songResult, coverResult;
+    try {
+      songResult  = await uploadAudio(songFile.buffer,  { folder: 'melostream/songs',  public_id: `${Date.now()}-${title}` });
+      coverResult = await uploadCover(coverFile.buffer, { folder: 'melostream/covers', public_id: `${Date.now()}-${title}-cover` });
+    } catch (uploadErr) {
+      if (songResult?.public_id) await deleteAsset(songResult.public_id, { resource_type: 'video' }).catch(() => {});
+      const isTimeout = uploadErr.code === 'CLOUDINARY_TIMEOUT' || uploadErr.message?.includes('timed out');
+      return next(
+        isTimeout
+          ? new InternalError('Upload timed out. Try a smaller file or retry.', 'UPLOAD_TIMEOUT', { originalError: uploadErr.message })
+          : new InternalError('File upload failed. Please retry.', 'UPLOAD_FAILED', { originalError: uploadErr.message })
+      );
+    }
 
     const songData = {
       title, artist, genre,
@@ -263,9 +272,20 @@ if (coverFile) {
   coverUrl         = coverResult.secure_url;
   coverStoragePath = coverResult.public_id;
 } else if (req.body.coverUrl) {
-  // Client sent a pre-generated canvas cover URL (base64 data URL or CDN URL)
-  coverUrl         = req.body.coverUrl;
-  coverStoragePath = req.body.coverStoragePath || '';
+  const rawUrl = req.body.coverUrl;
+  // If it's a base64 data URL, upload it to Cloudinary
+  if (rawUrl.startsWith('data:')) {
+    const coverResult = await uploadCover(rawUrl, {
+      folder:    'melostream/playlist-covers',
+      public_id: `${Date.now()}-${name.trim()}-playlist-cover`,
+    });
+    coverUrl         = coverResult.secure_url;
+    coverStoragePath = coverResult.public_id;
+  } else {
+    // Already a CDN URL — store as-is
+    coverUrl         = rawUrl;
+    coverStoragePath = req.body.coverStoragePath || '';
+  }
 }
 
     const playlistData = {
@@ -279,7 +299,8 @@ if (coverFile) {
     const newPlaylist = await createPlaylist(playlistData);
     newPlaylist.createdAt = playlistData.createdAt.toISOString();
     newPlaylist.updatedAt = playlistData.updatedAt.toISOString();
-
+    newPlaylist.coverUrl = playlistData.coverUrl;
+newPlaylist.coverStoragePath = playlistData.coverStoragePath;
     // ── Cache invalidation ────────────────────────────────────────────────
     cache.del(ADMIN_PUBLIC_KEY);
 
