@@ -21,6 +21,8 @@
  */
 
 import { useState, useCallback, memo } from 'react';
+import { useMediaSession } from '../../hooks/useMediaSession';
+import { useKeyboardControls } from '../../hooks/useKeyboardControls';
 import { usePlayerStore } from '../../store/playerStore';
 import MiniPlayerBar from './MiniPlayerBar';
 import FullScreenPlayer from './FullScreenPlayer';
@@ -28,10 +30,11 @@ import { useEffect } from "react";
   
 const MusicPlayer = memo(() => {
   const currentSong = usePlayerStore((s) => s.currentSong);
-
+  
   const [isExpanded, setIsExpanded] = useState(false);
   const [showQueue,  setShowQueue]  = useState(false);
-
+  useMediaSession();
+  useKeyboardControls();
   const handleExpand      = useCallback(() => setIsExpanded(true),  []);
   const handleCollapse    = useCallback(() => setIsExpanded(false), []);
   const handleToggleQueue = useCallback(() => setShowQueue((v) => !v), []);
@@ -42,7 +45,7 @@ const MusicPlayer = memo(() => {
 }, []);
   // No song playing → render nothing
   if (!currentSong) return null;
-  
+   
 
   return (
     <>
