@@ -1,27 +1,3 @@
-/**
- * server/src/routes/songs.routes.js
- *
- * Phase 3 — Task 3.2 / 3.3: Rate limiter fix on POST /batch.
- *
- * Change from previous version:
- *   BUGFIX: POST /songs/batch was incorrectly wrapped in adminMutationLimiter
- *   (20 req/15min). This route is a READ operation used by PlaylistDetail to
- *   resolve playlist songs — it requires no auth and is called on every
- *   playlist page load. Applying adminMutationLimiter meant legitimate users
- *   could hit the 20-request cap just by browsing playlists.
- *
- *   Fix: removed adminMutationLimiter from POST /batch. The global
- *   generalLimiter (100 req/15min) applied in server/src/index.js is the
- *   correct protection for this public read endpoint.
- *
- * Everything else is IDENTICAL to the previous version:
- *   - All other route definitions, middleware chains: untouched.
- *   - verifyTokenStrict + isAdmin on all mutation routes: untouched.
- *   - adminMutationLimiter still applied to POST /, PATCH /:id, DELETE /:id.
- *   - duplicateCheckLimiter on POST /check-duplicate: untouched.
- *   - Validator middleware order: untouched.
- */
-
 const express = require('express');
 const router  = express.Router();
 
@@ -37,7 +13,14 @@ const { adminMutationLimiter, duplicateCheckLimiter } = require('../middleware/r
 // Covered by global generalLimiter (100 req/15min) in server/src/index.js.
 // Must be declared before /:id so Express does not treat 'batch' as an ID param.
 router.post('/batch', songsController.getSongsBatch);
-
+  
+router.delete(
+  '/bulk-delete',
+  adminMutationLimiter,
+  verifyTokenStrict,
+  isAdmin,
+  songsController.bulkDeleteSongs,
+);
 // ── Public routes ─────────────────────────────────────────────────────────────
 // No auth required. Rate-limited by the global generalLimiter in index.js.
 router.get('/',    songsController.getAllSongs);
@@ -91,5 +74,5 @@ router.delete(
   isAdmin,
   songsController.deleteSong,
 );
-
+console.log('bulkDeleteSongs:', typeof songsController.bulkDeleteSongs);
 module.exports = router;

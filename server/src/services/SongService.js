@@ -1,38 +1,3 @@
-/**
- * server/src/services/SongService.js
- *
- * Phase 2 — Task 2.3: Service Layer OOP Refactor
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * Owns ALL business logic for the songs domain.
- * Controllers call one method here; this class calls SongRepository +
- * CloudinaryService + artist/album services. No Firestore calls directly.
- *
- * Constructor dependencies (injected via container.js):
- *   songRepository     — SongRepository instance
- *   cloudinaryService  — { uploadAudio, uploadCover, deleteAsset }
- *   artistService      — { findOrCreateArtist } (existing album.service / artist.service)
- *   albumService       — { findOrCreateAlbum }
- *
- * Methods:
- *   getSongs(limit, cursor)                  — paginated library list
- *   getSongById(id)                          — single song fetch
- *   batchGetSongs(ids)                       — playlist song resolution
- *   searchSongs(query, limit)                — merged title+artist search
- *   checkDuplicate(title, artist, excludeId) — duplicate detection
- *   createSong(body, files, uid)             — upload + Firestore write
- *   updateSong(id, body, files)              — edit + optional cover replace
- *   deleteSong(id)                           — Cloudinary delete + Firestore delete
- *
- * Error contract:
- *   All methods throw AppError subclasses on failure.
- *   Controllers catch and pass to next(err) — errorHandler formats response.
- *
- * Sanitization:
- *   sanitizeSongMeta() is called here (moved from controller) so the service
- *   layer is the single place that guarantees clean data reaches Firestore.
- */
-
 'use strict';
 
 const { findOrCreateArtist } = require('../services/artist.service');
@@ -492,6 +457,7 @@ class SongService {
     if (err.isOperational !== undefined) return err;
     return new InternalError(message, code, { originalError: err.message });
   }
+  
 }
 
 module.exports = SongService;

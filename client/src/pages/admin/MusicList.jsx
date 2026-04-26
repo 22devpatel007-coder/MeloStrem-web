@@ -1,33 +1,12 @@
-/**
- * client/src/pages/admin/MusicList.jsx
- *
- * BUG-012 FIX — React Query cache invalidation after mutations.
- *
- * WHAT CHANGED vs previous version:
- *   1. Imported useQueryClient from @tanstack/react-query.
- *   2. Imported QUERY_KEYS from constants/queryKeys.
- *   3. handleDelete: after axiosInstance.delete succeeds, calls
- *      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
- *      so the shared songs cache is refreshed. Local state update preserved
- *      for immediate optimistic UI — the invalidation syncs the server truth.
- *   4. handleToggleFeatured: after axiosInstance.patch succeeds, calls
- *      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] })
- *      so any other page (e.g. Home featured carousel) reflects the change.
- *
- * WHAT DID NOT CHANGE:
- *   - All styles — identical
- *   - fetchSongs, useEffect — identical
- *   - handleUpdated (called by EditSongModal onUpdated) — identical
- *   - StarIcon, fmtDuration — identical
- *   - JSX structure — identical
- */
-
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback,useMemo  } from "react";
 import { Link } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query"; // ← BUG-012 FIX
+import { useQueryClient, useMutation } from "@tanstack/react-query";
 import axiosInstance from "../../services/api";
-import { extractSong as normalizeSong } from "../../services/songs.service";
-import { QUERY_KEYS } from "../../constants/queryKeys"; // ← BUG-012 FIX
+import {
+  extractSong as normalizeSong,
+  bulkDeleteSongs,
+} from "../../services/songs.service";
+import { QUERY_KEYS } from "../../constants/queryKeys";
 import Loader from "../../components/ui/Loader";
 import EditSongModal from "../../components/admin/EditSongModal";
 
@@ -50,7 +29,40 @@ const MusicList = () => {
   const [confirmId, setConfirmId] = useState(null);
   const [editSong, setEditSong] = useState(null);
   const [featuringId, setFeaturingId] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState(false);
 
+  const allIds = useMemo(() => songs.map((s) => s.id), [songs]);
+const allSelected = useMemo(
+  () => allIds.length > 0 && allIds.every((id) => selectedIds.has(id)),
+  [allIds, selectedIds]
+);
+
+  const toggleOne = useCallback((id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback(() => {
+    setSelectedIds(allSelected ? new Set() : new Set(allIds));
+  }, [allSelected, allIds]);
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids) => bulkDeleteSongs(ids),
+    onSuccess: (data, ids) => {
+      setSongs((prev) => prev.filter((s) => !ids.includes(s.id)));
+      queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
+      setSelectedIds(new Set());
+      setBulkConfirm(false);
+    },
+    onError: (err) => {
+      console.error("Bulk delete failed:", err);
+      setBulkConfirm(false);
+    },
+  });
   useEffect(() => {
     fetchSongs();
   }, []);
@@ -59,7 +71,11 @@ const MusicList = () => {
     try {
       const res = await axiosInstance.get("/songs?limit=200");
       const body = res?.data ?? {};
-      const raw = Array.isArray(body) ? body : (Array.isArray(body.songs) ? body.songs : []);
+      const raw = Array.isArray(body)
+        ? body
+        : Array.isArray(body.songs)
+          ? body.songs
+          : [];
       setSongs(raw.map(normalizeSong).filter(Boolean));
     } catch (err) {
       console.error("Failed to fetch songs:", err);
@@ -127,9 +143,61 @@ const MusicList = () => {
           <h1 style={styles.heading}>Manage Songs</h1>
           <p style={styles.subheading}>{songs.length} tracks in library</p>
         </div>
-        <Link to="/admin/bulk" style={styles.bulkBtn}>
-          + Bulk Upload
-        </Link>
+        <div
+          style={{
+            display: "flex",
+            gap: 10,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          {selectedIds.size > 0 &&
+            (bulkConfirm ? (
+              <>
+                <span style={{ color: "#f87171", fontSize: 13 }}>
+                  Delete {selectedIds.size} song
+                  {selectedIds.size > 1 ? "s" : ""}?
+                </span>
+                <button
+                  onClick={() => bulkDeleteMutation.mutate([...selectedIds])}
+                  disabled={bulkDeleteMutation.isPending}
+                  style={{
+                    ...styles.btnDanger,
+                    opacity: bulkDeleteMutation.isPending ? 0.6 : 1,
+                  }}
+                >
+                  {bulkDeleteMutation.isPending ? "Deleting…" : "Confirm"}
+                </button>
+                <button
+                  onClick={() => setBulkConfirm(false)}
+                  style={styles.btnCancel}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                <span style={{ color: "#9ca3af", fontSize: 13 }}>
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  onClick={() => setBulkConfirm(true)}
+                  style={styles.btnDelete}
+                >
+                  Delete Selected
+                </button>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  style={styles.btnCancel}
+                >
+                  Clear
+                </button>
+              </>
+            ))}
+          <Link to="/admin/bulk" style={styles.bulkBtn}>
+            + Bulk Upload
+          </Link>
+        </div>
       </div>
 
       {songs.length === 0 ? (
@@ -143,6 +211,21 @@ const MusicList = () => {
       ) : (
         <div style={styles.table}>
           <div style={styles.tableHeader}>
+            <div
+              style={{
+                width: 32,
+                flex: "none",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                style={{ cursor: "pointer", accentColor: "#22c55e" }}
+              />
+            </div>
             <span style={{ ...styles.col, flex: 2 }}>Song</span>
             <span style={{ ...styles.col, flex: 1 }}>Artist</span>
             <span style={{ ...styles.col, flex: 1 }}>Genre</span>
@@ -173,6 +256,21 @@ const MusicList = () => {
 
           {songs.map((song) => (
             <div key={song.id} style={styles.tableRow}>
+              <div
+                style={{
+                  width: 32,
+                  flex: "none",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(song.id)}
+                  onChange={() => toggleOne(song.id)}
+                  style={{ cursor: "pointer", accentColor: "#22c55e" }}
+                />
+              </div>
               <div style={{ ...styles.cellFlex, flex: 2, minWidth: 0 }}>
                 <img
                   src={song.coverUrl}

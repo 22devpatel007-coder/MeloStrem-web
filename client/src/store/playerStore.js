@@ -1,47 +1,3 @@
-/**
- * client/src/store/playerStore.js
- *
- * PATCH — Queue auto-pagination (permanent fix for "stops at 50 songs").
- *
- * ROOT CAUSE:
- *   playNext() in linear mode hits the last song in the queue (e.g. index 49
- *   out of 50) and calls `set({ isPlaying: false }); return;` — it has no
- *   awareness that React Query has more pages available via fetchNextPage().
- *   The queue and the infinite-scroll pagination were completely disconnected.
- *
- * FIX — THREE PARTS:
- *
- *   1. registerPaginationBridge(bridge) — new export.
- *      Called once by useSongs() after the hook mounts.
- *      bridge = { fetchNextPage, hasNextPage, appendSongs }
- *        - fetchNextPage:  React Query's fetchNextPage()
- *        - hasNextPage:    reactive boolean (passed as a getter fn so it stays live)
- *        - appendSongs:    function(songs[]) → appends to the current queue
- *
- *   2. playNext() — two new lines added inside the "end of queue" branch:
- *      BEFORE stopping, check if hasNextPage() is true.
- *      If yes: call fetchNextPage() and set a pending flag.
- *      The player stays in isPlaying:true state — do NOT stop.
- *      When appendSongs() is called (by useSongs effect), the queue grows
- *      and the pending "play next" resumes automatically.
- *
- *   3. _pendingNextAfterFetch flag (module-level, not in Zustand state).
- *      When playNext() triggers a fetch, this flag is set to true.
- *      appendSongsToQueue() (called by useSongs) checks this flag:
- *        - If true: immediately call playNext() on the newly appended songs.
- *        - Always resets the flag after consuming it.
- *      Module-level (not Zustand) because it is transient fetch coordination
- *      state, not UI state — it never needs to trigger a re-render.
- *
- * CONTEXT SCOPING:
- *   Auto-pagination only triggers when playbackContext.type === 'library'.
- *   Playlist / liked / dynamic contexts have a fixed song pool and never
- *   need to fetch more — they continue their existing stop/loop behaviour.
- *
- * UNCHANGED: Every other action, algorithm, and export is untouched.
- *   All previously fixed bugs (BUG 1–4, stopAndClose) are preserved exactly.
- */
-
 import { create } from 'zustand';
 
 // ── Shared Audio instance ─────────────────────────────────────────────────────
@@ -90,7 +46,7 @@ export function registerPaginationBridge(bridge) {
 // Transient flag — set when playNext() requests a fetch and is waiting for
 // appendSongsToQueue() to fire. Never stored in Zustand (no re-render needed).
 let _pendingNextAfterFetch = false;
-
+audio.volume = parseFloat(localStorage.getItem('melostream_volume') ?? '1');
 /**
  * Called by useSongs() when a new page of songs arrives.
  * Appends songs to the queue and, if a playNext() was waiting, continues.
@@ -676,16 +632,29 @@ const usePlayerStore = create((set, get) => ({
   },
 
   setVolume: (v) => {
-    audio.volume = v;
-    set({ volume: v });
-  },
+  audio.volume = v;
+  localStorage.setItem('melostream_volume', String(v));
+  set({ volume: v });
+},
 
   setCurrentTime: (t) => {
-    audio.currentTime = t;
-    set({ currentTime: t });
-  },
+  audio.currentTime = t;
+  set({ currentTime: t });
+},
 
-  setDuration: (d) => set({ duration: d }),
+seekBy: (seconds) => {
+  const t = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + seconds));
+  audio.currentTime = t;
+  set({ currentTime: t });
+},
+
+toggleMute: () => {
+  const next = audio.volume > 0 ? 0 : (parseFloat(localStorage.getItem('melostream_volume') ?? '1') || 1);
+  audio.volume = next;
+  set({ volume: next });
+},
+
+setDuration: (d) => set({ duration: d }),
 
   setRepeatMode: (mode) => set({ repeatMode: mode }),
 

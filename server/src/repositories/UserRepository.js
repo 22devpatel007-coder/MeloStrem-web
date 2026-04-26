@@ -180,6 +180,29 @@ class UserRepository extends BaseRepository {
       );
     }, `appendSessionPicks(uid=${uid}, count=${picks.length})`);
   }
+async removeSongFromAllUsers(songId) {
+    return this._callFirestore(async () => {
+      const snap = await this._db
+        .collection('users')
+        .where('likedSongs', 'array-contains', songId)
+        .get();
+
+      if (snap.empty) return;
+
+      const BATCH_SIZE = 500;
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+        const batch = this._db.batch();
+        docs.slice(i, i + BATCH_SIZE).forEach((doc) => {
+          batch.update(doc.ref, {
+            likedSongs: FieldValue.arrayRemove(songId),
+            updatedAt:  new Date(),
+          });
+        });
+        await batch.commit();
+      }
+    }, `removeSongFromAllUsers(songId=${songId})`);
+  }
 }
 
 module.exports = UserRepository;
