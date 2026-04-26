@@ -490,4 +490,49 @@ exports.deleteSong = async (req, res) => {
     logger.error('deleteSong error', { ...logMeta(req), error: err.message });
     return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
   }
+ 
+};
+ // ── DELETE /songs/bulk-delete (admin bulk delete) ──────────────────────────
+exports.bulkDeleteSongs = async (req, res) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ success: false, message: 'ids must be a non-empty array' });
+  }
+  if (ids.length > 100) {
+    return res.status(400).json({ success: false, message: 'Cannot delete more than 100 songs at once' });
+  }
+  if (!ids.every((id) => typeof id === 'string' && id.trim().length > 0)) {
+    return res.status(400).json({ success: false, message: 'All ids must be non-empty strings' });
+  }
+
+  try {
+    const results = await Promise.allSettled(
+      ids.map(async (songId) => {
+        const song = await getSongById(songId);
+        if (!song) return; // already gone — treat as success
+        await Promise.allSettled([
+          song.storagePath      ? deleteAsset(song.storagePath,      { resource_type: 'video' }) : Promise.resolve(),
+          song.coverStoragePath ? deleteAsset(song.coverStoragePath, { resource_type: 'image' }) : Promise.resolve(),
+        ]);
+        await deleteSong(songId);
+        cache.del(cacheKeys.songById(songId));
+        if (song.albumId)  cache.del(`albums:songs:${song.albumId}`);
+        if (song.artistId) cache.delPattern(`artists:songs:${song.artistId}:`);
+      })
+    );
+
+    cache.delPattern('songs:list:');
+
+    const failed = results
+      .map((r, i) => (r.status === 'rejected' ? ids[i] : null))
+      .filter(Boolean);
+
+    logger.info('bulkDeleteSongs success', { ...logMeta(req), requested: ids.length, failed: failed.length });
+
+    return res.json({ success: true, deleted: ids.length - failed.length, failed });
+  } catch (err) {
+    logger.error('bulkDeleteSongs error', { ...logMeta(req), error: err.message });
+    return res.status(500).json({ success: false, message: INTERNAL_ERROR });
+  }
 };

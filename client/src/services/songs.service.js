@@ -215,3 +215,10 @@ export const deleteSong = async (id) => {
   const res = await api.delete(`/songs/${id}`);
   return unwrap(res);
 };
+/**
+ * Bulk deletes songs by ID array. Admin only.
+ */
+export const bulkDeleteSongs = async (ids) => {
+  const res = await api.delete('/songs/bulk-delete', { data: { ids } });
+  return res?.data ?? {};
+};
