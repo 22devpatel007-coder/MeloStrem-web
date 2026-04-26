@@ -88,8 +88,9 @@ async function safePlay(src) {
   const { signal } = currentAbortController;
 
   audio.pause();
-  audio.src = src;
-  audio.load();
+audio.src = src;
+audio.load();
+audio.volume = usePlayerStore.getState().volume;
 
   try {
     await new Promise((resolve, reject) => {
@@ -305,7 +306,7 @@ const usePlayerStore = create((set, get) => ({
   currentSong:    null,
   recentlyPlayed: [],
   isPlaying:      false,
-  volume:         1,
+ volume: parseFloat(localStorage.getItem('melostream_volume') ?? '1'),
   currentTime:    0,
   duration:       0,
 
