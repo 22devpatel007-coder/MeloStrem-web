@@ -56,19 +56,19 @@
  * Dependencies: playerStore only. No React state. No re-renders.
  */
 
-import { useEffect, useRef } from 'react';
-import { usePlayerStore } from '../store/playerStore';
+import { useEffect, useRef } from "react";
+import { usePlayerStore } from "../store/playerStore";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const VOLUME_STEP    = 0.1;
-const SEEK_SECONDS   = 10;
-const SEEK_DEBOUNCE  = 80; // ms
+const VOLUME_STEP = 0.1;
+const SEEK_SECONDS = 10;
+const SEEK_DEBOUNCE = 80; // ms
 
 // Repeat mode cycle order
-const REPEAT_CYCLE = ['none', 'all', 'one'];
+const REPEAT_CYCLE = ["none", "all", "one"];
 
 // Tags where keyboard shortcuts must not fire
-const BLOCKED_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT']);
+const BLOCKED_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
 // ── Input focus guard ─────────────────────────────────────────────────────────
 function isTypingTarget(element) {
@@ -76,9 +76,9 @@ function isTypingTarget(element) {
   if (BLOCKED_TAGS.has(element.tagName)) return true;
   if (element.isContentEditable) return true;
   // Block sliders and buttons — arrow keys are used for their native behavior
-  const role = element.getAttribute('role');
-  if (role === 'slider' || role === 'spinbutton') return true;
-  if (element.tagName === 'BUTTON') return true;
+  const role = element.getAttribute("role");
+  if (role === "slider" || role === "spinbutton") return true;
+  if (element.tagName === "BUTTON") return true;
   return false;
 }
 
@@ -118,7 +118,7 @@ export function useKeyboardControls() {
 
       switch (e.key) {
         // ── Space — play / pause ──────────────────────────────────────────────
-        case ' ': {
+        case " ": {
           if (!hasSong) return;
           e.preventDefault(); // prevent page scroll
           togglePlay();
@@ -126,91 +126,97 @@ export function useKeyboardControls() {
         }
 
         // ── ArrowRight — seek forward OR next track (with Shift) ──────────────
-        case 'ArrowRight': {
+        case "ArrowRight": {
           e.preventDefault(); // prevent page scroll
           if (e.shiftKey) {
             if (!hasSong) return;
-            playNext();
-          } else {
-            if (!hasSong) return;
-            // Debounced seek — leading edge fires immediately, trailing ignored
             if (seekTimerRef.current) return;
             seekBy(SEEK_SECONDS);
             seekTimerRef.current = setTimeout(() => {
               seekTimerRef.current = null;
             }, SEEK_DEBOUNCE);
+          } else {
+            if (!hasSong) return;
+            playNext();
           }
           break;
         }
 
         // ── ArrowLeft — seek backward OR previous track (with Shift) ─────────
-        case 'ArrowLeft': {
+        case "ArrowLeft": {
           e.preventDefault();
           if (e.shiftKey) {
-            if (!hasSong) return;
-            playPrev();
-          } else {
             if (!hasSong) return;
             if (seekTimerRef.current) return;
             seekBy(-SEEK_SECONDS);
             seekTimerRef.current = setTimeout(() => {
               seekTimerRef.current = null;
             }, SEEK_DEBOUNCE);
+          } else {
+            if (!hasSong) return;
+            playPrev();
           }
           break;
         }
 
         // ── ArrowUp — volume up ───────────────────────────────────────────────
-        case 'ArrowUp': {
+        case "ArrowUp": {
           e.preventDefault();
-          const newVolUp = Math.min(1, parseFloat((volume + VOLUME_STEP).toFixed(2)));
+          const newVolUp = Math.min(
+            1,
+            parseFloat((volume + VOLUME_STEP).toFixed(2)),
+          );
           setVolume(newVolUp);
           break;
         }
 
         // ── ArrowDown — volume down ───────────────────────────────────────────
-        case 'ArrowDown': {
+        case "ArrowDown": {
           e.preventDefault();
-          const newVolDown = Math.max(0, parseFloat((volume - VOLUME_STEP).toFixed(2)));
+          const newVolDown = Math.max(
+            0,
+            parseFloat((volume - VOLUME_STEP).toFixed(2)),
+          );
           setVolume(newVolDown);
           break;
         }
 
         // ── M — mute toggle ───────────────────────────────────────────────────
-        case 'm':
-        case 'M': {
+        case "m":
+        case "M": {
           toggleMute();
           break;
         }
 
         // ── S — cycle shuffle mode ────────────────────────────────────────────
-        case 's':
-        case 'S': {
+        case "s":
+        case "S": {
           if (!hasSong) return;
           cycleShuffleMode();
           break;
         }
 
         // ── R — cycle repeat mode ─────────────────────────────────────────────
-        case 'r':
-        case 'R': {
+        case "r":
+        case "R": {
           if (!hasSong) return;
           const currentIdx = REPEAT_CYCLE.indexOf(repeatMode);
-          const nextRepeat = REPEAT_CYCLE[(currentIdx + 1) % REPEAT_CYCLE.length];
+          const nextRepeat =
+            REPEAT_CYCLE[(currentIdx + 1) % REPEAT_CYCLE.length];
           setRepeatMode(nextRepeat);
           break;
         }
 
         // ── L — like toggle (decoupled via DOM event) ─────────────────────────
-        case 'l':
-        case 'L': {
+        case "l":
+        case "L": {
           if (!hasSong) return;
           // Dispatch a custom event — LikeButton listens and handles auth +
           // API call. This keeps keyboard controls decoupled from like logic.
           window.dispatchEvent(
-            new CustomEvent('melostream:like-toggle', {
+            new CustomEvent("melostream:like-toggle", {
               detail: { songId: currentSong.id },
-            })
+            }),
           );
           break;
         }
@@ -220,10 +226,10 @@ export function useKeyboardControls() {
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener("keydown", handleKeyDown);
       // Clear any pending debounce timer on unmount
       if (seekTimerRef.current) {
         clearTimeout(seekTimerRef.current);
