@@ -1,5 +1,10 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/" }],
+  "rewrites": [
+    {
+      "source": "/((?!service-worker\\.js|manifest\\.json|offline\\.html|icons/).*)",
+      "destination": "/"
+    }
+  ],
   "headers": [
     {
       "source": "/service-worker.js",
