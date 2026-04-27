@@ -14,25 +14,21 @@
  *   - `isIOS` flag lets you render an iOS-specific instruction sheet
  *
  * Persistence:
- *   - Dismissed state stored in localStorage so the prompt doesn't re-appear
- *     every session after the user dismisses it
- *   - Key: 'melostream_install_dismissed'
+ *   - Dismissed state is session-only (no localStorage)
+ *   - Popup shows again on every new visit
+ *   - Once installed, never shows again
  *
  * Returns:
  *   {
  *     canInstall:    boolean  — true on Android when prompt is available
  *     isIOS:         boolean  — true on iOS Safari (not installed)
  *     isInstalled:   boolean  — true when running as standalone PWA
- *     isDismissed:   boolean  — true if user dismissed the prompt this session
+ *     isDismissed:   boolean  — true if user dismissed this session
  *     promptInstall: () => Promise<'accepted'|'dismissed'|null>
  *     dismiss:       () => void
  *   }
  */
-
 import { useState, useEffect, useCallback } from 'react';
-
-const DISMISSED_KEY = 'melostream_install_dismissed';
-const DISMISSED_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
 
 function isIOSDevice() {
   return (
@@ -49,31 +45,19 @@ function isRunningStandalone() {
   );
 }
 
-function wasDismissedRecently() {
-  try {
-    const stored = localStorage.getItem(DISMISSED_KEY);
-    if (!stored) return false;
-    const { ts } = JSON.parse(stored);
-    return Date.now() - ts < DISMISSED_TTL;
-  } catch {
-    return false;
-  }
-}
-
 export function useInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstalled,    setIsInstalled]    = useState(isRunningStandalone);
-  const [isDismissed,    setIsDismissed]    = useState(wasDismissedRecently);
+  const [isDismissed,    setIsDismissed]    = useState(false); // session-only, no localStorage
 
   const isIOS = isIOSDevice();
 
   // Capture the beforeinstallprompt event (Android/Chrome only)
   useEffect(() => {
     const handler = (e) => {
-      e.preventDefault(); // Stop browser from showing its own prompt
+      e.preventDefault();
       setDeferredPrompt(e);
     };
-
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
@@ -84,7 +68,6 @@ export function useInstallPrompt() {
       setIsInstalled(true);
       setDeferredPrompt(null);
     };
-
     window.addEventListener('appinstalled', handler);
     return () => window.removeEventListener('appinstalled', handler);
   }, []);
@@ -92,7 +75,6 @@ export function useInstallPrompt() {
   // Show the native install prompt (Android only)
   const promptInstall = useCallback(async () => {
     if (!deferredPrompt) return null;
-
     try {
       await deferredPrompt.prompt();
       const { outcome } = await deferredPrompt.userChoice;
@@ -104,20 +86,13 @@ export function useInstallPrompt() {
     }
   }, [deferredPrompt]);
 
-  // Dismiss — persist so it doesn't re-appear for 7 days
+  // Dismiss — session only, no persistence
   const dismiss = useCallback(() => {
-    try {
-      localStorage.setItem(DISMISSED_KEY, JSON.stringify({ ts: Date.now() }));
-    } catch {
-      // localStorage can throw in private browsing — non-fatal
-    }
     setIsDismissed(true);
   }, []);
 
   return {
-    // Android: native prompt available
     canInstall: !!deferredPrompt && !isInstalled && !isDismissed,
-    // iOS: show manual instructions
     isIOS: isIOS && !isInstalled && !isDismissed,
     isInstalled,
     isDismissed,
