@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>MeloStream — Offline</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      html, body {
+        height: 100%;
+        background: #0d1117;
+        color: #e6edf3;
+        font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      .container {
+        text-align: center;
+        max-width: 320px;
+        width: 100%;
+      }
+
+      .icon {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 24px;
+        background: #161b22;
+        border-radius: 20px;
+        border: 1px solid #30363d;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .icon svg {
+        width: 40px;
+        height: 40px;
+      }
+
+      h1 {
+        font-size: 22px;
+        font-weight: 600;
+        color: #e6edf3;
+        margin-bottom: 10px;
+        letter-spacing: -0.3px;
+      }
+
+      p {
+        font-size: 15px;
+        color: #8b949e;
+        line-height: 1.6;
+        margin-bottom: 32px;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        background: #21262d;
+        color: #e6edf3;
+        border: 1px solid #30363d;
+        border-radius: 10px;
+        padding: 12px 24px;
+        font-size: 15px;
+        font-weight: 500;
+        cursor: pointer;
+        text-decoration: none;
+        transition: background 0.15s, border-color 0.15s;
+        font-family: inherit;
+      }
+
+      .btn:hover {
+        background: #30363d;
+        border-color: #484f58;
+      }
+
+      .status {
+        margin-top: 24px;
+        font-size: 13px;
+        color: #484f58;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="icon">
+        <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="10" y="8" width="20" height="3" rx="1.5" fill="#58a6ff" opacity="0.9"/>
+          <rect x="10" y="8" width="3" height="18" rx="1.5" fill="#58a6ff" opacity="0.9"/>
+          <rect x="27" y="8" width="3" height="15" rx="1.5" fill="#58a6ff" opacity="0.9"/>
+          <ellipse cx="13" cy="28" rx="5" ry="4" fill="#58a6ff" opacity="0.9"/>
+          <ellipse cx="29" cy="25" rx="4.5" ry="3.5" fill="#ffa657" opacity="0.9"/>
+        </svg>
+      </div>
+
+      <h1>You're offline</h1>
+      <p>No internet connection. Check your connection and try again.</p>
+
+      <button class="btn" onclick="window.location.reload()">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+          <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+        </svg>
+        Try again
+      </button>
+
+      <p class="status" id="status"></p>
+    </div>
+
+    <script>
+      // Auto-reload when connection is restored
+      window.addEventListener('online', () => {
+        document.getElementById('status').textContent = 'Connection restored — reloading…';
+        setTimeout(() => window.location.reload(), 800);
+      });
+
+      window.addEventListener('offline', () => {
+        document.getElementById('status').textContent = '';
+      });
+    </script>
+  </body>
+</html>

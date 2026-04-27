@@ -1,112 +1,81 @@
-# MeloStream - Full Stack Music Streaming Web App
+# MeloStream
 
-MeloStream is a full-stack music streaming platform with user authentication, song search, cloud-hosted audio, and an admin dashboard for upload and management.
+MeloStream is a full-stack music platform with a React client and an Express API.
+It supports authenticated playback, search, likes, playlists, admin uploads, artist/album detail pages, and frontend error telemetry.
 
-This repository contains:
-- `client/` - React frontend
-- `server/` - Node.js + Express backend
+Last verified against source: April 27, 2026.
 
-## Table of Contents
+## Repository Layout
 
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [Environment Variables](#environment-variables)
-- [Run the App](#run-the-app)
-- [Admin Setup](#admin-setup)
-- [Search Index Migration](#search-index-migration)
-- [API Reference](#api-reference)
-- [Deployment](#deployment)
-- [Troubleshooting](#troubleshooting)
+- `client/`: React 18 app (React Router + React Query + Zustand + Firebase Web SDK)
+- `server/`: Express API (Firebase Admin + Firestore + Cloudinary)
+- `shared/`: cross-layer constants (`shared/constants/errorCodes.js`)
 
-## Features
+## Key Runtime Architecture
 
-### User Features
-- Email/password authentication with Firebase Auth
-- Google sign-in support
-- Browse all songs
-- Play songs in browser with global music player
-- Search by title or artist
-- Like songs and view liked songs page
+- Frontend app shell is in `client/src/App.jsx` with:
+	- `QueryClientProvider`
+	- `BrowserRouter`
+	- layered error boundaries (`AppErrorBoundary`, `PlayerErrorBoundary`)
+	- global `MusicPlayer` mounted outside route switches (playback persists across route changes)
+- Frontend auth uses Firebase Auth and sends `Authorization: Bearer <idToken>` in Axios.
+- Backend validates Firebase ID tokens using:
+	- `verifyToken` (non-strict, no revocation check)
+	- `verifyTokenStrict` (strict, revocation-aware)
+- Backend middleware order in `server/src/index.js`:
+	1. `helmet`
+	2. CORS
+	3. body parsers
+	4. correlation ID middleware
+	5. global limiter
+	6. `/health` and `/ready`
+	7. `/api/*` routes
+	8. 404 handler
+	9. global error handler
+- Data plane:
+	- Firestore stores users, songs, artists, albums, playlists, session picks metadata
+	- Cloudinary stores audio and cover assets
 
-### Admin Features
-- Protected admin routes
-- Upload song + cover image
-- Delete songs
-- View all users
-- Role checks using Firebase custom claims, env fallback, and Firestore fallback
+## Feature Snapshot
 
-### Security and Reliability
-- Helmet security headers
-- CORS allowlist via environment variable
-- Global and auth-specific rate limiting
-- Token verification middleware with clear error codes
-- Token refresh and retry logic in frontend Axios client
+### User-facing
 
-## Tech Stack
+- Firebase auth (email/password and provider-based flows)
+- Cursor-paginated song browsing
+- Search with split debounce:
+	- URL debounce in search bar: 300ms
+	- API debounce in hook: 400ms
+- Like/unlike songs and view liked songs
+- Browse public admin playlists and user playlists
+- Artist detail and album detail pages
+- Keyboard controls + Media Session integration
 
-### Frontend (`client/`)
-- React 18
-- React Router v6
-- Firebase Web SDK (Auth + Firestore)
-- Axios
-- Tailwind CSS (configured)
+### Admin-facing
 
-### Backend (`server/`)
-- Node.js + Express
-- Firebase Admin SDK (Auth + Firestore)
-- Cloudinary (audio/image storage)
-- Multer (multipart upload)
-- Helmet, CORS, express-rate-limit
+- Admin route protection using Firebase custom claim (`admin: true`)
+- Song upload/update/delete
+- Bulk song deletion
+- Playlist creation/deletion and upload-song flow
+- User listing
 
-## Architecture
+### Reliability and observability
 
-1. User authenticates with Firebase Auth.
-2. Frontend sends Firebase ID token as Bearer token to backend.
-3. Backend verifies token using Firebase Admin SDK.
-4. Public content is served via REST APIs.
-5. Admin uploads audio/image files through backend.
-6. Backend stores media in Cloudinary and song metadata in Firestore.
-7. Search queries use lowercase indexed fields (`titleLower`, `artistLower`) in Firestore.
+- Correlation IDs (`X-Correlation-ID`) included and exposed over CORS
+- `/health`, `/ready`, and `/api/health` probes
+- Frontend error batch ingestion at `POST /api/errors/report`
+- In-memory server caching for high-read endpoints (TTL-based)
+- Session picks queue with async draining and graceful shutdown hooks
 
-## Project Structure
-
-```text
-music-web/
-	client/
-		src/
-			admin/
-			components/
-			context/
-			hooks/
-			pages/
-			styles/
-			utils/
-	server/
-		scripts/
-			setAdminClaim.js
-			migrateSearchFields.js
-		src/
-			config/
-			controllers/
-			middleware/
-			routes/
-			utils/
-```
-
-## Getting Started
+## Local Development
 
 ### Prerequisites
+
 - Node.js 18+
 - npm 9+
-- Firebase project
+- Firebase project (Auth + Firestore)
 - Cloudinary account
 
-### 1) Install dependencies
-
-From repository root:
+### Install
 
 ```bash
 cd client
@@ -116,185 +85,245 @@ cd ../server
 npm install
 ```
 
-## Environment Variables
+### Run
 
-Create these files:
-- `client/.env`
-- `server/.env`
-
-### `client/.env`
-
-```env
-REACT_APP_API_URL=http://localhost:5000
-
-REACT_APP_FIREBASE_API_KEY=your_firebase_api_key
-REACT_APP_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
-REACT_APP_FIREBASE_PROJECT_ID=your_project_id
-REACT_APP_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
-REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
-REACT_APP_FIREBASE_APP_ID=your_app_id
-```
-
-### `server/.env`
-
-```env
-PORT=5000
-
-# Allow one or multiple origins (comma-separated)
-CORS_ORIGIN=http://localhost:3000
-
-# Firebase Admin SDK service account values
-FIREBASE_PROJECT_ID=your_project_id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your_project.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY\n-----END PRIVATE KEY-----\n"
-
-# Cloudinary
-CLOUDINARY_CLOUD_NAME=your_cloud_name
-CLOUDINARY_API_KEY=your_api_key
-CLOUDINARY_API_SECRET=your_api_secret
-
-# Admin bootstrap (single email or comma-separated list)
-ADMIN_EMAILS=admin@example.com
-```
-
-Notes:
-- Keep the `FIREBASE_PRIVATE_KEY` wrapped in quotes and preserve `\n`.
-- `CORS_ORIGIN` supports multiple origins separated by commas.
-
-## Run the App
-
-Open two terminals.
-
-### Terminal 1 - Backend
+Terminal 1 (API):
 
 ```bash
 cd server
 npm run dev
 ```
 
-Backend runs on `http://localhost:5000` by default.
-
-### Terminal 2 - Frontend
+Terminal 2 (Client):
 
 ```bash
 cd client
 npm start
 ```
 
-Frontend runs on `http://localhost:3000`.
+Default local URLs:
 
-## Admin Setup
+- Client: `http://localhost:3000`
+- API root: `http://localhost:5000`
+- API base used by client: `http://localhost:5000/api`
 
-1. Create/sign in as the target admin user at least once.
+## Environment Variables
+
+Create:
+
+- `client/.env`
+- `server/.env`
+
+Use `.env.example` files as the canonical source.
+
+### Client (`client/.env`)
+
+```env
+REACT_APP_API_URL=http://localhost:5000/api
+REACT_APP_FIREBASE_API_KEY=your-api-key
+REACT_APP_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+REACT_APP_FIREBASE_PROJECT_ID=your-project-id
+REACT_APP_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+REACT_APP_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+REACT_APP_FIREBASE_APP_ID=your-app-id
+```
+
+### Server (`server/.env`)
+
+```env
+PORT=5000
+NODE_ENV=development
+
+FIREBASE_PROJECT_ID=your-firebase-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your-project.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nYOUR_KEY_HERE\n-----END PRIVATE KEY-----\n"
+
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# Comma-separated origins supported
+CLIENT_ORIGIN=http://localhost:3000
+
+# Bootstrap admin fallback
+ADMIN_EMAILS=admin@example.com,another@example.com
+
+# Optional runtime controls
+BACKEND_URL=https://your-backend.example.com
+KEEP_ALIVE_INTERVAL_MS=840000
+FIRESTORE_INDEXES_VERIFIED=true
+```
+
+Notes:
+
+- Keep `FIREBASE_PRIVATE_KEY` quoted and preserve escaped `\n`.
+- `validateEnv` exits startup if required env vars are missing.
+
+## Admin Claim Setup
+
+1. Ensure target accounts already exist in Firebase Auth.
 2. Set `ADMIN_EMAILS` in `server/.env`.
-3. Run the admin-claim script:
+3. Run:
 
 ```bash
 cd server
 node scripts/setAdminClaim.js
 ```
 
-4. Sign out and sign in again to refresh token claims.
+4. Have those users sign out/sign in to refresh token claims.
 
-## Search Index Migration
+Primary authorization source is Firebase custom claim: `req.user.admin === true`.
 
-If old songs were created before lowercase fields existed, run migration:
+## Migration Scripts
+
+Run from `server/`.
+
+### Search field backfill
+
+Adds/repairs `titleLower` and `artistLower` on songs.
 
 ```bash
-cd server/scripts
-node migrateSearchFields.js
+# dry run
+node scripts/migrateSearchFields.js --dry-run
+
+# live run
+node scripts/migrateSearchFields.js
+
+# rollback
+node scripts/migrateSearchFields.js --rollback=../logs/backup-searchfields-<timestamp>.json
 ```
 
-This adds/updates:
-- `titleLower`
-- `artistLower`
+### Artist/album backfill
 
-## API Reference
+Backfills `artistId`, `albumId`, and `trackNumber` on songs (idempotent).
+
+```bash
+# dry run
+node scripts/migrateArtistAlbum.js --dry-run
+
+# live run
+node scripts/migrateArtistAlbum.js
+
+# rollback
+node scripts/migrateArtistAlbum.js --rollback=../logs/backup-artistalbum-<timestamp>.json
+```
+
+## API Contract Snapshot
 
 Base URL: `http://localhost:5000`
 
-### Health
-- `GET /health` - Server status
+### Health and readiness
+
+- `GET /health` -> liveness payload
+- `GET /ready` -> dependency readiness (`200` or `503`)
+- `GET /api/health` -> API-scoped health payload
 
 ### Auth
-- `POST /api/auth/verify` - Verify current user token and return user doc
+
+- `POST /api/auth/verify` -> `{ uid, ...userPayload }`
 
 ### Songs
-- `GET /api/songs` - List all songs (public)
-- `GET /api/songs/:id` - Get single song (public)
-- `POST /api/songs` - Upload song + cover (admin)
-- `DELETE /api/songs/:id` - Delete song (admin)
 
-`POST /api/songs` expects `multipart/form-data`:
-- `song` (audio file)
-- `cover` (image file)
-- `title` (string)
-- `artist` (string)
-- `genre` (string)
-- `duration` (number)
+- `GET /api/songs?limit=<n>&cursor=<docId>` -> `{ songs, nextCursor, hasMore }`
+- `GET /api/songs/:id` -> `Song` or `404 { error, code: "NOT_FOUND" }`
+- `POST /api/songs/batch` -> `{ success: true, data: Song[] }`
+- `POST /api/songs/check-duplicate` -> `{ duplicate: boolean, existing?: SongLike }`
+- `POST /api/songs` (admin) -> `Song` (created)
+- `PATCH /api/songs/:id` (admin) -> `Song` (updated)
+- `DELETE /api/songs/:id` (admin) -> `{ message: "Song deleted successfully" }`
+- `DELETE /api/songs/bulk-delete` (admin) -> `{ success, deleted, failed }`
 
 ### Search
-- `GET /api/search?q=term` - Search by title/artist using lowercase indexed fields
+
+- `GET /api/search?q=<term>&limit=<n>` -> `{ songs, total, query }`
 
 ### Users
-- `GET /api/users` - List users (admin)
 
-## Deployment
+- `GET /api/users` (admin) -> `{ success: true, data: User[] }`
+- `GET /api/users/:uid/liked-songs` -> `{ success: true, data: Song[] }`
+- `POST /api/users/:uid/liked-songs/:songId` -> `{ success: true, data: string[] }`
+- `POST /api/users/:uid/session-picks` -> `{ success: true }`
+- `GET /api/users/:uid/playlists` -> `{ success: true, data: Playlist[] }`
+
+### Playlists
+
+- `GET /api/playlists/admin` -> `{ success: true, data: Playlist[] }`
+- `GET /api/playlists` (admin) -> `Playlist[]`
+- `POST /api/playlists/upload-song` (admin) ->
+	- uploaded: `{ status: "uploaded", songId, song }`
+	- duplicate: `{ status: "duplicate", songId, existing }`
+- `POST /api/playlists/with-cover` (admin) -> `Playlist`
+- `POST /api/playlists` (admin) -> `Playlist`
+- `DELETE /api/playlists/:id` (admin) -> `{ message: "Playlist deleted successfully" }`
+
+### Artists and albums
+
+- `GET /api/artists/:id` -> `Artist`
+- `GET /api/artists/:id/songs?limit=<n>&cursor=<docId>` -> `{ songs, nextCursor, hasMore }`
+- `GET /api/albums/:id` -> `Album`
+- `GET /api/albums/:id/songs` -> `{ songs, albumId }`
+
+### Error reporting
+
+- `POST /api/errors/report` -> `{ success: true, received: number }`
+
+## Current Rate Limits
+
+- Global: `100 requests / 15 min`
+- Search: `30 requests / min`
+- Admin song mutations: `20 requests / 15 min`
+- Duplicate check: `30 requests / 15 min`
+- Artists: `100 requests / 15 min`
+- Albums: `100 requests / 15 min`
+- Public admin playlists: `60 requests / min`
+- Error report ingestion: `20 requests / min`
+
+## Caching and Data Notes
+
+- Backend endpoint caches (node-cache):
+	- songs list: 60s
+	- song by ID: 300s
+	- search: 30s
+	- public admin playlists: 120s
+	- artist: 600s
+	- artist songs: 60s
+	- album: 600s
+	- album songs: 300s
+- Frontend normalizers intentionally defend against mixed API envelopes.
+- Song list normalization excludes `audioUrl`; player fetches it on demand by song ID.
+
+## Deployment Notes
 
 ### Frontend (Vercel)
-- Set project root to `client`
-- Add all `client/.env` variables to Vercel project settings
-- Set `REACT_APP_API_URL` to deployed backend URL
+
+- Project root: `client`
+- Build command: `npm run build`
+- Ensure all `REACT_APP_*` vars are configured
 
 ### Backend (Render or similar)
-- Set project root to `server`
+
+- Project root: `server`
 - Start command: `npm start`
-- Add all `server/.env` variables in host environment settings
-- Set `CORS_ORIGIN` to your deployed frontend URL
+- Configure all required env vars
+- Set `CLIENT_ORIGIN` to deployed frontend origins
+- Verify Firestore indexes before routing production traffic (`FIRESTORE_INDEXES_VERIFIED=true`)
 
-## Troubleshooting
+## Known Maintenance Risks
 
-### Infinite loading screen on auth
-- Confirm all `REACT_APP_FIREBASE_*` variables are present and valid.
-- Ensure your Firebase web app config is from the correct project.
+- API envelopes are intentionally mixed; frontend service normalizers are required.
+- Some comments are stale relative to runtime values (for example, older limiter wording).
+- Server currently contains both class-based and functional service layers under `server/src/services`.
+- Contract-level automated tests are thinner than route/middleware complexity.
 
-### 401 Unauthorized on protected endpoints
-- Confirm user is signed in.
-- Confirm frontend is sending `Authorization: Bearer <token>`.
-- Sign out/sign in again after changing admin claims.
-
-### Admin access denied
-- Verify `ADMIN_EMAILS` includes the exact account email.
-- Run `node scripts/setAdminClaim.js` and re-login.
-- Confirm user role in Firestore if using fallback checks.
-
-### CORS errors
-- Ensure backend `CORS_ORIGIN` includes exact frontend origin (`http://localhost:3000` in local dev).
-- For multiple origins, use comma-separated values.
-
-### Upload failures
-- Verify Cloudinary credentials.
-- Ensure request sends both `song` and `cover` fields.
-- Audio and image MIME types are validated by backend middleware.
-
-## Available Scripts
+## Scripts
 
 ### Client
-- `npm start` - Run development server
-- `npm run build` - Create production build
-- `npm test` - Run tests
+
+- `npm start`
+- `npm run build`
+- `npm test`
 
 ### Server
-- `npm run dev` - Run with nodemon
-- `npm start` - Run with node
 
-## Current Status
-
-Core user and admin flows are implemented and working with Firebase + Cloudinary integration.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit changes
-4. Open a pull request
+- `npm run dev`
+- `npm start`
