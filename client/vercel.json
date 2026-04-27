@@ -1,14 +1,15 @@
 {
   "rewrites": [
     {
-      "source": "/((?!service-worker\\.js|manifest\\.json|offline\\.html|icons/).*)",
-      "destination": "/"
+      "source": "/((?!service-worker\\.js$|manifest\\.json$|offline\\.html$|icons/|favicon\\.ico$).*)",
+      "destination": "/index.html"
     }
   ],
   "headers": [
     {
       "source": "/service-worker.js",
       "headers": [
+        { "key": "Content-Type", "value": "application/javascript" },
         { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" },
         { "key": "Service-Worker-Allowed", "value": "/" }
       ]
@@ -16,19 +17,20 @@
     {
       "source": "/manifest.json",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=86400" }
-      ]
-    },
-    {
-      "source": "/offline.html",
-      "headers": [
+        { "key": "Content-Type", "value": "application/manifest+json" },
         { "key": "Cache-Control", "value": "public, max-age=86400" }
       ]
     },
     {
       "source": "/icons/(.*)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        { "key": "Cache-Control", "value": "public, max-age=604800, immutable" }
+      ]
+    },
+    {
+      "source": "/offline.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-cache" }
       ]
     }
   ]
