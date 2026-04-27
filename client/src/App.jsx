@@ -37,7 +37,7 @@ import {
   PlayerErrorBoundary,
 } from './components/errors/ErrorBoundary';
 import NetworkErrorBanner from './components/errors/NetworkErrorBanner';
-
+import InstallPrompt from './components/pwa/InstallPrompt';
 
 // ─── React Query client ───────────────────────────────────────────────────────
 
@@ -154,6 +154,7 @@ const App = () => {
             <PlayerErrorBoundary>
               <MusicPlayer />
             </PlayerErrorBoundary>
+            <InstallPrompt />
           </ToastProvider>
         </BrowserRouter>
       </QueryClientProvider>
