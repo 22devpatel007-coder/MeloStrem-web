@@ -527,7 +527,7 @@ const usePlayerStore = create((set, get) => ({
 
     set((state) => ({
       currentSong:    song,
-      isPlaying:      true,
+      isPlaying:      false,
       recentlyPlayed: [
         song,
         ...state.recentlyPlayed.filter((s) => s.id !== song.id),

@@ -104,7 +104,7 @@ export function useMediaSession() {
       }
     } else {
       // No song — clear the media session
-      navigator.mediaSession.metadata = null;
+      // navigator.mediaSession.metadata = null;
       return; // No point registering handlers with no active song
     }
 
