@@ -541,6 +541,23 @@ const usePlayerStore = create((set, get) => ({
     try {
       await safePlay(src);
       set({ isPlaying: true });
+      // Prefetch next song's audio URL into client cache while current song plays.
+      // Fire-and-forget — never blocks playback, never throws to caller.
+      // Eliminates network call on auto-advance, critical for PWA locked screen.
+      setTimeout(() => {
+        try {
+          const { queue } = getQueueState();
+          const nextIndex = queue.findIndex((s) => s.id === song.id) + 1;
+          const nextSong  = queue[nextIndex];
+          if (nextSong?.id) {
+            import('../services/songs.service')
+              .then(({ getSongAudioUrl }) => getSongAudioUrl(nextSong.id))
+              .catch(() => {});
+          }
+        } catch {
+          // prefetch failure is always silent — never affects current playback
+        }
+      }, 3000);
     } catch {
       set({ isPlaying: false });
     }
