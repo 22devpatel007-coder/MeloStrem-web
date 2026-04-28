@@ -124,8 +124,10 @@ const extractSongForPlay = (payload) => {
 };
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
-
+const _audioUrlCache = new Map();
+const AUDIO_URL_CACHE_TTL_MS = 300_000; 
 const unwrap = (res) => {
+
   const body = res?.data ?? res;
   return body != null ? body : {};
 };
@@ -162,10 +164,19 @@ export const getSongs = async (limit = 20, cursor = null) => {
  * @returns {Promise<string>}
  */
 export const getSongAudioUrl = async (id) => {
+  // Serve from client cache if still valid — avoids network on background/locked screen
+  const cached = _audioUrlCache.get(id);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.url;
+  }
   try {
     const res  = await api.get(`/songs/${id}`);
     const data = extractSongForPlay(unwrap(res));
-    return data?.audioUrl || '';
+    const url  = data?.audioUrl || '';
+    if (url) {
+      _audioUrlCache.set(id, { url, expiresAt: Date.now() + AUDIO_URL_CACHE_TTL_MS });
+    }
+    return url;
   } catch (err) {
     console.warn('[songs.service] getSongAudioUrl: failed to fetch audio URL for', id, err.message);
     return '';
