@@ -4,6 +4,46 @@ import { create } from 'zustand';
 export const audio = new Audio();
 audio.preload = 'metadata';
 
+// AudioContext — unlocks audio focus on Android/iOS
+let _audioContext = null;
+function unlockAudioContext() {
+  if (_audioContext) return;
+  try {
+    _audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = _audioContext.createMediaElementSource(audio);
+    source.connect(_audioContext.destination);
+  } catch {}
+}
+
+// Module-level audio event listeners — registered once, never duplicated
+audio.addEventListener('ended', () => {
+  const { repeatMode, playNext } = usePlayerStore.getState();
+  if (repeatMode === 'one') {
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+  } else {
+    playNext();
+  }
+});
+
+audio.addEventListener('timeupdate', () => {
+  usePlayerStore.setState({ currentTime: audio.currentTime });
+});
+
+audio.addEventListener('durationchange', () => {
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
+    usePlayerStore.setState({ duration: audio.duration });
+  }
+});
+
+audio.addEventListener('play', () => {
+  usePlayerStore.setState({ isPlaying: true });
+});
+
+audio.addEventListener('pause', () => {
+  usePlayerStore.setState({ isPlaying: false });
+});
+
 // ── Lazy queueStore accessor ──────────────────────────────────────────────────
 let _getQueueState = null;
 export function registerQueueStore(getStateFn) {
@@ -123,6 +163,8 @@ audio.volume = usePlayerStore.getState().volume;
     });
 
     if (signal.aborted) return;
+    unlockAudioContext();
+    if (_audioContext?.state === 'suspended') await _audioContext.resume();
     await audio.play();
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -484,16 +526,6 @@ const usePlayerStore = create((set, get) => ({
       },
     }));
 
-    audio.onended = () => {
-      const { repeatMode, playNext } = get();
-      if (repeatMode === 'one') {
-        audio.currentTime = 0;
-        audio.play().catch(() => {});
-      } else {
-        playNext();
-      }
-    };
-
     try {
       await safePlay(src);
       set({ isPlaying: true });
@@ -679,7 +711,6 @@ setDuration: (d) => set({ duration: d }),
     if (currentAbortController) currentAbortController.abort();
     audio.pause();
     audio.src     = '';
-    audio.onended = null;
     _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
     set({
       currentSong:     null,
@@ -701,7 +732,6 @@ setDuration: (d) => set({ duration: d }),
 
     audio.pause();
     audio.src     = '';
-    audio.onended = null;
 
     _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
 

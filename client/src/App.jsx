@@ -38,7 +38,7 @@ import {
 } from './components/errors/ErrorBoundary';
 import NetworkErrorBanner from './components/errors/NetworkErrorBanner';
 import InstallPrompt from './components/pwa/InstallPrompt';
-
+import UpdatePrompt  from './components/pwa/UpdatePrompt';
 // ─── React Query client ───────────────────────────────────────────────────────
 
 const queryClient = new QueryClient({
@@ -80,26 +80,6 @@ queryClient.setQueryDefaults(QUERY_KEYS.PLAYLISTS,        { staleTime: 0 });
 queryClient.setQueryDefaults(QUERY_KEYS.ADMIN_PLAYLISTS,  { staleTime: 0 });
 queryClient.setQueryDefaults(QUERY_KEYS.USER_PLAYLISTS,   { staleTime: 0 });
 window.__reactQueryClient = queryClient;
-// ── BUG-012 FIX: Per-key staleTime overrides for admin-critical data ──────────
-//
-// Why setQueryDefaults instead of changing the global staleTime to 0?
-//   Setting global staleTime to 0 would cause every hook — including search,
-//   artist detail, album detail — to refetch on every render. This creates
-//   unnecessary load and breaks the UX for read-only browsing pages.
-//
-//   setQueryDefaults targets only the keys that admins mutate. These keys
-//   get staleTime:0, meaning React Query treats their cached data as
-//   immediately stale. After any invalidateQueries call on these keys,
-//   the very next read triggers a fresh fetch — no 2-minute delay.
-//
-//   Keys not listed here (ARTIST, ALBUM, SEARCH, etc.) keep the 2min global.
-//
-// Why these four keys specifically?
-//   SONGS          — mutated by upload, bulk upload, edit, delete, featured toggle.
-//   PLAYLISTS      — mutated by playlist create/delete/edit (admin protected route).
-//   ADMIN_PLAYLISTS — public playlist list cache; invalidated on playlist mutations.
-//   USER_PLAYLISTS  — user-scoped playlists; invalidated on user playlist mutations.
-// ─── App ─────────────────────────────────────────────────────────────────────
 
 const App = () => {
   const { setUser, setAdmin, setLoading } = useAuthStore();
@@ -155,6 +135,7 @@ const App = () => {
               <MusicPlayer />
             </PlayerErrorBoundary>
             <InstallPrompt />
+            <UpdatePrompt />
           </ToastProvider>
         </BrowserRouter>
       </QueryClientProvider>
