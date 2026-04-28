@@ -4,16 +4,25 @@ import { create } from 'zustand';
 export const audio = new Audio();
 audio.preload = 'metadata';
 
-// AudioContext — unlocks audio focus on Android/iOS
-let _audioContext = null;
-function unlockAudioContext() {
-  if (_audioContext) return;
-  try {
-    _audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const source = _audioContext.createMediaElementSource(audio);
-    source.connect(_audioContext.destination);
-  } catch {}
-}
+// NOTE: AudioContext intentionally removed.
+//
+// WHAT WAS WRONG:
+//   The previous code called createMediaElementSource(audio) inside
+//   unlockAudioContext(). That Web Audio API call permanently hijacks the
+//   <audio> element's output pipeline — the element's default speaker output
+//   is disconnected and all audio is rerouted through the AudioContext graph.
+//   If the AudioContext was suspended (common on mobile before a gesture, or
+//   after a tab loses focus), the graph produces silence. The HTMLMediaElement
+//   continued decoding normally — timer moved, isPlaying was true — but zero
+//   audio reached the speakers because the AudioContext graph wasn't running.
+//
+// WHY IT IS NOT NEEDED:
+//   AudioContext unlock was a Safari/Android workaround from ~2017. Current
+//   browser policy (Chrome 71+, Safari 13+, Firefox, all mobile browsers) only
+//   requires that audio.play() is called from a user-gesture callstack. This
+//   code already does that — the user clicks play → playSong() → safePlay() →
+//   audio.play(). No AudioContext is needed. Removing it restores the default
+//   audio output path which works on every browser and device.
 
 // Module-level audio event listeners — registered once, never duplicated
 audio.addEventListener('ended', () => {
@@ -87,6 +96,7 @@ export function registerPaginationBridge(bridge) {
 // appendSongsToQueue() to fire. Never stored in Zustand (no re-render needed).
 let _pendingNextAfterFetch = false;
 audio.volume = parseFloat(localStorage.getItem('melostream_volume') ?? '1');
+
 /**
  * Called by useSongs() when a new page of songs arrives.
  * Appends songs to the queue and, if a playNext() was waiting, continues.
@@ -126,12 +136,11 @@ async function safePlay(src) {
   if (currentAbortController) currentAbortController.abort();
   currentAbortController = new AbortController();
   const { signal } = currentAbortController;
-  unlockAudioContext();
-    if (_audioContext?.state === 'suspended') await _audioContext.resume();
+
   audio.pause();
-audio.src = src;
-audio.load();
-audio.volume = usePlayerStore.getState().volume;
+  audio.src = src;
+  audio.load();
+  audio.volume = usePlayerStore.getState().volume;
 
   try {
     await new Promise((resolve, reject) => {
@@ -164,7 +173,10 @@ audio.volume = usePlayerStore.getState().volume;
     });
 
     if (signal.aborted) return;
-    
+
+    // NOTE: No AudioContext calls here. Direct audio.play() is correct and
+    // sufficient. The browser allows this because it is called from within
+    // the user-gesture callstack (click → playSong → safePlay).
     await audio.play();
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -348,7 +360,7 @@ const usePlayerStore = create((set, get) => ({
   currentSong:    null,
   recentlyPlayed: [],
   isPlaying:      false,
- volume: parseFloat(localStorage.getItem('melostream_volume') ?? '1'),
+  volume:         parseFloat(localStorage.getItem('melostream_volume') ?? '1'),
   currentTime:    0,
   duration:       0,
 
@@ -648,13 +660,11 @@ const usePlayerStore = create((set, get) => ({
   },
 
   resumeSong: async () => {
-  if (!audio.src) return;
-  try {
-    unlockAudioContext();                                                    // ← ADD
-    if (_audioContext?.state === 'suspended') await _audioContext.resume(); // ← ADD
-    await audio.play();
-    set({ isPlaying: true });
-  } catch (err) {
+    if (!audio.src) return;
+    try {
+      await audio.play();
+      set({ isPlaying: true });
+    } catch (err) {
       console.error('[playerStore] Resume error:', err.message);
       set({ isPlaying: false });
     }
@@ -667,29 +677,29 @@ const usePlayerStore = create((set, get) => ({
   },
 
   setVolume: (v) => {
-  audio.volume = v;
-  localStorage.setItem('melostream_volume', String(v));
-  set({ volume: v });
-},
+    audio.volume = v;
+    localStorage.setItem('melostream_volume', String(v));
+    set({ volume: v });
+  },
 
   setCurrentTime: (t) => {
-  audio.currentTime = t;
-  set({ currentTime: t });
-},
+    audio.currentTime = t;
+    set({ currentTime: t });
+  },
 
-seekBy: (seconds) => {
-  const t = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + seconds));
-  audio.currentTime = t;
-  set({ currentTime: t });
-},
+  seekBy: (seconds) => {
+    const t = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + seconds));
+    audio.currentTime = t;
+    set({ currentTime: t });
+  },
 
-toggleMute: () => {
-  const next = audio.volume > 0 ? 0 : (parseFloat(localStorage.getItem('melostream_volume') ?? '1') || 1);
-  audio.volume = next;
-  set({ volume: next });
-},
+  toggleMute: () => {
+    const next = audio.volume > 0 ? 0 : (parseFloat(localStorage.getItem('melostream_volume') ?? '1') || 1);
+    audio.volume = next;
+    set({ volume: next });
+  },
 
-setDuration: (d) => set({ duration: d }),
+  setDuration: (d) => set({ duration: d }),
 
   setRepeatMode: (mode) => set({ repeatMode: mode }),
 
