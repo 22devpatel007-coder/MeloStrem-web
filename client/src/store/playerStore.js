@@ -126,7 +126,8 @@ async function safePlay(src) {
   if (currentAbortController) currentAbortController.abort();
   currentAbortController = new AbortController();
   const { signal } = currentAbortController;
-
+  unlockAudioContext();
+    if (_audioContext?.state === 'suspended') await _audioContext.resume();
   audio.pause();
 audio.src = src;
 audio.load();
@@ -163,8 +164,7 @@ audio.volume = usePlayerStore.getState().volume;
     });
 
     if (signal.aborted) return;
-    unlockAudioContext();
-    if (_audioContext?.state === 'suspended') await _audioContext.resume();
+    
     await audio.play();
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -648,11 +648,13 @@ const usePlayerStore = create((set, get) => ({
   },
 
   resumeSong: async () => {
-    if (!audio.src) return;
-    try {
-      await audio.play();
-      set({ isPlaying: true });
-    } catch (err) {
+  if (!audio.src) return;
+  try {
+    unlockAudioContext();                                                    // ← ADD
+    if (_audioContext?.state === 'suspended') await _audioContext.resume(); // ← ADD
+    await audio.play();
+    set({ isPlaying: true });
+  } catch (err) {
       console.error('[playerStore] Resume error:', err.message);
       set({ isPlaying: false });
     }
