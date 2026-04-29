@@ -168,7 +168,7 @@ export function useMediaSession() {
   // trigger unnecessary setPositionState calls.
   //
   useEffect(() => {
-    if (!MEDIA_SESSION_SUPPORTED || !currentSong) return;
+    if (!MEDIA_SESSION_SUPPORTED || !currentSong || !isPlaying) return;
 
     // playbackState — tells the OS whether to show play or pause icon
     try {
