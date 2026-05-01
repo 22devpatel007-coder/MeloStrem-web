@@ -308,7 +308,17 @@ const deletePlaylist = async (id) => {
     return true;
   }, { label: 'deletePlaylist' });
 };
-
+const createUser = async (data) => {
+  return retryFirestore(async () => {
+    await db.collection('users').doc(data.uid).set({
+      email:       data.email       ?? null,
+      displayName: data.displayName ?? null,
+      photoURL:    data.photoURL    ?? null,
+      likedSongs:  data.likedSongs  ?? [],
+      createdAt:   data.createdAt   ?? new Date(),
+    }, { merge: true });
+  }, { label: 'createUser' });
+};
 module.exports = {
   formatDoc,
   getSongs,
@@ -319,6 +329,7 @@ module.exports = {
   searchSongs,
   checkDuplicateSong,
   getUser,
+  createUser,
   updateUser,
   getAllUsers,
   getPlaylists,

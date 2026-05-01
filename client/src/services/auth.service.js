@@ -9,6 +9,8 @@ import {
   updateProfile,
   sendPasswordResetEmail,
 } from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import api from './api';
 import { auth } from '../firebase';
 
 export const loginWithEmail = (email, password) =>
@@ -19,7 +21,10 @@ export const registerWithEmail = async (email, password, name) => {
   if (name) await updateProfile(credential.user, { displayName: name });
   return credential;
 };
-
+export const loginWithGoogle = async () => {
+  const provider = new GoogleAuthProvider();
+  return signInWithPopup(auth, provider);
+};
 export const logout = () => signOut(auth);
 
 export const getCurrentUserToken = async () => {
@@ -40,3 +45,4 @@ export const getCurrentUserToken = async () => {
  */
 export const sendPasswordReset = (email) =>
   sendPasswordResetEmail(auth, email);
+export const verifyWithBackend = () => api.post('/auth/verify');

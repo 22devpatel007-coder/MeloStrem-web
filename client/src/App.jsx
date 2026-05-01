@@ -24,9 +24,10 @@
 
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect ,useRef  } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
+import { sendHeartbeat, sendOffline } from './services/users.service';
 import useAuthStore, { registerQueryClient } from './store/authStore';
 import AppRoutes from './routes/index';
 import MusicPlayer from './components/player/MusicPlayer';
@@ -90,6 +91,7 @@ const App = () => {
         const tokenResult = await firebaseUser.getIdTokenResult();
         setUser(firebaseUser);
         setAdmin(!!tokenResult.claims.admin);
+        sendHeartbeat(firebaseUser.uid).catch(() => {});
       } else {
         setUser(null);
         setAdmin(false);
@@ -99,7 +101,27 @@ const App = () => {
 
     return unsubscribe;
   }, [setUser, setAdmin, setLoading]);
+  const heartbeatRef = useRef(null);
 
+  useEffect(() => {
+    const { user } = useAuthStore.getState();
+    if (!user) return;
+
+    // Ping every 5 minutes while tab is open
+    heartbeatRef.current = setInterval(() => {
+      sendHeartbeat(user.uid).catch(() => {});
+    }, 5 * 60_000);
+
+    // Mark offline when tab closes
+    const handleUnload = () => sendOffline(user.uid);
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      clearInterval(heartbeatRef.current);
+      window.removeEventListener('beforeunload', handleUnload);
+      sendOffline(user.uid).catch(() => {});
+    };
+  }, []);
   return (
     // AppErrorBoundary — outermost safety net.
     // Placed outside QueryClientProvider and BrowserRouter so it can catch

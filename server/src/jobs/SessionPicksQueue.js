@@ -107,6 +107,8 @@ const { db }             = require('../config/firebase');
 const { retryFirestore } = require('../utils/retryFirestore');
 const logger             = require('../utils/logger');
 
+  const { FieldValue } = require('firebase-admin/firestore');
+  const cache = require('../services/cache.service');
 // ── Queue configuration constants ─────────────────────────────────────────────
 
 /** How often the drainer fires (milliseconds). */
@@ -590,8 +592,7 @@ class SessionPicksQueue {
    * @returns {Promise<void>}
    */
   async _writeToFirestore(uid, picks, sessionId) {
-  const { FieldValue } = require('firebase-admin/firestore');
-  const cache = require('../services/cache.service');
+
 
   // 1. Write session history (unchanged)
   await retryFirestore(
@@ -629,7 +630,11 @@ class SessionPicksQueue {
   Object.keys(songPlayCounts).forEach(songId => {
     cache.del(`songs:id:${songId}`);
   });
-  cache.delPattern('songs:list:');
+  // node-cache has no delPattern — flush all song list keys by prefix manually
+const allKeys = cache.keys ? cache.keys() : [];
+allKeys
+  .filter((k) => k.startsWith('songs:list:'))
+  .forEach((k) => cache.del(k));
 }
 
   /**

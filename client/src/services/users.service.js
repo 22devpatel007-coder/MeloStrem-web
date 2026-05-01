@@ -61,3 +61,6 @@ export const toggleLikeSong = async (uid, songId) => {
   // Backend returns { success: true, data: string[] } — the updated liked ID list
   return extractArray(res);
 };
+
+export const sendHeartbeat  = (uid) => api.post(`/users/${uid}/heartbeat`);
+export const sendOffline    = (uid) => api.post(`/users/${uid}/offline`);

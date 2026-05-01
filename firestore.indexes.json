@@ -101,6 +101,33 @@
         { "fieldPath": "isAdmin",   "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+
+    {
+      "collectionGroup": "sessionPicks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "order": "ASCENDING" },
+        { "fieldPath": "pickedAt",  "order": "DESCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "userSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid",      "order": "ASCENDING" },
+        { "fieldPath": "lastSeen", "order": "DESCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "userSessions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isActive", "order": "ASCENDING" },
+        { "fieldPath": "lastSeen", "order": "DESCENDING" }
+      ]
     }
 
   ],
@@ -129,6 +156,16 @@
     {
       "collectionGroup": "users",
       "fieldPath": "likedSongIds",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "userSessions",
+      "fieldPath": "sessionId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "userSessions",
+      "fieldPath": "userAgent",
       "indexes": []
     }
   ]
