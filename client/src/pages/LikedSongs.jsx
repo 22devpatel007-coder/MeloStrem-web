@@ -10,7 +10,7 @@ import LikedSongsSkeleton from "../components/songs/LikedSongsSkeleton";
 
 const LikedSongs = () => {
   const { user } = useAuthStore();
-  const { likedSongs, isLoading, isError, refetch } = useLikedSongs(user?.uid);
+  const { likedSongs, likedSongIds, toggleLike, isLoading, isError, refetch } = useLikedSongs(user?.uid);
 
   // Filter / sort / group — local UI state only
   const [activeGenre, setActiveGenre] = useState(null);
@@ -128,7 +128,8 @@ const LikedSongs = () => {
           currentSongId={currentSong?.id ?? null}
           isGloballyPlaying={isGloballyPlaying}
           onPlaySong={playSongFromContext}
-          uid={user?.uid}
+          likedSongIds={likedSongIds}
+          onToggleLike={toggleLike}
         />
       </div>
     </div>

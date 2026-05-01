@@ -36,7 +36,6 @@
 import { useMemo, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useLikedSongs } from "../../hooks/useLikedSongs";
 import { getGenreColor } from "./LikedSongsFilters";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -371,13 +370,13 @@ const LikedSongsTable = ({
   groupByGenreEnabled,
   currentSongId,
   isGloballyPlaying,
+  likedSongIds = [],
+  onToggleLike,
   onPlaySong,
-  uid, // ← NEW: passed from LikedSongs.jsx
 }) => {
   // Single hook instance — owned here by LikedSongsTable's parent (LikedSongs.jsx)
   // passes these down; we call the hook here only as a fallback if uid is provided
   // directly. This keeps the component self-sufficient when used standalone.
-  const { likedSongIds, toggleLike } = useLikedSongs(uid);
 
   const filtered = useMemo(
     () => (activeGenre ? songs.filter((s) => s.genre === activeGenre) : songs),
@@ -410,7 +409,7 @@ const LikedSongsTable = ({
     currentSongId,
     isGloballyPlaying,
     onPlaySong,
-    onToggleLike: toggleLike,
+    onToggleLike,
     likedSongIds,
   };
 
