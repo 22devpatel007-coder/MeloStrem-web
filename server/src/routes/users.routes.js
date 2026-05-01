@@ -13,5 +13,7 @@ router.get('/:uid/liked-songs',          usersCtrl.getLikedSongs);
 router.post('/:uid/liked-songs/:songId', usersCtrl.toggleLikedSong);
 router.post('/:uid/session-picks',       usersCtrl.logSessionPicks);
 router.get('/:uid/playlists',            playlistsCtrl.getUserPlaylists);
-
+router.get('/:uid/recent-plays', usersCtrl.getRecentPlays);
+router.post('/:uid/heartbeat', usersCtrl.updateActiveStatus);
+router.post('/:uid/offline',   usersCtrl.setOfflineStatus);
 module.exports = router;

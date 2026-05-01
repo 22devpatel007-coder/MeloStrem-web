@@ -16,11 +16,21 @@ const { NotFoundError, InternalError } = require('../errors');
 
 exports.verifyUser = async (req, res, next) => {
   try {
-    const user = await getUser(req.user.uid);
+    let user = await getUser(req.user.uid);
 
-    if (!user) {
-      throw new NotFoundError('User not found', 'NOT_FOUND');
-    }
+if (!user) {
+  // First-time login (Google OAuth or any provider) — create Firestore record
+  const { uid, email, name, picture } = req.user;
+  await require('../services/firebase.service').createUser({
+    uid,
+    email:       email        ?? null,
+    displayName: name         ?? null,
+    photoURL:    picture      ?? null,
+    likedSongs:  [],
+    createdAt:   new Date(),
+  });
+  user = await getUser(uid);
+}
 
     return res.json({ uid: req.user.uid, ...user });
   } catch (err) {

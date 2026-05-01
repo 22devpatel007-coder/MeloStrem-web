@@ -22,10 +22,11 @@
  *     ['artist*']       — artist detail and songs
  *     ['album*']        — album detail and songs
  */
-
 import { create } from 'zustand';
-import { logout as authServiceLogout } from '../services/auth.service';
+import { logout as authServiceLogout, verifyWithBackend } from '../services/auth.service';
+import { sendOffline } from '../services/users.service';
 import { setUserId } from '../services/errorReporter';
+
 let _queryClient = null;
 
 export const registerQueryClient = (qc) => {
@@ -62,16 +63,26 @@ const useAuthStore = create((set) => ({
   loading:    true,
   likedSongs: [],
 
-  setUser: (user) => { setUserId(user?.uid ?? null); set({ user }); },
+  setUser: (user) => {
+  setUserId(user?.uid ?? null);
+  set({ user });
+  // Ensure Firestore user document exists (creates it for Google/first-time logins)
+  if (user) {
+      verifyWithBackend().catch(() => {}); // fire-and-forget, non-blocking
+  }
+},
   setAdmin:      (isAdmin)    => set({ isAdmin }),
   setLoading:    (loading)    => set({ loading }),
   setLikedSongs: (likedSongs) => set({ likedSongs }),
 
   logout: async () => {
+    const currentUser = useAuthStore.getState().user;
+    if (currentUser) {
+      sendOffline(currentUser.uid).catch(() => {});
+    }
     try {
       await authServiceLogout();
     } finally {
-      // Always clear user cache and reset state, even if Firebase logout fails.
       clearUserCache();
       set({ user: null, isAdmin: false, likedSongs: [] });
     }
