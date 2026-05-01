@@ -369,7 +369,7 @@ const LikedSongsTable = ({
   activeGenre,
   groupByGenreEnabled,
   currentSongId,
-  isGloballyPlaying,
+  isGloballyPlaying,    
   likedSongIds = [],
   onToggleLike,
   onPlaySong,
