@@ -288,17 +288,22 @@
     sessionPicksQueue.enqueue(uid, sanitized, sessionId);
   };
   // ── GET /users/:uid/recent-plays ──────────────────────────────────────────────
-  exports.getRecentPlays = async (req, res, next) => {
-    const { uid } = req.params;
+  // ── GET /users/:uid/recent-plays ──────────────────────────────────────────────
+exports.getRecentPlays = async (req, res, next) => {
+  const { uid } = req.params;
 
-    if (req.user.uid !== uid) {
-      return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
-    }
+  if (req.user.uid !== uid) {
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+  }
 
-    try {
-      const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
 
-      const snaps = await retryFirestore(
+    // Query both paths in parallel:
+    // - new path: users/{uid}/sessionPicks subcollection (queue writes here)
+    // - old path: root sessionPicks collection (old controller wrote here)
+    const [newSnaps, oldSnaps] = await Promise.all([
+      retryFirestore(
         () =>
           db
             .collection('users')
@@ -307,32 +312,66 @@
             .orderBy('pickedAt', 'desc')
             .limit(limit)
             .get(),
-        { label: 'getRecentPlays' },
-      );
+        { label: 'getRecentPlays:new' },
+      ),
+      retryFirestore(
+        () =>
+          db
+            .collection('sessionPicks')
+            .where('sessionId', '>=', `${uid}_`)
+            .where('sessionId', '<',  `${uid}_\uf8ff`)
+            .orderBy('sessionId', 'asc')
+            .orderBy('pickedAt', 'desc')
+            .limit(limit)
+            .get(),
+        { label: 'getRecentPlays:old' },
+      ),
+    ]);
 
-      const picks = snaps.docs.flatMap((doc) => {
-        const d = doc.data();
-        return (d.picks ?? []).map((p) => ({
-          ...p,
-          sessionId: d.sessionId,
-          pickedAt:  d.pickedAt?.toDate
-            ? d.pickedAt.toDate().toISOString()
-            : null,
-        }));
-      });
+    // Flatten both results into one picks array
+    const fromNew = newSnaps.docs.flatMap((doc) => {
+      const d = doc.data();
+      return (d.picks ?? []).map((p) => ({
+        ...p,
+        sessionId: d.sessionId,
+        pickedAt:  d.pickedAt?.toDate
+          ? d.pickedAt.toDate().toISOString()
+          : null,
+      }));
+    });
 
-      return res.json({ success: true, data: picks });
-    } catch (err) {
-      logger.error('getRecentPlays error:', { uid, error: err.message });
-      return next(
-        new InternalError(
-          'Failed to fetch recent plays. Please try again.',
-          'INTERNAL_ERROR',
-          { originalError: err.message },
-        ),
-      );
-    }
-  };
+    const fromOld = oldSnaps.docs.flatMap((doc) => {
+      const d = doc.data();
+      return (d.picks ?? []).map((p) => ({
+        ...p,
+        sessionId: d.sessionId,
+        pickedAt:  d.pickedAt?.toDate
+          ? d.pickedAt.toDate().toISOString()
+          : null,
+      }));
+    });
+
+    // Merge, sort by pickedAt descending, cap to limit
+    const merged = [...fromNew, ...fromOld]
+      .sort((a, b) => {
+        if (!a.pickedAt) return 1;
+        if (!b.pickedAt) return -1;
+        return new Date(b.pickedAt) - new Date(a.pickedAt);
+      })
+      .slice(0, limit);
+
+    return res.json({ success: true, data: merged });
+  } catch (err) {
+    logger.error('getRecentPlays error:', { uid, error: err.message });
+    return next(
+      new InternalError(
+        'Failed to fetch recent plays. Please try again.',
+        'INTERNAL_ERROR',
+        { originalError: err.message },
+      ),
+    );
+  }
+};
 
   // ── POST /users/:uid/heartbeat ────────────────────────────────────────────────
   exports.updateActiveStatus = async (req, res, next) => {

@@ -104,13 +104,13 @@
     },
 
     {
-      "collectionGroup": "sessionPicks",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "sessionId", "order": "ASCENDING" },
-        { "fieldPath": "pickedAt",  "order": "DESCENDING" }
-      ]
-    },
+  "collectionGroup": "sessionPicks",
+  "queryScope": "COLLECTION",
+  "fields": [
+    { "fieldPath": "sessionId", "order": "ASCENDING" },
+    { "fieldPath": "pickedAt",  "order": "DESCENDING" }
+  ]
+},
 
     {
       "collectionGroup": "userSessions",
