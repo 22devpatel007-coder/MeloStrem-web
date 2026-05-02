@@ -2,6 +2,7 @@
 
 const { findOrCreateArtist } = require('../services/artist.service');
 const { findOrCreateAlbum }  = require('../services/album.service');
+const { Song }               = require('../models/Song');
 const { sanitizeSongMeta }   = require('../utils/sanitize');
 const logger                 = require('../utils/logger');
 const {
@@ -224,13 +225,11 @@ class SongService {
     }
 
     // 7 — Firestore write
-    const now      = new Date();
-    const songData = {
+  const now      = new Date();
+    const songData = Song.toFirestore({
       title,
       artist,
       genre,
-      titleLower:       title.toLowerCase(),
-      artistLower:      artist.toLowerCase(),
       duration:         Number(duration) || 0,
       fileUrl:          songResult.secure_url,
       coverUrl:         coverResult.secure_url,
@@ -245,13 +244,11 @@ class SongService {
       albumId:          albumResult  ? albumResult.albumId    : null,
       album:            albumName    ? String(albumName).trim() : '',
       trackNumber:      trackNumber  ? Number(trackNumber) || null : null,
-    };
+    }, 'create');
 
     try {
-      const newSong        = await this._repo.create(songData);
-      newSong.createdAt    = now.toISOString();
-      newSong.updatedAt    = now.toISOString();
-      return newSong;
+      const newSong = await this._repo.create(songData);
+      return Song.fromFirestore({ ...newSong, createdAt: now.toISOString(), updatedAt: now.toISOString() });
     } catch (err) {
       logger.error('SongService.createSong Firestore write error:', { error: err.message });
       throw this._wrapError(err, 'Failed to save song. Please try again.', 'SONG_CREATE_ERROR');
@@ -385,7 +382,7 @@ class SongService {
     updates.updatedAt = now;
 
     try {
-      await this._repo.update(id, updates);
+      await this._repo.update(id, Song.toFirestore(updates, 'update'));
     } catch (err) {
       logger.error('SongService.updateSong Firestore error:', { id, error: err.message });
       throw this._wrapError(err, 'Failed to update song. Please try again.', 'SONG_UPDATE_ERROR');

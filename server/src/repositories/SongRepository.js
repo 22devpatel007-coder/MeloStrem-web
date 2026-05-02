@@ -36,7 +36,7 @@
  */
 
 'use strict';
-
+const { Song } = require('../models/Song');
 const BaseRepository = require('./BaseRepository');
 
 class SongRepository extends BaseRepository {
@@ -62,12 +62,13 @@ class SongRepository extends BaseRepository {
    * @returns {Promise<{ items: object[], nextCursor: string|null, hasMore: boolean }>}
    */
   async findAll(limit = 30, cursor = null) {
-    const baseQuery = this._db
-      .collection('songs')
-      .orderBy('createdAt', 'desc');
+  const baseQuery = this._db
+    .collection('songs')
+    .orderBy('createdAt', 'desc');
 
-    return this.findPaginated(baseQuery, limit, cursor);
-  }
+  const result = await this.findPaginated(baseQuery, limit, cursor);
+  return { ...result, items: result.items.map((r) => Song.fromFirestore(r)) };
+}
 
   /**
    * findById(id) → object | null
@@ -76,7 +77,8 @@ class SongRepository extends BaseRepository {
    * @returns {Promise<object | null>}
    */
   async findById(id) {
-    return super.findById(id);
+    const raw = await super.findById(id);
+    return raw ? Song.fromFirestore(raw) : null;
   }
 
   /**
@@ -89,7 +91,8 @@ class SongRepository extends BaseRepository {
    * @returns {Promise<object[]>}
    */
   async findByIds(ids) {
-    return this.batchGet(ids);
+    const raws = await this.batchGet(ids);
+    return raws.map((r) => Song.fromFirestore(r));
   }
 
   /**
@@ -113,7 +116,7 @@ class SongRepository extends BaseRepository {
         .where('titleLower', '<=', queryLower + '\uf8ff')
         .limit(safeLimit)
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
+      return snap.docs.map((doc) => Song.fromFirestore(this.formatDoc(doc)));
     }, `searchByTitle("${query}")`);
   }
 
@@ -138,7 +141,7 @@ class SongRepository extends BaseRepository {
         .where('artistLower', '<=', queryLower + '\uf8ff')
         .limit(safeLimit)
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
+      return snap.docs.map((doc) => Song.fromFirestore(this.formatDoc(doc)));
     }, `searchByArtist("${query}")`);
   }
 
@@ -183,13 +186,14 @@ class SongRepository extends BaseRepository {
    * @returns {Promise<{ items: object[], nextCursor: string|null, hasMore: boolean }>}
    */
   async findByArtistId(artistId, limit = 30, cursor = null) {
-    const baseQuery = this._db
-      .collection('songs')
-      .where('artistId', '==', artistId)
-      .orderBy('createdAt', 'desc');
+  const baseQuery = this._db
+    .collection('songs')
+    .where('artistId', '==', artistId)
+    .orderBy('createdAt', 'desc');
 
-    return this.findPaginated(baseQuery, limit, cursor);
-  }
+  const result = await this.findPaginated(baseQuery, limit, cursor);
+  return { ...result, items: result.items.map((r) => Song.fromFirestore(r)) };
+}
 
   /**
    * findByAlbumId(albumId) → object[]
@@ -210,7 +214,7 @@ class SongRepository extends BaseRepository {
         .orderBy('trackNumber', 'asc')
         .limit(BaseRepository.MAX_ALBUM_SONGS)
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
+      return snap.docs.map((doc) => Song.fromFirestore(this.formatDoc(doc)));
     }, `findByAlbumId(${albumId})`);
   }
 
@@ -239,10 +243,10 @@ class SongRepository extends BaseRepository {
 
       if (excludeId) {
         const dups = snap.docs.filter((doc) => doc.id !== excludeId);
-        return dups.length > 0 ? this.formatDoc(dups[0]) : null;
+        return dups.length > 0 ? Song.fromFirestore(this.formatDoc(dups[0])) : null;
       }
 
-      return this.formatDoc(snap.docs[0]);
+      return Song.fromFirestore(this.formatDoc(snap.docs[0]));
     }, `checkDuplicate("${title}" by "${artist}")`);
   }
 

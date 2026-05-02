@@ -25,10 +25,10 @@
  *   - Session picks write is intentionally fire-and-forget (no return needed).
  */
 
-'use strict';
-
-const admin = require('firebase-admin');
-const BaseRepository = require('./BaseRepository');
+"use strict";
+const { User } = require("../models/User");
+const admin = require("firebase-admin");
+const BaseRepository = require("./BaseRepository");
 
 const FieldValue = admin.firestore.FieldValue;
 
@@ -37,7 +37,7 @@ class UserRepository extends BaseRepository {
    * @param {FirebaseFirestore.Firestore} db
    */
   constructor(db) {
-    super(db, 'users');
+    super(db, "users");
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -51,7 +51,8 @@ class UserRepository extends BaseRepository {
    * @returns {Promise<object | null>}
    */
   async findById(uid) {
-    return super.findById(uid);
+    const raw = await super.findById(uid);
+    return raw ? User.fromFirestore(raw) : null;
   }
 
   /**
@@ -65,12 +66,12 @@ class UserRepository extends BaseRepository {
   async findAll() {
     return this._callFirestore(async () => {
       const snap = await this._db
-        .collection('users')
-        .orderBy('createdAt', 'desc')
+        .collection("users")
+        .orderBy("createdAt", "desc")
         .limit(500)
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
-    }, 'findAll');
+      return snap.docs.map((doc) => User.fromFirestore(this.formatDoc(doc)));
+    }, "findAll");
   }
 
   /**
@@ -84,7 +85,7 @@ class UserRepository extends BaseRepository {
    */
   async getLikedSongs(uid) {
     return this._callFirestore(async () => {
-      const snap = await this._db.collection('users').doc(uid).get();
+      const snap = await this._db.collection("users").doc(uid).get();
       if (!snap.exists) return [];
       return snap.data().likedSongs || [];
     }, `getLikedSongs(${uid})`);
@@ -123,25 +124,26 @@ class UserRepository extends BaseRepository {
    */
   async toggleLikedSong(uid, songId) {
     return this._callFirestore(async () => {
-      const userRef = this._db.collection('users').doc(uid);
-      const snap    = await userRef.get();
+      const userRef = this._db.collection("users").doc(uid);
+      const snap = await userRef.get();
 
       // Create user document with empty likedSongs if it doesn't exist
       if (!snap.exists) {
-        await userRef.set({
-          uid,
-          likedSongs: [],
-          createdAt:  new Date(),
-          updatedAt:  new Date(),
-        });
+        await userRef.set(
+          User.toFirestore(
+            { uid, likedSongs: [], createdAt: new Date() },
+            "create",
+          ),
+          { merge: true },
+        );
       }
 
-      const currentLiked = snap.exists ? (snap.data().likedSongs || []) : [];
+      const currentLiked = snap.exists ? snap.data().likedSongs || [] : [];
       const isCurrentlyLiked = currentLiked.includes(songId);
 
       const update = isCurrentlyLiked
         ? { likedSongs: FieldValue.arrayRemove(songId), updatedAt: new Date() }
-        : { likedSongs: FieldValue.arrayUnion(songId),  updatedAt: new Date() };
+        : { likedSongs: FieldValue.arrayUnion(songId), updatedAt: new Date() };
 
       await userRef.update(update);
 
@@ -170,21 +172,30 @@ class UserRepository extends BaseRepository {
    */
   async appendSessionPicks(uid, picks) {
     return this._callFirestore(async () => {
-      const userRef = this._db.collection('users').doc(uid);
+      const userRef = this._db.collection("users").doc(uid);
       await userRef.set(
         {
           sessionHistory: FieldValue.arrayUnion(...picks),
-          updatedAt:      new Date(),
+          updatedAt: new Date(),
         },
         { merge: true },
       );
     }, `appendSessionPicks(uid=${uid}, count=${picks.length})`);
   }
-async removeSongFromAllUsers(songId) {
+  async writeSessionPicks(uid, sessionId, picks) {
+    return this._callFirestore(async () => {
+      await this._db
+        .collection("users")
+        .doc(uid)
+        .collection("sessionPicks")
+        .add({ sessionId, picks, pickedAt: new Date() });
+    }, `writeSessionPicks(${uid})`);
+  }
+  async removeSongFromAllUsers(songId) {
     return this._callFirestore(async () => {
       const snap = await this._db
-        .collection('users')
-        .where('likedSongs', 'array-contains', songId)
+        .collection("users")
+        .where("likedSongs", "array-contains", songId)
         .get();
 
       if (snap.empty) return;
@@ -196,7 +207,7 @@ async removeSongFromAllUsers(songId) {
         docs.slice(i, i + BATCH_SIZE).forEach((doc) => {
           batch.update(doc.ref, {
             likedSongs: FieldValue.arrayRemove(songId),
-            updatedAt:  new Date(),
+            updatedAt: new Date(),
           });
         });
         await batch.commit();
