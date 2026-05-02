@@ -28,7 +28,7 @@
  */
 
 'use strict';
-
+const { Playlist } = require('../models/Playlist');
 const { admin }      = require('../config/firebase');
 const BaseRepository = require('./BaseRepository');
 
@@ -53,7 +53,8 @@ class PlaylistRepository extends BaseRepository {
    * @returns {Promise<object | null>}
    */
   async findById(id) {
-    return super.findById(id);
+    const raw = await super.findById(id);
+return raw ? Playlist.fromFirestore(raw) : null;
   }
 
   /**
@@ -73,7 +74,7 @@ class PlaylistRepository extends BaseRepository {
         .where('ownerId', '==', uid)
         .orderBy('createdAt', 'desc')
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
+      return snap.docs.map((doc) => Playlist.fromFirestore(this.formatDoc(doc)));
     }, `findByUserId(${uid})`);
   }
 
@@ -93,7 +94,7 @@ class PlaylistRepository extends BaseRepository {
         .where('isPublic', '==', true)
         .orderBy('createdAt', 'desc')
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
+      return snap.docs.map((doc) => Playlist.fromFirestore(this.formatDoc(doc)));
     }, 'findAllPublic');
   }
 

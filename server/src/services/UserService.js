@@ -192,13 +192,7 @@ class UserService {
       // Write to sessionPicks sub-collection — same pattern as original controller.
       // This mirrors: db.collection('users').doc(uid).collection('sessionPicks').add(...)
       // We go through userRepository.executeWithRetry to keep circuit breaker coverage.
-      await this._userRepo.executeWithRetry(async () => {
-        await this._userRepo._db
-          .collection('users')
-          .doc(uid)
-          .collection('sessionPicks')
-          .add({ sessionId, picks: sanitizedPicks, pickedAt: new Date() });
-      }, `writeSessionPicks(${uid})`);
+      await this._userRepo.writeSessionPicks(uid, sessionId, sanitizedPicks);
     } catch (err) {
       // Non-blocking — client already got success. Log and move on.
       logger.error('UserService.writeSessionPicks error:', { uid, error: err.message });

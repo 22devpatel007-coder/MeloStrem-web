@@ -26,7 +26,7 @@
  */
 
 'use strict';
-
+const { User } = require('../models/User');
 const admin = require('firebase-admin');
 const BaseRepository = require('./BaseRepository');
 
@@ -51,7 +51,8 @@ class UserRepository extends BaseRepository {
    * @returns {Promise<object | null>}
    */
   async findById(uid) {
-    return super.findById(uid);
+    const raw = await super.findById(uid);
+    return raw ? User.fromFirestore(raw) : null;
   }
 
   /**
@@ -69,7 +70,7 @@ class UserRepository extends BaseRepository {
         .orderBy('createdAt', 'desc')
         .limit(500)
         .get();
-      return snap.docs.map((doc) => this.formatDoc(doc));
+      return snap.docs.map((doc) => User.fromFirestore(this.formatDoc(doc)));
     }, 'findAll');
   }
 
@@ -180,6 +181,15 @@ class UserRepository extends BaseRepository {
       );
     }, `appendSessionPicks(uid=${uid}, count=${picks.length})`);
   }
+async writeSessionPicks(uid, sessionId, picks) {
+  return this._callFirestore(async () => {
+    await this._db
+      .collection('users')
+      .doc(uid)
+      .collection('sessionPicks')
+      .add({ sessionId, picks, pickedAt: new Date() });
+  }, `writeSessionPicks(${uid})`);
+}  
 async removeSongFromAllUsers(songId) {
     return this._callFirestore(async () => {
       const snap = await this._db

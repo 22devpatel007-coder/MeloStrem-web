@@ -28,7 +28,7 @@
  */
 
 'use strict';
-
+const { Artist } = require('../models/Artist');
 const admin = require('firebase-admin');
 const BaseRepository = require('./BaseRepository');
 
@@ -53,7 +53,8 @@ class ArtistRepository extends BaseRepository {
    * @returns {Promise<object | null>}
    */
   async findById(id) {
-    return super.findById(id);
+   const raw = await super.findById(id);
+    return raw ? Artist.fromFirestore(raw) : null;
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -86,7 +87,7 @@ class ArtistRepository extends BaseRepository {
       );
 
       const snap = await ref.get();
-      return this.formatDoc(snap);
+      return Artist.fromFirestore(this.formatDoc(snap));
     }, `findOrCreate(${artistId})`);
   }
 
