@@ -21,15 +21,17 @@ exports.verifyUser = async (req, res, next) => {
 if (!user) {
   // First-time login (Google OAuth or any provider) — create Firestore record
   const { uid, email, name, picture } = req.user;
-  await require('../services/firebase.service').createUser({
-    uid,
-    email:       email        ?? null,
-    displayName: name         ?? null,
-    photoURL:    picture      ?? null,
-    likedSongs:  [],
-    createdAt:   new Date(),
-  });
-  user = await getUser(uid);
+  const { User } = require('../models/User');
+  await require('../services/firebase.service').createUser(
+    User.toFirestore({
+      uid,
+      email:       email   ?? '',
+      displayName: name    ?? '',
+      photoURL:    picture ?? null,
+      likedSongs:  [],
+      createdAt:   new Date(),
+    }, 'create')
+  );
 }
 
     return res.json({ uid: req.user.uid, ...user });

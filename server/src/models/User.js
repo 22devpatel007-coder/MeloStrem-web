@@ -75,6 +75,7 @@ class User {
       displayName: typeof data.displayName === 'string' ? data.displayName.trim(): '',
       role,
       likedSongs,
+      photoURL:    typeof data.photoURL === 'string' ? data.photoURL.trim() : null,
 
       // Timestamps — already ISO strings from BaseRepository.formatDoc()
       createdAt:   data.createdAt ?? null,
@@ -120,6 +121,7 @@ class User {
       uid:         typeof data.uid         === 'string' ? data.uid.trim()          : '',
       email:       typeof data.email       === 'string' ? data.email.trim()        : '',
       displayName: typeof data.displayName === 'string' ? data.displayName.trim()  : '',
+      photoURL:    typeof data.photoURL    === 'string' ? data.photoURL.trim()     : null,
       role:        ROLES.USER,   // always USER on creation — admin via custom claims only
       likedSongs,
       createdAt:   data.createdAt instanceof Date
@@ -143,6 +145,7 @@ class User {
       uid:         data.uid         || '',
       email:       data.email       || '',
       displayName: data.displayName || '',
+      photoURL:    data.photoURL    ?? null,
       role:        data.role        || ROLES.USER,
       createdAt:   data.createdAt   || null,
     };
@@ -152,11 +155,21 @@ class User {
   static _empty() {
     return {
       id: '', uid: '', email: '', displayName: '',
+      photoURL: null,
+      role: ROLES.USER, likedSongs: [],
+      createdAt: null, updatedAt: null,
+    };
+  }
+  static _empty() {
+    return {
+      id: '', uid: '', email: '', displayName: '',
+      photoURL: null,
       role: ROLES.USER, likedSongs: [],
       createdAt: null, updatedAt: null,
     };
   }
 }
+
 
 // ── Legacy exports — backward compatibility ────────────────────────────────────
 // Existing imports of { UserSchema, ROLES, createUserDefaults } continue to work.
