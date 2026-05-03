@@ -88,9 +88,9 @@
   exports.getLikedSongs = async (req, res, next) => {
     const { uid } = req.params;
 
-    if (req.user.uid !== uid) {
-      return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
-    }
+    if (req.user.uid !== uid && !req.user.admin) {
+  return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+}
 
     try {
       const userDoc = await retryFirestore(
@@ -291,10 +291,11 @@
   // ── GET /users/:uid/recent-plays ──────────────────────────────────────────────
 exports.getRecentPlays = async (req, res, next) => {
   const { uid } = req.params;
-
-  if (req.user.uid !== uid) {
-    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
-  }
+  console.log('[DEBUG] req.user.uid:', req.user.uid);
+console.log('[DEBUG] req.user.admin:', req.user.admin);
+  if (req.user.uid !== uid && !req.user.admin) {
+  return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+}
 
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);

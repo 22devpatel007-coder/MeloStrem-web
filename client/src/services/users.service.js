@@ -63,4 +63,13 @@ export const toggleLikeSong = async (uid, songId) => {
 };
 
 export const sendHeartbeat  = (uid) => api.post(`/users/${uid}/heartbeat`);
+export const getRecentPlays = async (uid, limit = 20) => {
+  const res = await api.get(`/users/${uid}/recent-plays`, { params: { limit } });
+  return extractArray(res);
+};
+
+export const getUserPlaylists = async (uid) => {
+  const res = await api.get(`/users/${uid}/playlists`);
+  return extractArray(res);
+};
 export const sendOffline    = (uid) => api.post(`/users/${uid}/offline`);

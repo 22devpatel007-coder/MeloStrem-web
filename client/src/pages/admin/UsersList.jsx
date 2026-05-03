@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import axiosInstance from "../../services/api";
 import Loader from "../../components/ui/Loader";
+import { useNavigate } from 'react-router-dom';
 
 const formatDate = (raw) => {
   if (!raw) return "—";
@@ -23,6 +24,7 @@ const UsersList = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [focused, setFocused] = useState(false);
+  const navigate = useNavigate(); 
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -101,7 +103,7 @@ const UsersList = () => {
             <span style={{ ...styles.col, flex: 1 }}>Joined</span>
           </div>
           {filtered.map((user) => (
-            <div key={user.id} style={styles.tableRow}>
+            <div key={user.id} style={{ ...styles.tableRow, cursor: 'pointer' }} onClick={() => navigate(`/admin/users/${user.id}`)}>
               <div style={{ flex: 2, minWidth: 0 }}>
                 <div style={styles.userCell}>
                   <div style={styles.avatar}>

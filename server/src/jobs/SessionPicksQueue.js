@@ -591,8 +591,7 @@ class SessionPicksQueue {
    * @param {string}          sessionId
    * @returns {Promise<void>}
    */
-  async _writeToFirestore(uid, picks, sessionId) {
-
+async _writeToFirestore(uid, picks, sessionId) {
 
   // 1. Write session history (unchanged)
   await retryFirestore(
@@ -610,7 +609,17 @@ class SessionPicksQueue {
     { maxAttempts: 2, label: `SessionPicksQueue.write(${uid})` },
   );
 
-  // 2. Increment playCount for each unique songId in this batch
+  // 2. Increment totalSessionPicks on user document (atomic, merge-safe)
+  await retryFirestore(
+    () =>
+      db.collection('users').doc(uid).set(
+        { totalSessionPicks: FieldValue.increment(picks.length) },
+        { merge: true },
+      ),
+    { label: `SessionPicksQueue.incrementTotal(${uid})` },
+  );
+
+  // 3. Increment playCount for each unique songId in this batch
   const songPlayCounts = {};
   for (const pick of picks) {
     if (pick.songId) {
@@ -620,21 +629,21 @@ class SessionPicksQueue {
 
   await Promise.allSettled(
     Object.entries(songPlayCounts).map(([songId, count]) =>
-      db.collection('songs').doc(songId).update({
-        playCount: FieldValue.increment(count),
-      })
+      db.collection('songs').doc(songId).set(
+        { playCount: FieldValue.increment(count) },
+        { merge: true },
+      )
     )
   );
 
-  // 3. Invalidate cache so dashboard reads fresh playCount
+  // 4. Invalidate cache so dashboard reads fresh playCount
   Object.keys(songPlayCounts).forEach(songId => {
     cache.del(`songs:id:${songId}`);
   });
-  // node-cache has no delPattern — flush all song list keys by prefix manually
-const allKeys = cache.keys ? cache.keys() : [];
-allKeys
-  .filter((k) => k.startsWith('songs:list:'))
-  .forEach((k) => cache.del(k));
+  const allKeys = cache.keys ? cache.keys() : [];
+  allKeys
+    .filter((k) => k.startsWith('songs:list:'))
+    .forEach((k) => cache.del(k));
 }
 
   /**
