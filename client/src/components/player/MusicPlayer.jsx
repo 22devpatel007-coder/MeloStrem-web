@@ -23,6 +23,7 @@
 import { useState, useCallback, memo } from 'react';
 import { useMediaSession } from '../../hooks/useMediaSession';
 import { useKeyboardControls } from '../../hooks/useKeyboardControls';
+import { useListenTracker } from '../../hooks/useListenTracker';
 import { usePlayerStore } from '../../store/playerStore';
 import MiniPlayerBar from './MiniPlayerBar';
 import FullScreenPlayer from './FullScreenPlayer';
@@ -34,6 +35,7 @@ const MusicPlayer = memo(() => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showQueue,  setShowQueue]  = useState(false);
   useMediaSession();
+  useListenTracker();
   useKeyboardControls();
   const handleExpand      = useCallback(() => setIsExpanded(true),  []);
   const handleCollapse    = useCallback(() => setIsExpanded(false), []);

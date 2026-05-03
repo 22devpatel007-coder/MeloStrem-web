@@ -73,3 +73,10 @@ export const getUserPlaylists = async (uid) => {
   return extractArray(res);
 };
 export const sendOffline    = (uid) => api.post(`/users/${uid}/offline`);
+export const updateListenSession = (uid, action, durationSeconds) =>
+  api.patch(`/users/${uid}/listen-session`, { action, durationSeconds });
+
+export const getSessionData = async (uid) => {
+  const res = await api.get(`/users/${uid}/session`);
+  return extractObject(res);
+};

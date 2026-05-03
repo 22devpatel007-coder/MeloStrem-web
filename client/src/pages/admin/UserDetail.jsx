@@ -32,6 +32,7 @@ import {
   getRecentPlays,
   getLikedSongs,
   getUserPlaylists,
+  getSessionData,
 } from '../../services/users.service';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,7 +55,25 @@ const formatTime = (raw) => {
     hour: '2-digit', minute: '2-digit',
   });
 };
+const formatListenTime = (seconds) => {
+  if (!seconds || seconds < 60) return '—';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+};
 
+const formatRelative = (raw) => {
+  if (!raw) return '—';
+  const diff = Date.now() - new Date(raw).getTime();
+  if (isNaN(diff) || diff < 0) return '—';
+  const m = Math.floor(diff / 60000);
+  if (m < 1)  return 'Just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+};
 // Aggregate picks array → { songId: count } sorted desc
 const getMostPlayed = (picks, limit = 10) => {
   const counts = {};
@@ -92,9 +111,9 @@ const StatCard = ({ label, value }) => (
   </div>
 );
 
-const SectionTitle = ({ children }) => (
-  <h2 style={s.sectionTitle}>{children}</h2>
-);
+// const SectionTitle = ({ children }) => (
+//   <h2 style={s.sectionTitle}>{children}</h2>
+// );
 
 const EmptyRow = ({ text }) => (
   <p style={s.empty}>{text}</p>
@@ -135,44 +154,76 @@ const UserDetail = () => {
   const [liked,     setLiked]     = useState([]);   // Song[]
   const [playlists, setPlaylists] = useState([]);   // Playlist[]
   const [songMap,   setSongMap]   = useState(new Map()); // songId → Song
-  const [tab,       setTab]       = useState('recent'); // recent | most | liked | playlists
+  const [session, setSession] = useState(null);
+  const [tab,            setTab]            = useState('recent'); // recent | most | liked | playlists
+  const [playlistSongs,  setPlaylistSongs]  = useState({});       // playlistId → Song[] | 'loading' | 'error'
+  const [expandedPl,     setExpandedPl]     = useState(null);     // currently expanded playlist id // recent | most | liked | playlists
 
   // ── Fetch all data in parallel ──────────────────────────────────────────────
   const fetchAll = useCallback(async () => {
-    if (!uid) return;
-    setLoading(true);
-    setError(null);
+  if (!uid) return;
+  setLoading(true);
+  setError(null);
 
-    try {
-      const [rawPicks, likedSongs, userPlaylists] = await Promise.all([
-        getRecentPlays(uid, 50),
-        getLikedSongs(uid),
-        getUserPlaylists(uid),
-      ]);
+  try {
+    const [rawPicks, likedSongs, userPlaylists, sessionData] = await Promise.all([
+      getRecentPlays(uid, 50),
+      getLikedSongs(uid),
+      getUserPlaylists(uid),
+      getSessionData(uid).catch(() => null),
+    ]);
 
-      const safePicks     = Array.isArray(rawPicks)     ? rawPicks     : [];
-      const safeLiked     = Array.isArray(likedSongs)   ? likedSongs   : [];
-      const safePlaylists = Array.isArray(userPlaylists) ? userPlaylists : [];
+    const safePicks     = Array.isArray(rawPicks)      ? rawPicks      : [];
+    const safeLiked     = Array.isArray(likedSongs)    ? likedSongs    : [];
+    const safePlaylists = Array.isArray(userPlaylists) ? userPlaylists : [];
 
-      setPicks(safePicks);
-      setLiked(safeLiked);
-      setPlaylists(safePlaylists);
+    setPicks(safePicks);
+    setLiked(safeLiked);
+    setPlaylists(safePlaylists);
+    setSession(sessionData);
 
-      // Resolve all unique songIds from picks to full Song objects
-      const pickSongIds  = safePicks.map((p) => p.songId).filter(Boolean);
-      const likedSongIds = safeLiked.map((s) => s.id).filter(Boolean);
-      const allIds       = [...new Set([...pickSongIds, ...likedSongIds])];
-      const map          = await resolveSongs(allIds);
-      setSongMap(map);
-    } catch (err) {
-      setError('Failed to load user activity. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [uid]);
+    const pickSongIds  = safePicks.map((p) => p.songId).filter(Boolean);
+    const likedSongIds = safeLiked.map((s) => s.id).filter(Boolean);
+    const allIds       = [...new Set([...pickSongIds, ...likedSongIds])];
+    const map          = await resolveSongs(allIds);
+    setSongMap(map);
+  } catch (err) {
+    setError('Failed to load user activity. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+}, [uid]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
+  // ── Expand a playlist and lazy-load its songs ───────────────────────────────
+  const togglePlaylist = useCallback(async (pl) => {
+    const id = pl.id;
+    if (expandedPl === id) { setExpandedPl(null); return; }
+    setExpandedPl(id);
+    if (playlistSongs[id] !== undefined) return; // already loaded, loading, or errored
 
+    const songIds = Array.isArray(pl.songIds) ? pl.songIds.filter(Boolean) : (Array.isArray(pl.songs) ? pl.songs.filter(Boolean) : []);
+    if (songIds.length === 0) {
+      setPlaylistSongs((prev) => ({ ...prev, [id]: [] }));
+      return;
+    }
+
+    setPlaylistSongs((prev) => ({ ...prev, [id]: 'loading' }));
+    try {
+      const unique = [...new Set(songIds)].slice(0, 100);
+      const res    = await axiosInstance.post('/songs/batch', { ids: unique });
+      const songs  = Array.isArray(res?.data?.data) ? res.data.data : [];
+      const songMap = new Map(songs.filter((s) => s?.id).map((s) => [s.id, s]));
+      const ordered = unique.reduce((acc, sid) => {
+        const song = songMap.get(sid);
+        if (song) acc.push(song);
+        return acc;
+      }, []);
+      setPlaylistSongs((prev) => ({ ...prev, [id]: ordered }));
+    } catch {
+      setPlaylistSongs((prev) => ({ ...prev, [id]: 'error' }));
+    }
+  }, [expandedPl, playlistSongs]);
   // ── Derived data ────────────────────────────────────────────────────────────
   const mostPlayed   = getMostPlayed(picks, 10);
   const recentPicks  = [...picks]
@@ -216,6 +267,9 @@ const UserDetail = () => {
         <StatCard label="Liked songs"             value={liked.length} />
         <StatCard label="Playlists created"       value={playlists.length} />
         <StatCard label="Unique songs played"     value={new Set(picks.map(p => p.songId).filter(Boolean)).size} />
+        <StatCard label="Last Active"    value={session?.lastActiveAt ? formatRelative(session.lastActiveAt) : '—'} />
+        <StatCard label="Total Listen"   value={session?.totalListenSeconds ? formatListenTime(session.totalListenSeconds) : '—'} />
+        <StatCard label="Status"         value={session?.isActive ? '🟢 Online' : '⚫ Offline'} />
       </div>
 
       {/* ── Tabs ── */}
@@ -280,23 +334,51 @@ const UserDetail = () => {
                 />
               ))
         )}
-
         {/* Playlists */}
         {tab === 'playlists' && (
           playlists.length === 0
             ? <EmptyRow text="No playlists created." />
-            : playlists.map((pl, i) => (
-                <div key={pl.id || i} style={s.playlistRow}>
-                  <div style={s.playlistIcon}>♪</div>
-                  <div style={s.songInfo}>
-                    <p style={s.songTitle}>{pl.name || pl.title || 'Untitled playlist'}</p>
-                    <p style={s.songArtist}>
-                      {pl.songs?.length ?? 0} song{(pl.songs?.length ?? 0) !== 1 ? 's' : ''}
-                      {pl.createdAt ? ` · Created ${formatDate(pl.createdAt)}` : ''}
-                    </p>
+            : playlists.map((pl, i) => {
+                const id       = pl.id || i;
+                const isOpen   = expandedPl === id;
+                const songs    = playlistSongs[id];
+                const songCount = (pl.songIds ?? pl.songs ?? []).length;
+                return (
+                  <div key={id}>
+                    <div
+                      style={{ ...s.playlistRow, cursor: 'pointer' }}
+                      onClick={() => togglePlaylist(pl)}
+                    >
+                      <div style={s.playlistIcon}>♪</div>
+                      <div style={s.songInfo}>
+                        <p style={s.songTitle}>{pl.name || pl.title || 'Untitled playlist'}</p>
+                        <p style={s.songArtist}>
+                          {songCount} song{songCount !== 1 ? 's' : ''}
+                          {pl.createdAt ? ` · Created ${formatDate(pl.createdAt)}` : ''}
+                        </p>
+                      </div>
+                      <span style={s.songRight}>{isOpen ? '▲' : '▼'}</span>
+                    </div>
+
+                    {isOpen && (
+                      <div style={{ paddingLeft: '60px', background: '#111' }}>
+                        {songs === 'loading' && (
+                          <p style={{ ...s.empty, textAlign: 'left', padding: '12px 16px' }}>Loading songs…</p>
+                        )}
+                        {songs === 'error' && (
+                          <p style={{ ...s.empty, color: '#ef4444', textAlign: 'left', padding: '12px 16px' }}>Failed to load songs.</p>
+                        )}
+                        {Array.isArray(songs) && songs.length === 0 && (
+                          <p style={{ ...s.empty, textAlign: 'left', padding: '12px 16px' }}>No songs in this playlist.</p>
+                        )}
+                        {Array.isArray(songs) && songs.map((song, si) => (
+                          <SongRow key={song.id || si} song={song} songId={song.id} />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
         )}
 
       </div>
