@@ -126,12 +126,6 @@ const AlbumDetail = () => {
                   <span style={styles.subText}>{album.year}</span>
                 </>
               )}
-              {album.genre && (
-                <>
-                  <span style={styles.subDivider}>·</span>
-                  <span style={styles.genreBadge}>{album.genre}</span>
-                </>
-              )}
             </div>
             <p style={styles.heroStats}>
               {songs.length} {songs.length === 1 ? "song" : "songs"}
@@ -191,8 +185,8 @@ const AlbumDetail = () => {
                     </p>
                     <p style={styles.songArtist}>{song.artist}</p>
                   </div>
-                  {song.genre && (
-                    <span style={styles.genrePill}>{song.genre}</span>
+                  {Array.isArray(song.tags) && song.tags.length > 0 && (
+                    <span style={styles.genrePill}>{song.tags[0]}</span>
                   )}
                   <span style={styles.duration}>
                     {formatDuration(song.duration)}

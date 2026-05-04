@@ -291,7 +291,9 @@ const PlaylistDetail = () => {
                   </p>
                   <p style={styles.songArtist}>{song.artist}</p>
                 </div>
-                <span style={styles.songGenre}>{song.genre}</span>
+                {Array.isArray(song.tags) && song.tags.length > 0 && (
+                  <span style={styles.songGenre}>{song.tags[0]}</span>
+                )}
                 {!isReadOnly && (
                   <>
                     <div style={styles.reorderBtns}>
