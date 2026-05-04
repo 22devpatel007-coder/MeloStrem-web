@@ -68,7 +68,8 @@ class Song {
       id:               typeof data.id === 'string'    ? data.id               : '',
       title:            typeof data.title === 'string' ? data.title.trim()     : '',
       artist:           typeof data.artist === 'string'? data.artist.trim()    : '',
-      genre:            typeof data.genre === 'string' ? data.genre.trim()     : '',
+
+tags:             Array.isArray(data.tags) ? data.tags.map(String) : [],
       album:            typeof data.album === 'string' ? data.album.trim()     : '',
       duration:         typeof data.duration === 'number' ? data.duration      : 0,
 
@@ -131,7 +132,8 @@ class Song {
     const payload = {
       title,
       artist,
-      genre:            typeof data.genre  === 'string' ? data.genre.trim()  : '',
+      // NEW
+tags:  Array.isArray(data.tags) ? data.tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [],
       album:            typeof data.album  === 'string' ? data.album.trim()  : '',
       duration:         typeof data.duration === 'number' ? data.duration    : Number(data.duration) || 0,
 
@@ -176,7 +178,7 @@ class Song {
    */
   static _empty() {
     return {
-      id: '', title: '', artist: '', genre: '', album: '',
+      id: '', title: '', artist: '', tags: [], album: '',
       duration: 0, audioUrl: '', fileUrl: '', coverUrl: '',
       storagePath: '', coverStoragePath: '',
       titleLower: '', artistLower: '',
@@ -196,7 +198,7 @@ const SongSchema = {
   title:       'string',
   artist:      'string',
   album:       'string',
-  genre:       'string',
+  tags:        'string[]',
   duration:    'number',
   audioUrl:    'string',   // exposed to API layer (alias of fileUrl)
   fileUrl:     'string',   // stored in Firestore
@@ -216,7 +218,7 @@ const SongSchema = {
 
 const createSongDefaults = () => ({
   album:            '',
-  genre:            '',
+  tags:             [],
   duration:         0,
   coverUrl:         '',
   titleLower:       '',

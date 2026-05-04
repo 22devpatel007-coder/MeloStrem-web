@@ -168,14 +168,15 @@ class SongService {
   async createSong(body, files, uid) {
     // 1 — Sanitize
     const sanitized = sanitizeSongMeta(body);
-    const { title, artist, genre, duration, albumName, trackNumber } = {
+
+    const { title, artist, tags, duration, albumName, trackNumber } = {
       ...body,
       ...sanitized,
     };
 
     // 2 — Validate
-    if (!title || !artist || !genre) {
-      throw new ValidationError('title, artist and genre are required', 'VALIDATION_ERROR');
+    if (!title || !artist) {
+      throw new ValidationError('title and artist are required', 'VALIDATION_ERROR');
     }
     if (!files?.['song']?.[0])  throw new ValidationError('No song file received',  'MISSING_FILE');
     if (!files?.['cover']?.[0]) throw new ValidationError('No cover file received', 'MISSING_FILE');
@@ -219,7 +220,7 @@ class SongService {
         artistId:   artistResult.artistId,
         artistName: artistResult.artistName,
         coverUrl:   coverResult.secure_url,
-        genre:      genre || '',
+        genre:      '',
         year:       0,
       });
     }
@@ -229,7 +230,7 @@ class SongService {
     const songData = Song.toFirestore({
       title,
       artist,
-      genre,
+      tags: Array.isArray(tags) ? tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [],
       duration:         Number(duration) || 0,
       fileUrl:          songResult.secure_url,
       coverUrl:         coverResult.secure_url,
@@ -280,7 +281,8 @@ class SongService {
 
     // 2 — Sanitize
     const sanitized = sanitizeSongMeta(body);
-    const { title, artist, genre, duration, featured, albumName, trackNumber } = {
+    // NEW
+    const { title, artist, tags, duration, featured, albumName, trackNumber } = {
       ...body,
       ...sanitized,
     };
@@ -304,7 +306,8 @@ class SongService {
     // 4 — Build updates
     if (title    !== undefined) { updates.title    = String(title).trim();  updates.titleLower  = updates.title.toLowerCase(); }
     if (artist   !== undefined) { updates.artist   = String(artist).trim(); updates.artistLower = updates.artist.toLowerCase(); }
-    if (genre    !== undefined)   updates.genre    = String(genre).trim();
+    // NEW
+    if (tags !== undefined) updates.tags = Array.isArray(tags) ? tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [];
     if (duration !== undefined)   updates.duration = Number(duration) || 0;
     if (featured !== undefined)   updates.featured = Boolean(featured);
 
@@ -327,7 +330,7 @@ class SongService {
             artistId:   artistIdForAlbum,
             artistName: effectiveArtist,
             coverUrl:   existingSong.coverUrl || '',
-            genre:      updates.genre || existingSong.genre || '',
+            genre:      '',
             year:       0,
           });
           if (albumResult) updates.albumId = albumResult.albumId;
@@ -340,7 +343,7 @@ class SongService {
               artistId:   artistResult.artistId,
               artistName: artistResult.artistName,
               coverUrl:   existingSong.coverUrl || '',
-              genre:      updates.genre || existingSong.genre || '',
+              genre:      '',
               year:       0,
             });
             if (albumResult) updates.albumId = albumResult.albumId;
