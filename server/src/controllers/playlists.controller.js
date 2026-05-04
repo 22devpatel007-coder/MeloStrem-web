@@ -179,11 +179,12 @@ exports.getUserPlaylists = async (req, res, next) => {
 // No cache interaction — this uploads a song, not a playlist.
 exports.uploadPlaylistSong = async (req, res, next) => {
   try {
-    const { title, artist, genre, duration } = req.body;
+    // NEW
+    const { title, artist, tags, duration } = req.body;
 
-    if (!title || !artist || !genre) {
+    if (!title || !artist) {
       throw new ValidationError(
-        "title, artist and genre are required",
+        "title and artist are required",
         "VALIDATION_ERROR",
       );
     }
@@ -246,7 +247,7 @@ exports.uploadPlaylistSong = async (req, res, next) => {
     const songData = {
       title,
       artist,
-      genre,
+      tags: Array.isArray(tags) ? tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [],
       titleLower: title.toLowerCase(),
       artistLower: artist.toLowerCase(),
       duration: Number(duration) || 0,

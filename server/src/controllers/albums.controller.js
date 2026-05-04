@@ -40,6 +40,7 @@ const cache   = require('../services/cache.service');
 const logger  = require('../utils/logger');
 const { ValidationError, NotFoundError, InternalError } = require('../errors');
 const { retryFirestore } = require('../utils/retryFirestore');
+const { Song } = require('../models/Song');
 /**
  * Maximum songs returned for a single album.
  * Albums are bounded collections — this cap prevents unbounded Firestore
@@ -132,14 +133,11 @@ exports.getAlbumSongs = async (req, res, next) => {
       .get();
 
     const songs = snaps.docs.map((snap) => {
-      const data = snap.data();
-      return {
-        id:        snap.id,
-        ...data,
-        createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
-        updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
-      };
-    });
+  const data = { id: snap.id, ...snap.data() };
+  if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
+  if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
+  return Song.fromFirestore(data);
+});
 
     // Push songs with null/undefined trackNumber to the end of the list.
     // This sort runs on the already-capped set — safe at any size up to 200.

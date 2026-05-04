@@ -90,7 +90,7 @@ export const extractSong = (payload) => {
     id:          typeof payload.id          === 'string'  ? payload.id               : '',
     title:       typeof payload.title        === 'string'  ? payload.title.trim()     : '',
     artist:      typeof payload.artist       === 'string'  ? payload.artist.trim()    : '',
-    genre:       typeof payload.genre        === 'string'  ? payload.genre.trim()     : '',
+    tags:        Array.isArray(payload.tags) ? payload.tags.map(String) : [],
     album:       typeof payload.album        === 'string'  ? payload.album.trim()     : '',
     duration:    typeof payload.duration     === 'number'  ? payload.duration         : 0,
     // audioUrl intentionally excluded — use getSongAudioUrl(id) at play time

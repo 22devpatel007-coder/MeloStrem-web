@@ -26,7 +26,7 @@ const validateCreateSong = (req, res, next) => {
     artist:   Joi.string().max(150).required(),
     album:    Joi.string().max(200).allow('', null).optional(),
     duration: Joi.number().optional(),
-    genre:    Joi.string().max(100).required(),
+    tags:     Joi.array().items(Joi.string().max(30).trim()).max(10).optional(),
   }).unknown(true);
 
   const { error } = schema.validate(req.body);
@@ -42,7 +42,7 @@ const validateUpdateSong = (req, res, next) => {
     artist:   Joi.string().max(150).optional(),
     album:    Joi.string().max(200).allow('', null).optional(),
     duration: Joi.number().optional(),
-    genre:    Joi.string().max(100).optional(),
+    tags:     Joi.array().items(Joi.string().max(30).trim()).max(10).optional(),
     featured: Joi.boolean().optional(),
   }).unknown(true);
 

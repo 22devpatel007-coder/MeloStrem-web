@@ -266,7 +266,7 @@
     const safeTitle  = sanitizeDisplay(song.title);
     const safeArtist = sanitizeDisplay(song.artist);
     const safeAlbum  = sanitizeDisplay(song.album);
-    const safeGenre  = sanitizeDisplay(song.genre);
+    const safeTags = Array.isArray(song.tags) ? song.tags.map(sanitizeDisplay) : [];
 
     const longPressProps = useLongPress(
       useCallback(() => setShowSheet(true), []),
@@ -372,10 +372,9 @@
               <span className="song-row__album-text">{safeAlbum}</span>
             )}
           </div>
-
           <div className="song-row__genre-col song-row__genre--responsive" aria-hidden="true">
-            {safeGenre
-              ? <span className="song-row__genre">{safeGenre}</span>
+            {safeTags.length > 0
+              ? <span className="song-row__genre">{safeTags[0]}</span>
               : <span className="song-row__album-empty">—</span>}
           </div>
 

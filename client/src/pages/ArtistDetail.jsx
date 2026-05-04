@@ -92,7 +92,6 @@ const ArtistDetail = () => {
         albumId:   song.albumId,
         albumName: song.album || "Unknown Album",
         coverUrl:  song.coverUrl || "",
-        genre:     song.genre || "",
       });
     }
   });
@@ -282,8 +281,8 @@ const ArtistDetail = () => {
                               ) : null}
                             </p>
                           </div>
-                          {song.genre && (
-                            <span style={styles.genreBadge}>{song.genre}</span>
+                          {Array.isArray(song.tags) && song.tags.length > 0 && (
+                            <span style={styles.genreBadge}>{song.tags[0]}</span>
                           )}
                           <span style={styles.duration}>
                             {formatDuration(song.duration)}
@@ -325,7 +324,6 @@ const ArtistDetail = () => {
                     }}
                   />
                   <p style={styles.albumName}>{alb.albumName}</p>
-                  {alb.genre && <p style={styles.albumGenre}>{alb.genre}</p>}
                 </Link>
               ))}
             </div>

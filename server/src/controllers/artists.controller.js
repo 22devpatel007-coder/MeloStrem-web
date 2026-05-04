@@ -31,6 +31,7 @@ const { db } = require("../config/firebase");
 const cache = require("../services/cache.service");
 const logger = require("../utils/logger");
 const { ValidationError, NotFoundError, InternalError } = require("../errors");
+const { Song } = require('../models/Song');
 
 const SONGS_PER_PAGE = 30;
 const MAX_SONGS_LIMIT = 50;
@@ -146,18 +147,11 @@ exports.getArtistSongs = async (req, res, next) => {
     const nextCursor = hasMore ? pageDocs[pageDocs.length - 1].id : null;
 
     const songs = pageDocs.map((snap) => {
-      const data = snap.data();
-      return {
-        id: snap.id,
-        ...data,
-        createdAt: data.createdAt?.toDate
-          ? data.createdAt.toDate().toISOString()
-          : (data.createdAt ?? null),
-        updatedAt: data.updatedAt?.toDate
-          ? data.updatedAt.toDate().toISOString()
-          : (data.updatedAt ?? null),
-      };
-    });
+  const data = { id: snap.id, ...snap.data() };
+  if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
+  if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
+  return Song.fromFirestore(data);
+});
 
     const result = { songs, nextCursor, hasMore };
 

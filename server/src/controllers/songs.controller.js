@@ -201,7 +201,8 @@ exports.checkDuplicate = async (req, res) => {
 exports.uploadSong = async (req, res) => {
   try {
     const sanitized = sanitizeSongMeta(req.body);
-    const { title, artist, genre, duration, featured, albumName, trackNumber } = {
+    // NEW
+    const { title, artist, tags, duration, featured, albumName, trackNumber } = {
       ...req.body,
       ...sanitized,
     };
@@ -262,7 +263,7 @@ exports.uploadSong = async (req, res) => {
         artistId,
         artistName: artistResult?.artistName || trimmedArtist,
         coverUrl,
-        genre:      genre ? String(genre).trim() : '',
+        genre:      '',
         year:       0,
       });
       if (albumResult) albumId = albumResult.albumId;
@@ -277,7 +278,8 @@ exports.uploadSong = async (req, res) => {
       artistId,
       album:        trimmedAlbum || '',
       albumId,
-      genre:        genre       ? String(genre).trim()       : '',
+      // NEW
+      tags:         Array.isArray(tags) ? tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [],
       duration:     duration    ? Number(duration) || 0      : 0,
       featured:     featured    ? Boolean(featured)          : false,
       trackNumber:  trackNumber ? Number(trackNumber) || null : null,
@@ -325,7 +327,7 @@ exports.updateSong = async (req, res) => {
     if (!existingSong) return res.status(404).json({ error: 'Song not found', code: 'NOT_FOUND' });
 
     const sanitized = sanitizeSongMeta(req.body);
-    const { title, artist, genre, duration, featured, albumName, trackNumber } = {
+    const { title, artist, tags, duration, featured, albumName, trackNumber } = {
       ...req.body,
       ...sanitized,
     };
@@ -347,7 +349,8 @@ exports.updateSong = async (req, res) => {
 
     if (title    !== undefined) { updates.title    = String(title).trim();   updates.titleLower  = updates.title.toLowerCase(); }
     if (artist   !== undefined) { updates.artist   = String(artist).trim();  updates.artistLower = updates.artist.toLowerCase(); }
-    if (genre    !== undefined)   updates.genre    = String(genre).trim();
+    // NEW
+    if (tags !== undefined) updates.tags = Array.isArray(tags) ? tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [];
     if (duration !== undefined)   updates.duration = Number(duration) || 0;
     if (featured !== undefined)   updates.featured = Boolean(featured);
 
@@ -371,7 +374,7 @@ exports.updateSong = async (req, res) => {
             artistId:   artistIdForAlbum,
             artistName: effectiveArtist,
             coverUrl:   existingSong.coverUrl || '',
-            genre:      updates.genre || existingSong.genre || '',
+            genre:      '',
             year:       0,
           });
           if (albumResult) {
@@ -386,7 +389,7 @@ exports.updateSong = async (req, res) => {
               artistId:   artistResult.artistId,
               artistName: artistResult.artistName,
               coverUrl:   existingSong.coverUrl || '',
-              genre:      updates.genre || existingSong.genre || '',
+              genre:      '',
               year:       0,
             });
             if (albumResult) updates.albumId = albumResult.albumId;

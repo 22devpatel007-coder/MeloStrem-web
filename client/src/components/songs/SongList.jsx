@@ -54,7 +54,7 @@ const ListHeader = () => (
       <span className="song-list__hcol song-list__hcol--cover" />
       <span className="song-list__hcol">Title</span>
       <span className="song-list__hcol song-list__hcol--album">Album</span>
-      <span className="song-list__hcol song-list__hcol--genre">Genre</span>
+      <span className="song-list__hcol song-list__hcol--genre">Tags</span>
       <span className="song-list__hcol song-list__hcol--dur">Time</span>
       <span className="song-list__hcol song-list__hcol--actions" />
     </div>

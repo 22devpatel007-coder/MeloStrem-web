@@ -43,7 +43,7 @@ const { searchSongs } = require('../services/firebase.service');
 const cache            = require('../services/cache.service');
 const logger           = require('../utils/logger');
 const { InternalError } = require('../errors');
-
+const { Song } = require('../models/Song');
 exports.searchSongs = async (req, res, next) => {
   try {
     const raw   = (req.query.q || '').trim();
@@ -78,7 +78,8 @@ exports.searchSongs = async (req, res, next) => {
       return (a.titleLower || '').localeCompare(b.titleLower || '');
     });
 
-    const result = { songs: sorted, total, query: raw };
+
+    const result = { songs: sorted.map((s) => Song.fromFirestore(s)), total, query: raw };
 
     // ── Cache write ───────────────────────────────────────────────────────
     // NEVER cache empty results — Firestore indexing lag can return zero
