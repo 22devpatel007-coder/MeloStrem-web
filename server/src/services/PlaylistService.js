@@ -12,7 +12,7 @@ const {
   InternalError,
 } = require('../errors');
 
-class SongService {
+class PlaylistService {
   /**
    * @param {import('../repositories/SongRepository')} songRepository
    * @param {{ uploadAudio: Function, uploadCover: Function, deleteAsset: Function }} cloudinaryService
@@ -454,7 +454,29 @@ class SongService {
     if (err.isOperational !== undefined) return err;
     return new InternalError(message, code, { originalError: err.message });
   }
-  
+  /**
+   * deleteAdminPlaylist(playlistId, userRepository) → { message }
+   *
+   * Delete flow:
+   *   1. Fetch playlist from Firestore (throws NotFoundError if missing)
+   *   2. Delete playlist document
+   *
+   * @param {string} playlistId
+   * @param {object} userRepository
+   * @returns {Promise<{ message: string }>}
+   */
+  async deleteAdminPlaylist(playlistId, userRepository) {
+    this._requireString(playlistId, 'playlistId');
+    try {
+      const { deletePlaylist } = require('../services/firebase.service');
+      await deletePlaylist(playlistId);
+      return { message: 'Playlist deleted successfully' };
+    } catch (err) {
+      if (err.isOperational !== undefined) throw err;
+      logger.error('PlaylistService.deleteAdminPlaylist error:', { playlistId, error: err.message });
+      throw this._wrapError(err, 'Failed to delete playlist. Please try again.', 'PLAYLIST_DELETE_ERROR');
+    }
+  }
 }
 
-module.exports = SongService;
+module.exports = PlaylistService;
