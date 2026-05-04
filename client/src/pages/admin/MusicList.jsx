@@ -228,7 +228,7 @@ const allSelected = useMemo(
             </div>
             <span style={{ ...styles.col, flex: 2 }}>Song</span>
             <span style={{ ...styles.col, flex: 1 }}>Artist</span>
-            <span style={{ ...styles.col, flex: 1 }}>Genre</span>
+            <span style={{ ...styles.col, flex: 1 }}>Tags</span>
             <span
               style={{
                 ...styles.col,
@@ -285,8 +285,12 @@ const allSelected = useMemo(
               <span style={{ ...styles.cellText, flex: 1, color: "#9ca3af" }}>
                 {song.artist}
               </span>
-              <div style={{ flex: 1 }}>
-                <span style={styles.badge}>{song.genre}</span>
+              <div style={{ flex: 1, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                {Array.isArray(song.tags) && song.tags.length > 0
+                  ? song.tags.slice(0, 2).map(tag => (
+                      <span key={tag} style={styles.badge}>{tag}</span>
+                    ))
+                  : <span style={{ color: '#374151', fontSize: 12 }}>—</span>}
               </div>
               <span
                 style={{

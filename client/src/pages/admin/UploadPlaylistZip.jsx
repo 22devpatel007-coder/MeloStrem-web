@@ -137,7 +137,7 @@ const UploadPlaylistZip = () => {
         if (!entry.title) throw new Error(`Entry [${index}] missing "title".`);
         if (!entry.artist)
           throw new Error(`Entry [${index}] missing "artist".`);
-        if (!entry.genre) throw new Error(`Entry [${index}] missing "genre".`);
+        // tags optional — no required check
       });
 
       setManifest(data);
@@ -195,7 +195,8 @@ const UploadPlaylistZip = () => {
         const fd = new FormData();
         fd.append("title", entry.title);
         fd.append("artist", entry.artist);
-        fd.append("genre", entry.genre);
+        const entryTags = Array.isArray(entry.tags) ? entry.tags : [];
+        entryTags.forEach(t => fd.append('tags[]', String(t).trim().toLowerCase()));
         fd.append("duration", String(entry.duration || 0));
         fd.append("song", songFile);
 

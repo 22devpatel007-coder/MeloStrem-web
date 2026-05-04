@@ -58,7 +58,7 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
   const [form, setForm] = useState({
     title:    song.title    || '',
     artist:   song.artist   || '',
-    genre:    song.genre    || '',
+    tags:     Array.isArray(song.tags) ? song.tags.join(', ') : '',
     duration: fmtDuration(song.duration),
   });
   const [coverFile, setCoverFile]       = useState(null);
@@ -91,9 +91,10 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
         const fd = new FormData();
         fd.append('title',    form.title.trim());
         fd.append('artist',   form.artist.trim());
-        fd.append('genre',    form.genre.trim());
         fd.append('duration', durationSecs);
         fd.append('cover',    coverFile);
+        const parsedTags = form.tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+        parsedTags.forEach(t => fd.append('tags[]', t));
 
         const res = await api.patch(`/songs/${song.id}`, fd, {
           timeout: 300000,
@@ -114,7 +115,7 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
         const res = await api.patch(`/songs/${song.id}`, {
           title:    form.title.trim(),
           artist:   form.artist.trim(),
-          genre:    form.genre.trim(),
+          tags:     form.tags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean),
           duration: Number(durationSecs) || 0,
         });
         onUpdated(res.data);
@@ -180,7 +181,7 @@ const EditSongModal = ({ song, onClose, onUpdated }) => {
           <div style={s.grid}>
             <Field label="Title"  name="title"  value={form.title}  onChange={handleChange} required />
             <Field label="Artist" name="artist" value={form.artist} onChange={handleChange} required />
-            <Field label="Genre"  name="genre"  value={form.genre}  onChange={handleChange} required />
+            <Field label="Tags (comma-separated)"  name="tags"  value={form.tags}  onChange={handleChange} placeholder="e.g. chill, 90s, workout" />
             <Field
               label="Duration (mm:ss or seconds)"
               name="duration"
