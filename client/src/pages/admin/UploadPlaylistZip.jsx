@@ -383,7 +383,7 @@ const UploadPlaylistZip = () => {
                   <div style={styles.manifestInfo}>
                     <p style={styles.manifestTitle}>{entry.title}</p>
                     <p style={styles.manifestArtist}>
-                      {entry.artist} · {entry.genre}
+                      {entry.artist}{Array.isArray(entry.tags) && entry.tags.length ? ' · ' + entry.tags.join(', ') : ''}
                     </p>
                   </div>
                   <span style={styles.manifestFile}>{entry.file}</span>
