@@ -24,39 +24,45 @@
  *   - playCount on songs: only counts forward.
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate }           from 'react-router-dom';
-import axiosInstance                        from '../../services/api';
-import Loader                               from '../../components/ui/Loader';
+import { useState, useCallback } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useParams, useNavigate } from "react-router-dom";
+import axiosInstance from "../../services/api";
+import Loader from "../../components/ui/Loader";
 import {
   getRecentPlays,
   getLikedSongs,
   getUserPlaylists,
   getSessionData,
-} from '../../services/users.service';
+} from "../../services/users.service";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const formatDate = (raw) => {
-  if (!raw) return '—';
+  if (!raw) return "—";
   const d = new Date(raw);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
 };
 
 const formatTime = (raw) => {
-  if (!raw) return '—';
+  if (!raw) return "—";
   const d = new Date(raw);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 };
 const formatListenTime = (seconds) => {
-  if (!seconds || seconds < 60) return '—';
+  if (!seconds || seconds < 60) return "—";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   if (h > 0) return `${h}h ${m}m`;
@@ -64,11 +70,11 @@ const formatListenTime = (seconds) => {
 };
 
 const formatRelative = (raw) => {
-  if (!raw) return '—';
+  if (!raw) return "—";
   const diff = Date.now() - new Date(raw).getTime();
-  if (isNaN(diff) || diff < 0) return '—';
+  if (isNaN(diff) || diff < 0) return "—";
   const m = Math.floor(diff / 60000);
-  if (m < 1)  return 'Just now';
+  if (m < 1) return "Just now";
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
@@ -92,9 +98,9 @@ const resolveSongs = async (songIds) => {
   if (!songIds.length) return new Map();
   const unique = [...new Set(songIds)].slice(0, 100); // batch cap safety
   try {
-    const res  = await axiosInstance.post('/songs/batch', { ids: unique });
+    const res = await axiosInstance.post("/songs/batch", { ids: unique });
     const songs = Array.isArray(res?.data?.data) ? res.data.data : [];
-    const map  = new Map();
+    const map = new Map();
     for (const s of songs) if (s?.id) map.set(s.id, s);
     return map;
   } catch {
@@ -107,7 +113,7 @@ const resolveSongs = async (songIds) => {
 const StatCard = ({ label, value }) => (
   <div style={s.statCard}>
     <p style={s.statLabel}>{label}</p>
-    <p style={s.statValue}>{value ?? '—'}</p>
+    <p style={s.statValue}>{value ?? "—"}</p>
   </div>
 );
 
@@ -115,23 +121,29 @@ const StatCard = ({ label, value }) => (
 //   <h2 style={s.sectionTitle}>{children}</h2>
 // );
 
-const EmptyRow = ({ text }) => (
-  <p style={s.empty}>{text}</p>
-);
+const EmptyRow = ({ text }) => <p style={s.empty}>{text}</p>;
 
 const SongRow = ({ rank, song, songId, right }) => {
-  const title  = song?.title  || songId;
+  const title = song?.title || songId;
   const artist = song?.artist || null;
-  const cover  = song?.coverUrl || null;
+  const cover = song?.coverUrl || null;
 
   return (
     <div style={s.songRow}>
       {rank != null && <span style={s.rank}>{rank}</span>}
       <div style={s.songAvatar}>
-        {cover
-          ? <img src={cover} alt="" style={s.songCover} onError={(e) => { e.target.style.display = 'none'; }} />
-          : <span style={s.songInitial}>{(title[0] || '?').toUpperCase()}</span>
-        }
+        {cover ? (
+          <img
+            src={cover}
+            alt=""
+            style={s.songCover}
+            onError={(e) => {
+              e.target.style.display = "none";
+            }}
+          />
+        ) : (
+          <span style={s.songInitial}>{(title[0] || "?").toUpperCase()}</span>
+        )}
       </div>
       <div style={s.songInfo}>
         <p style={s.songTitle}>{title}</p>
@@ -145,116 +157,116 @@ const SongRow = ({ rank, song, songId, right }) => {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const UserDetail = () => {
-  const { uid }    = useParams();
-  const navigate   = useNavigate();
+  const { uid } = useParams();
+  const navigate = useNavigate();
 
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [picks,     setPicks]     = useState([]);   // raw pick objects
-  const [liked,     setLiked]     = useState([]);   // Song[]
-  const [playlists, setPlaylists] = useState([]);   // Playlist[]
-  const [songMap,   setSongMap]   = useState(new Map()); // songId → Song
-  const [session, setSession] = useState(null);
-  const [tab,            setTab]            = useState('recent'); // recent | most | liked | playlists
-  const [playlistSongs,  setPlaylistSongs]  = useState({});       // playlistId → Song[] | 'loading' | 'error'
-  const [expandedPl,     setExpandedPl]     = useState(null);     // currently expanded playlist id // recent | most | liked | playlists
+  const [tab, setTab] = useState("recent");
+  const [playlistSongs, setPlaylistSongs] = useState({});
+  const [expandedPl, setExpandedPl] = useState(null);
 
-  // ── Fetch all data in parallel ──────────────────────────────────────────────
-  const fetchAll = useCallback(async () => {
-  if (!uid) return;
-  setLoading(true);
-  setError(null);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["admin-user-detail", uid],
+    queryFn: async () => {
+      const [rawPicks, likedSongs, userPlaylists, sessionData] =
+        await Promise.all([
+          getRecentPlays(uid, 50),
+          getLikedSongs(uid),
+          getUserPlaylists(uid),
+          getSessionData(uid).catch(() => null),
+        ]);
+      const safePicks = Array.isArray(rawPicks) ? rawPicks : [];
+      const safeLiked = Array.isArray(likedSongs) ? likedSongs : [];
+      const safePlaylists = Array.isArray(userPlaylists) ? userPlaylists : [];
+      const pickSongIds = safePicks.map((p) => p.songId).filter(Boolean);
+      const likedSongIds = safeLiked.map((s) => s.id).filter(Boolean);
+      const allIds = [...new Set([...pickSongIds, ...likedSongIds])];
+      const map = await resolveSongs(allIds);
+      return {
+        picks: safePicks,
+        liked: safeLiked,
+        playlists: safePlaylists,
+        session: sessionData,
+        songMap: map,
+      };
+    },
+    enabled: !!uid,
+    staleTime: 3 * 60 * 1000,
+  });
 
-  try {
-    const [rawPicks, likedSongs, userPlaylists, sessionData] = await Promise.all([
-      getRecentPlays(uid, 50),
-      getLikedSongs(uid),
-      getUserPlaylists(uid),
-      getSessionData(uid).catch(() => null),
-    ]);
-
-    const safePicks     = Array.isArray(rawPicks)      ? rawPicks      : [];
-    const safeLiked     = Array.isArray(likedSongs)    ? likedSongs    : [];
-    const safePlaylists = Array.isArray(userPlaylists) ? userPlaylists : [];
-
-    setPicks(safePicks);
-    setLiked(safeLiked);
-    setPlaylists(safePlaylists);
-    setSession(sessionData);
-
-    const pickSongIds  = safePicks.map((p) => p.songId).filter(Boolean);
-    const likedSongIds = safeLiked.map((s) => s.id).filter(Boolean);
-    const allIds       = [...new Set([...pickSongIds, ...likedSongIds])];
-    const map          = await resolveSongs(allIds);
-    setSongMap(map);
-  } catch (err) {
-    setError('Failed to load user activity. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-}, [uid]);
-
-  useEffect(() => { fetchAll(); }, [fetchAll]);
+  const picks = data?.picks ?? [];
+  const liked = data?.liked ?? [];
+  const playlists = data?.playlists ?? [];
+  const session = data?.session ?? null;
+  const songMap = data?.songMap ?? new Map();
   // ── Expand a playlist and lazy-load its songs ───────────────────────────────
-  const togglePlaylist = useCallback(async (pl) => {
-    const id = pl.id;
-    if (expandedPl === id) { setExpandedPl(null); return; }
-    setExpandedPl(id);
-    if (playlistSongs[id] !== undefined) return; // already loaded, loading, or errored
+  const togglePlaylist = useCallback(
+    async (pl) => {
+      const id = pl.id;
+      if (expandedPl === id) {
+        setExpandedPl(null);
+        return;
+      }
+      setExpandedPl(id);
+      if (playlistSongs[id] !== undefined) return; // already loaded, loading, or errored
 
-    const songIds = Array.isArray(pl.songIds) ? pl.songIds.filter(Boolean) : (Array.isArray(pl.songs) ? pl.songs.filter(Boolean) : []);
-    if (songIds.length === 0) {
-      setPlaylistSongs((prev) => ({ ...prev, [id]: [] }));
-      return;
-    }
+      const songIds = Array.isArray(pl.songIds)
+        ? pl.songIds.filter(Boolean)
+        : Array.isArray(pl.songs)
+          ? pl.songs.filter(Boolean)
+          : [];
+      if (songIds.length === 0) {
+        setPlaylistSongs((prev) => ({ ...prev, [id]: [] }));
+        return;
+      }
 
-    setPlaylistSongs((prev) => ({ ...prev, [id]: 'loading' }));
-    try {
-      const unique = [...new Set(songIds)].slice(0, 100);
-      const res    = await axiosInstance.post('/songs/batch', { ids: unique });
-      const songs  = Array.isArray(res?.data?.data) ? res.data.data : [];
-      const songMap = new Map(songs.filter((s) => s?.id).map((s) => [s.id, s]));
-      const ordered = unique.reduce((acc, sid) => {
-        const song = songMap.get(sid);
-        if (song) acc.push(song);
-        return acc;
-      }, []);
-      setPlaylistSongs((prev) => ({ ...prev, [id]: ordered }));
-    } catch {
-      setPlaylistSongs((prev) => ({ ...prev, [id]: 'error' }));
-    }
-  }, [expandedPl, playlistSongs]);
+      setPlaylistSongs((prev) => ({ ...prev, [id]: "loading" }));
+      try {
+        const unique = [...new Set(songIds)].slice(0, 100);
+        const res = await axiosInstance.post("/songs/batch", { ids: unique });
+        const songs = Array.isArray(res?.data?.data) ? res.data.data : [];
+        const songMap = new Map(
+          songs.filter((s) => s?.id).map((s) => [s.id, s]),
+        );
+        const ordered = unique.reduce((acc, sid) => {
+          const song = songMap.get(sid);
+          if (song) acc.push(song);
+          return acc;
+        }, []);
+        setPlaylistSongs((prev) => ({ ...prev, [id]: ordered }));
+      } catch {
+        setPlaylistSongs((prev) => ({ ...prev, [id]: "error" }));
+      }
+    },
+    [expandedPl, playlistSongs],
+  );
   // ── Derived data ────────────────────────────────────────────────────────────
-  const mostPlayed   = getMostPlayed(picks, 10);
-  const recentPicks  = [...picks]
+  const mostPlayed = getMostPlayed(picks, 10);
+  const recentPicks = [...picks]
     .sort((a, b) => new Date(b.pickedAt || 0) - new Date(a.pickedAt || 0))
     .slice(0, 20);
 
   // ── Render ──────────────────────────────────────────────────────────────────
-  if (loading) return <Loader />;
+if (isLoading) return <Loader />;
 
-  if (error) {
-    return (
-      <div style={s.container}>
-        <button style={s.back} onClick={() => navigate('/admin/users')}>← Back</button>
-        <p style={s.errorText}>{error}</p>
-      </div>
-    );
-  }
+if (isError) {
+  return (
+    <div style={s.container}>
+      <button style={s.back} onClick={() => navigate('/admin/users')}>← Back</button>
+      <p style={s.errorText}>Failed to load user activity. Please try again.</p>
+    </div>
+  );
+}
 
   return (
     <div style={s.container}>
-
       {/* ── Back ── */}
-      <button style={s.back} onClick={() => navigate('/admin/users')}>
+      <button style={s.back} onClick={() => navigate("/admin/users")}>
         ← Back to users
       </button>
 
       {/* ── UID header ── */}
       <div style={s.pageHeader}>
-        <div style={s.uidAvatar}>
-          {(uid[0] || '?').toUpperCase()}
-        </div>
+        <div style={s.uidAvatar}>{(uid[0] || "?").toUpperCase()}</div>
         <div>
           <p style={s.uidLabel}>User ID</p>
           <p style={s.uidValue}>{uid}</p>
@@ -263,22 +275,40 @@ const UserDetail = () => {
 
       {/* ── Stat cards ── */}
       <div style={s.statsRow}>
-        <StatCard label="Total picks (recorded)"  value={picks.length} />
-        <StatCard label="Liked songs"             value={liked.length} />
-        <StatCard label="Playlists created"       value={playlists.length} />
-        <StatCard label="Unique songs played"     value={new Set(picks.map(p => p.songId).filter(Boolean)).size} />
-        <StatCard label="Last Active"    value={session?.lastActiveAt ? formatRelative(session.lastActiveAt) : '—'} />
-        <StatCard label="Total Listen"   value={session?.totalListenSeconds ? formatListenTime(session.totalListenSeconds) : '—'} />
-        <StatCard label="Status"         value={session?.isActive ? '🟢 Online' : '⚫ Offline'} />
+        <StatCard label="Total picks (recorded)" value={picks.length} />
+        <StatCard label="Liked songs" value={liked.length} />
+        <StatCard label="Playlists created" value={playlists.length} />
+        <StatCard
+          label="Unique songs played"
+          value={new Set(picks.map((p) => p.songId).filter(Boolean)).size}
+        />
+        <StatCard
+          label="Last Active"
+          value={
+            session?.lastActiveAt ? formatRelative(session.lastActiveAt) : "—"
+          }
+        />
+        <StatCard
+          label="Total Listen"
+          value={
+            session?.totalListenSeconds
+              ? formatListenTime(session.totalListenSeconds)
+              : "—"
+          }
+        />
+        <StatCard
+          label="Status"
+          value={session?.isActive ? "🟢 Online" : "⚫ Offline"}
+        />
       </div>
 
       {/* ── Tabs ── */}
       <div style={s.tabs}>
         {[
-          { key: 'recent',    label: `Recent plays (${recentPicks.length})` },
-          { key: 'most',      label: `Most played (${mostPlayed.length})` },
-          { key: 'liked',     label: `Liked songs (${liked.length})` },
-          { key: 'playlists', label: `Playlists (${playlists.length})` },
+          { key: "recent", label: `Recent plays (${recentPicks.length})` },
+          { key: "most", label: `Most played (${mostPlayed.length})` },
+          { key: "liked", label: `Liked songs (${liked.length})` },
+          { key: "playlists", label: `Playlists (${playlists.length})` },
         ].map(({ key, label }) => (
           <button
             key={key}
@@ -292,95 +322,127 @@ const UserDetail = () => {
 
       {/* ── Tab content ── */}
       <div style={s.tabContent}>
-
         {/* Recent plays */}
-        {tab === 'recent' && (
-          recentPicks.length === 0
-            ? <EmptyRow text="No play history found." />
-            : recentPicks.map((pick, i) => (
-                <SongRow
-                  key={`${pick.songId}-${i}`}
-                  song={songMap.get(pick.songId)}
-                  songId={pick.songId}
-                  right={formatTime(pick.pickedAt)}
-                />
-              ))
-        )}
+        {tab === "recent" &&
+          (recentPicks.length === 0 ? (
+            <EmptyRow text="No play history found." />
+          ) : (
+            recentPicks.map((pick, i) => (
+              <SongRow
+                key={`${pick.songId}-${i}`}
+                song={songMap.get(pick.songId)}
+                songId={pick.songId}
+                right={formatTime(pick.pickedAt)}
+              />
+            ))
+          ))}
 
         {/* Most played */}
-        {tab === 'most' && (
-          mostPlayed.length === 0
-            ? <EmptyRow text="No play history found." />
-            : mostPlayed.map(({ songId, count }, i) => (
-                <SongRow
-                  key={songId}
-                  rank={i + 1}
-                  song={songMap.get(songId)}
-                  songId={songId}
-                  right={`${count} play${count !== 1 ? 's' : ''}`}
-                />
-              ))
-        )}
+        {tab === "most" &&
+          (mostPlayed.length === 0 ? (
+            <EmptyRow text="No play history found." />
+          ) : (
+            mostPlayed.map(({ songId, count }, i) => (
+              <SongRow
+                key={songId}
+                rank={i + 1}
+                song={songMap.get(songId)}
+                songId={songId}
+                right={`${count} play${count !== 1 ? "s" : ""}`}
+              />
+            ))
+          ))}
 
         {/* Liked songs */}
-        {tab === 'liked' && (
-          liked.length === 0
-            ? <EmptyRow text="No liked songs." />
-            : liked.map((song, i) => (
-                <SongRow
-                  key={song.id || i}
-                  song={song}
-                  songId={song.id}
-                />
-              ))
-        )}
+        {tab === "liked" &&
+          (liked.length === 0 ? (
+            <EmptyRow text="No liked songs." />
+          ) : (
+            liked.map((song, i) => (
+              <SongRow key={song.id || i} song={song} songId={song.id} />
+            ))
+          ))}
         {/* Playlists */}
-        {tab === 'playlists' && (
-          playlists.length === 0
-            ? <EmptyRow text="No playlists created." />
-            : playlists.map((pl, i) => {
-                const id       = pl.id || i;
-                const isOpen   = expandedPl === id;
-                const songs    = playlistSongs[id];
-                const songCount = (pl.songIds ?? pl.songs ?? []).length;
-                return (
-                  <div key={id}>
-                    <div
-                      style={{ ...s.playlistRow, cursor: 'pointer' }}
-                      onClick={() => togglePlaylist(pl)}
-                    >
-                      <div style={s.playlistIcon}>♪</div>
-                      <div style={s.songInfo}>
-                        <p style={s.songTitle}>{pl.name || pl.title || 'Untitled playlist'}</p>
-                        <p style={s.songArtist}>
-                          {songCount} song{songCount !== 1 ? 's' : ''}
-                          {pl.createdAt ? ` · Created ${formatDate(pl.createdAt)}` : ''}
-                        </p>
-                      </div>
-                      <span style={s.songRight}>{isOpen ? '▲' : '▼'}</span>
+        {tab === "playlists" &&
+          (playlists.length === 0 ? (
+            <EmptyRow text="No playlists created." />
+          ) : (
+            playlists.map((pl, i) => {
+              const id = pl.id || i;
+              const isOpen = expandedPl === id;
+              const songs = playlistSongs[id];
+              const songCount = (pl.songIds ?? pl.songs ?? []).length;
+              return (
+                <div key={id}>
+                  <div
+                    style={{ ...s.playlistRow, cursor: "pointer" }}
+                    onClick={() => togglePlaylist(pl)}
+                  >
+                    <div style={s.playlistIcon}>♪</div>
+                    <div style={s.songInfo}>
+                      <p style={s.songTitle}>
+                        {pl.name || pl.title || "Untitled playlist"}
+                      </p>
+                      <p style={s.songArtist}>
+                        {songCount} song{songCount !== 1 ? "s" : ""}
+                        {pl.createdAt
+                          ? ` · Created ${formatDate(pl.createdAt)}`
+                          : ""}
+                      </p>
                     </div>
-
-                    {isOpen && (
-                      <div style={{ paddingLeft: '60px', background: '#111' }}>
-                        {songs === 'loading' && (
-                          <p style={{ ...s.empty, textAlign: 'left', padding: '12px 16px' }}>Loading songs…</p>
-                        )}
-                        {songs === 'error' && (
-                          <p style={{ ...s.empty, color: '#ef4444', textAlign: 'left', padding: '12px 16px' }}>Failed to load songs.</p>
-                        )}
-                        {Array.isArray(songs) && songs.length === 0 && (
-                          <p style={{ ...s.empty, textAlign: 'left', padding: '12px 16px' }}>No songs in this playlist.</p>
-                        )}
-                        {Array.isArray(songs) && songs.map((song, si) => (
-                          <SongRow key={song.id || si} song={song} songId={song.id} />
-                        ))}
-                      </div>
-                    )}
+                    <span style={s.songRight}>{isOpen ? "▲" : "▼"}</span>
                   </div>
-                );
-              })
-        )}
 
+                  {isOpen && (
+                    <div style={{ paddingLeft: "60px", background: "#111" }}>
+                      {songs === "loading" && (
+                        <p
+                          style={{
+                            ...s.empty,
+                            textAlign: "left",
+                            padding: "12px 16px",
+                          }}
+                        >
+                          Loading songs…
+                        </p>
+                      )}
+                      {songs === "error" && (
+                        <p
+                          style={{
+                            ...s.empty,
+                            color: "#ef4444",
+                            textAlign: "left",
+                            padding: "12px 16px",
+                          }}
+                        >
+                          Failed to load songs.
+                        </p>
+                      )}
+                      {Array.isArray(songs) && songs.length === 0 && (
+                        <p
+                          style={{
+                            ...s.empty,
+                            textAlign: "left",
+                            padding: "12px 16px",
+                          }}
+                        >
+                          No songs in this playlist.
+                        </p>
+                      )}
+                      {Array.isArray(songs) &&
+                        songs.map((song, si) => (
+                          <SongRow
+                            key={song.id || si}
+                            song={song}
+                            songId={song.id}
+                          />
+                        ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          ))}
       </div>
     </div>
   );
@@ -390,184 +452,190 @@ const UserDetail = () => {
 
 const s = {
   container: {
-    maxWidth:   '860px',
-    margin:     '0 auto',
-    padding:    '28px 20px 80px',
+    maxWidth: "860px",
+    margin: "0 auto",
+    padding: "28px 20px 80px",
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   back: {
-    background:  'none',
-    border:      'none',
-    color:       '#6b7280',
-    fontSize:    '13px',
-    cursor:      'pointer',
-    padding:     '0 0 20px 0',
-    display:     'block',
-    fontFamily:  'inherit',
+    background: "none",
+    border: "none",
+    color: "#6b7280",
+    fontSize: "13px",
+    cursor: "pointer",
+    padding: "0 0 20px 0",
+    display: "block",
+    fontFamily: "inherit",
   },
   pageHeader: {
-    display:       'flex',
-    alignItems:    'center',
-    gap:           '14px',
-    marginBottom:  '24px',
+    display: "flex",
+    alignItems: "center",
+    gap: "14px",
+    marginBottom: "24px",
   },
   uidAvatar: {
-    width:          '44px',
-    height:         '44px',
-    borderRadius:   '10px',
-    background:     '#1e2a1e',
-    border:         '1px solid #22c55e22',
-    display:        'flex',
-    alignItems:     'center',
-    justifyContent: 'center',
-    color:          '#22c55e',
-    fontSize:       '18px',
-    fontWeight:     '700',
-    flexShrink:     0,
+    width: "44px",
+    height: "44px",
+    borderRadius: "10px",
+    background: "#1e2a1e",
+    border: "1px solid #22c55e22",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#22c55e",
+    fontSize: "18px",
+    fontWeight: "700",
+    flexShrink: 0,
   },
-  uidLabel: { color: '#4b5563', fontSize: '11px', marginBottom: '2px' },
+  uidLabel: { color: "#4b5563", fontSize: "11px", marginBottom: "2px" },
   uidValue: {
-    color:      '#fff',
-    fontSize:   '13px',
-    fontFamily: 'monospace',
-    wordBreak:  'break-all',
+    color: "#fff",
+    fontSize: "13px",
+    fontFamily: "monospace",
+    wordBreak: "break-all",
   },
   statsRow: {
-    display:             'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-    gap:                 '10px',
-    marginBottom:        '24px',
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+    gap: "10px",
+    marginBottom: "24px",
   },
   statCard: {
-    background:   '#1a1a1a',
-    border:       '1px solid #2d2d2d',
-    borderRadius: '10px',
-    padding:      '14px 16px',
+    background: "#1a1a1a",
+    border: "1px solid #2d2d2d",
+    borderRadius: "10px",
+    padding: "14px 16px",
   },
-  statLabel: { color: '#4b5563', fontSize: '11px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.4px' },
-  statValue: { color: '#fff', fontSize: '22px', fontWeight: '700' },
+  statLabel: {
+    color: "#4b5563",
+    fontSize: "11px",
+    marginBottom: "6px",
+    textTransform: "uppercase",
+    letterSpacing: "0.4px",
+  },
+  statValue: { color: "#fff", fontSize: "22px", fontWeight: "700" },
   tabs: {
-    display:        'flex',
-    gap:            '4px',
-    marginBottom:   '16px',
-    flexWrap:       'wrap',
+    display: "flex",
+    gap: "4px",
+    marginBottom: "16px",
+    flexWrap: "wrap",
   },
   tab: {
-    background:   'transparent',
-    border:       '1px solid #2d2d2d',
-    borderRadius: '6px',
-    color:        '#6b7280',
-    fontSize:     '12px',
-    padding:      '6px 12px',
-    cursor:       'pointer',
-    fontFamily:   'inherit',
-    transition:   'all 0.15s',
+    background: "transparent",
+    border: "1px solid #2d2d2d",
+    borderRadius: "6px",
+    color: "#6b7280",
+    fontSize: "12px",
+    padding: "6px 12px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    transition: "all 0.15s",
   },
   tabActive: {
-    background:  '#1e2a1e',
-    border:      '1px solid #22c55e44',
-    color:       '#22c55e',
+    background: "#1e2a1e",
+    border: "1px solid #22c55e44",
+    color: "#22c55e",
   },
   tabContent: {
-    background:   '#1a1a1a',
-    border:       '1px solid #2d2d2d',
-    borderRadius: '12px',
-    overflow:     'hidden',
+    background: "#1a1a1a",
+    border: "1px solid #2d2d2d",
+    borderRadius: "12px",
+    overflow: "hidden",
   },
   sectionTitle: {
-    color:        '#fff',
-    fontSize:     '14px',
-    fontWeight:   '600',
-    padding:      '14px 16px 0',
-    marginBottom: '8px',
+    color: "#fff",
+    fontSize: "14px",
+    fontWeight: "600",
+    padding: "14px 16px 0",
+    marginBottom: "8px",
   },
   empty: {
-    color:     '#4b5563',
-    fontSize:  '13px',
-    padding:   '32px 16px',
-    textAlign: 'center',
+    color: "#4b5563",
+    fontSize: "13px",
+    padding: "32px 16px",
+    textAlign: "center",
   },
   errorText: {
-    color:    '#ef4444',
-    fontSize: '14px',
+    color: "#ef4444",
+    fontSize: "14px",
   },
   songRow: {
-    display:       'flex',
-    alignItems:    'center',
-    gap:           '12px',
-    padding:       '10px 16px',
-    borderBottom:  '1px solid #1f1f1f',
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    padding: "10px 16px",
+    borderBottom: "1px solid #1f1f1f",
   },
   rank: {
-    color:     '#4b5563',
-    fontSize:  '12px',
-    width:     '18px',
-    textAlign: 'right',
+    color: "#4b5563",
+    fontSize: "12px",
+    width: "18px",
+    textAlign: "right",
     flexShrink: 0,
   },
   songAvatar: {
-    width:          '36px',
-    height:         '36px',
-    borderRadius:   '6px',
-    background:     '#2d2d2d',
-    flexShrink:     0,
-    overflow:       'hidden',
-    display:        'flex',
-    alignItems:     'center',
-    justifyContent: 'center',
+    width: "36px",
+    height: "36px",
+    borderRadius: "6px",
+    background: "#2d2d2d",
+    flexShrink: 0,
+    overflow: "hidden",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   songCover: {
-    width:      '100%',
-    height:     '100%',
-    objectFit:  'cover',
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
   },
   songInitial: {
-    color:      '#6b7280',
-    fontSize:   '14px',
-    fontWeight: '700',
+    color: "#6b7280",
+    fontSize: "14px",
+    fontWeight: "700",
   },
   songInfo: { flex: 1, minWidth: 0 },
   songTitle: {
-    color:         '#fff',
-    fontSize:      '13px',
-    fontWeight:    '500',
-    whiteSpace:    'nowrap',
-    overflow:      'hidden',
-    textOverflow:  'ellipsis',
+    color: "#fff",
+    fontSize: "13px",
+    fontWeight: "500",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   songArtist: {
-    color:        '#6b7280',
-    fontSize:     '11px',
-    marginTop:    '2px',
-    whiteSpace:   'nowrap',
-    overflow:     'hidden',
-    textOverflow: 'ellipsis',
+    color: "#6b7280",
+    fontSize: "11px",
+    marginTop: "2px",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   songRight: {
-    color:      '#4b5563',
-    fontSize:   '11px',
+    color: "#4b5563",
+    fontSize: "11px",
     flexShrink: 0,
-    whiteSpace: 'nowrap',
+    whiteSpace: "nowrap",
   },
   playlistRow: {
-    display:      'flex',
-    alignItems:   'center',
-    gap:          '12px',
-    padding:      '10px 16px',
-    borderBottom: '1px solid #1f1f1f',
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+    padding: "10px 16px",
+    borderBottom: "1px solid #1f1f1f",
   },
   playlistIcon: {
-    width:          '36px',
-    height:         '36px',
-    borderRadius:   '6px',
-    background:     '#1e2a1e',
-    border:         '1px solid #22c55e22',
-    display:        'flex',
-    alignItems:     'center',
-    justifyContent: 'center',
-    color:          '#22c55e',
-    fontSize:       '16px',
-    flexShrink:     0,
+    width: "36px",
+    height: "36px",
+    borderRadius: "6px",
+    background: "#1e2a1e",
+    border: "1px solid #22c55e22",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "#22c55e",
+    fontSize: "16px",
+    flexShrink: 0,
   },
 };
 

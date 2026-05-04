@@ -3,8 +3,9 @@
  * PERMANENT FIX: Navbar import and usage removed.
  */
 
-import { useState, useEffect } from "react";
-import axiosInstance from "../../services/api";
+import { useState  } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getUsers } from "../../services/users.service";
 import Loader from "../../components/ui/Loader";
 import { useNavigate } from "react-router-dom";
 
@@ -18,74 +19,24 @@ const formatDate = (raw) => {
     year: "numeric",
   });
 };
-const formatListenTime = (seconds) => {
-  if (!seconds || seconds < 60) return "—";
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
-};
-
-const formatRelative = (raw) => {
-  if (!raw) return "—";
-  const diff = Date.now() - new Date(raw).getTime();
-  if (isNaN(diff) || diff < 0) return "—";
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "Just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-};
-
 const UsersList = () => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const navigate = useNavigate();
 
-  const [sessions, setSessions] = useState({}); // uid → { lastActiveAt, totalListenSeconds, isActive }
-
-  useEffect(() => {
-    const fetchAll = async () => {
-      try {
-        const res = await axiosInstance.get("/users");
-        const body = res?.data ?? {};
-        const userList = Array.isArray(body.data) ? body.data : [];
-        setUsers(userList);
-
-        // Fetch session data for all users in parallel (admin-only page, acceptable)
-        const sessionResults = await Promise.allSettled(
-          userList.map((u) =>
-            axiosInstance.get(`/users/${u.id}/session`).then((r) => ({
-              uid: u.id,
-              data: r?.data?.data ?? null,
-            })),
-          ),
-        );
-        const sessionMap = {};
-        for (const result of sessionResults) {
-          if (result.status === "fulfilled" && result.value?.uid) {
-            sessionMap[result.value.uid] = result.value.data;
-          }
-        }
-        setSessions(sessionMap);
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
-      }
-      setLoading(false);
-    };
-    fetchAll();
-  }, []);
-
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: getUsers,
+    staleTime: 5 * 60 * 1000,
+  });
+  const users = Array.isArray(data) ? data : [];
   const filtered = users.filter(
     (u) =>
       u.email?.toLowerCase().includes(search.toLowerCase()) ||
       u.displayName?.toLowerCase().includes(search.toLowerCase()),
   );
 
-  if (loading) return <Loader />;
+  if (isLoading) return <Loader />;
 
   return (
     <div style={styles.container}>
@@ -140,8 +91,6 @@ const UsersList = () => {
             <span style={{ ...styles.col, flex: 2 }}>User</span>
             <span style={{ ...styles.col, flex: 1 }}>Role</span>
             <span style={{ ...styles.col, flex: 1 }}>Joined</span>
-            <span style={{ ...styles.col, flex: 1 }}>Last Active</span>
-            <span style={{ ...styles.col, flex: 1 }}>Listen Time</span>
           </div>
           {filtered.map((user) => (
             <div
@@ -176,12 +125,6 @@ const UsersList = () => {
               </div>
               <span style={{ flex: 1, color: "#6b7280", fontSize: "12px" }}>
                 {formatDate(user.createdAt)}
-              </span>
-              <span style={{ flex: 1, color: "#6b7280", fontSize: "12px" }}>
-                {formatRelative(sessions[user.id]?.lastActiveAt)}
-              </span>
-              <span style={{ flex: 1, color: "#6b7280", fontSize: "12px" }}>
-                {formatListenTime(sessions[user.id]?.totalListenSeconds)}
               </span>
             </div>
           ))}
