@@ -49,6 +49,7 @@ const UploadMusic       = lazy(() => import('../pages/admin/UploadMusic'));
 const BulkUpload        = lazy(() => import('../pages/admin/BulkUpload'));
 const UploadPlaylistZip = lazy(() => import('../pages/admin/UploadPlaylistZip'));
 const UsersList         = lazy(() => import('../pages/admin/UsersList'));
+const UserDetail = lazy(() => import('../pages/admin/UserDetail'));
 const ArtistDetail      = lazy(() => import('../pages/ArtistDetail'));
 const AlbumDetail       = lazy(() => import('../pages/AlbumDetail'));
 
@@ -218,7 +219,16 @@ const AppRoutes = () => (
           </AdminRoute>
         }
       />
-
+      <Route
+  path='/admin/users/:uid'
+  element={
+    <AdminRoute>
+      <PageWrapper>
+        <UserDetail />
+      </PageWrapper>
+    </AdminRoute>
+  }
+/>
       {/* ── Fallback ── */}
       <Route path='*' element={<Navigate to='/' replace />} />
 

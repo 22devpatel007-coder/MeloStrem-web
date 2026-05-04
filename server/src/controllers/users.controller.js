@@ -88,9 +88,9 @@
   exports.getLikedSongs = async (req, res, next) => {
     const { uid } = req.params;
 
-    if (req.user.uid !== uid) {
-      return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
-    }
+    if (req.user.uid !== uid && !req.user.admin) {
+  return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+}
 
     try {
       const userDoc = await retryFirestore(
@@ -291,10 +291,9 @@
   // ── GET /users/:uid/recent-plays ──────────────────────────────────────────────
 exports.getRecentPlays = async (req, res, next) => {
   const { uid } = req.params;
-
-  if (req.user.uid !== uid) {
-    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
-  }
+  if (req.user.uid !== uid && !req.user.admin) {
+  return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+}
 
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
@@ -424,3 +423,84 @@ exports.getRecentPlays = async (req, res, next) => {
       return next(new InternalError('Failed to update offline status.', 'INTERNAL_ERROR', { originalError: err.message }));
     }
   };
+  // ── PATCH /users/:uid/listen-session ─────────────────────────────────────────
+exports.updateListenSession = async (req, res, next) => {
+  const { uid } = req.params;
+
+  if (req.user.uid !== uid) {
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+  }
+
+  const { action, durationSeconds } = req.body;
+
+  if (!['start', 'stop'].includes(action)) {
+    return next(new ValidationError('action must be "start" or "stop"', 'VALIDATION_ERROR'));
+  }
+
+  if (action === 'stop' && (typeof durationSeconds !== 'number' || durationSeconds < 0)) {
+    return next(new ValidationError('durationSeconds must be a non-negative number', 'VALIDATION_ERROR'));
+  }
+
+  try {
+    const ref = db.collection('userSessions').doc(uid);
+
+    if (action === 'start') {
+      await retryFirestore(
+        () => ref.set({
+          uid,
+          listenStartedAt: new Date(),
+          lastActiveAt:    new Date(),
+          isActive:        true,
+        }, { merge: true }),
+        { label: 'updateListenSession:start' },
+      );
+    } else {
+      const safeDuration = Math.min(Math.round(durationSeconds), 86400); // cap 24h per session
+      await retryFirestore(
+        () => db.runTransaction(async (tx) => {
+          const snap  = await tx.get(ref);
+          const prev  = snap.exists ? (snap.data().totalListenSeconds ?? 0) : 0;
+          tx.set(ref, {
+            uid,
+            totalListenSeconds: prev + safeDuration,
+            listenStartedAt:    null,
+            lastActiveAt:       new Date(),
+            isActive:           false,
+          }, { merge: true });
+        }),
+        { label: 'updateListenSession:stop' },
+      );
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    logger.error('updateListenSession error:', { uid, action, error: err.message });
+    return next(new InternalError('Failed to update listen session.', 'INTERNAL_ERROR', { originalError: err.message }));
+  }
+};
+exports.getSessionData = async (req, res, next) => {
+  const { uid } = req.params;
+  if (req.user.uid !== uid && !req.user.admin) {
+    return next(new ForbiddenError('Forbidden', 'FORBIDDEN'));
+  }
+  try {
+    const snap = await retryFirestore(
+      () => db.collection('userSessions').doc(uid).get(),
+      { label: 'getSessionData' },
+    );
+    if (!snap.exists) return res.json({ success: true, data: null });
+    const d = snap.data();
+    return res.json({
+      success: true,
+      data: {
+        isActive:           d.isActive ?? false,
+        lastActiveAt:       d.lastActiveAt?.toDate ? d.lastActiveAt.toDate().toISOString() : null,
+        totalListenSeconds: d.totalListenSeconds ?? 0,
+        listenStartedAt:    d.listenStartedAt?.toDate ? d.listenStartedAt.toDate().toISOString() : null,
+      },
+    });
+  } catch (err) {
+    logger.error('getSessionData error:', { uid, error: err.message });
+    return next(new InternalError('Failed to fetch session data.', 'INTERNAL_ERROR', { originalError: err.message }));
+  }
+};

@@ -3,9 +3,11 @@
  * PERMANENT FIX: Navbar import and usage removed.
  */
 
-import { useState, useEffect } from "react";
-import axiosInstance from "../../services/api";
+import { useState  } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { getUsers } from "../../services/users.service";
 import Loader from "../../components/ui/Loader";
+import { useNavigate } from "react-router-dom";
 
 const formatDate = (raw) => {
   if (!raw) return "—";
@@ -17,34 +19,24 @@ const formatDate = (raw) => {
     year: "numeric",
   });
 };
-
 const UsersList = () => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [focused, setFocused] = useState(false);
+  const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchUsers = async () => {
-      try {
-        const res = await axiosInstance.get("/users");
-        const body = res?.data ?? {};
-        setUsers(Array.isArray(body.data) ? body.data : []);
-      } catch (err) {
-        console.error("Failed to fetch users:", err);
-      }
-      setLoading(false);
-    };
-    fetchUsers();
-  }, []);
-
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-users"],
+    queryFn: getUsers,
+    staleTime: 5 * 60 * 1000,
+  });
+  const users = Array.isArray(data) ? data : [];
   const filtered = users.filter(
     (u) =>
       u.email?.toLowerCase().includes(search.toLowerCase()) ||
       u.displayName?.toLowerCase().includes(search.toLowerCase()),
   );
 
-  if (loading) return <Loader />;
+  if (isLoading) return <Loader />;
 
   return (
     <div style={styles.container}>
@@ -101,7 +93,11 @@ const UsersList = () => {
             <span style={{ ...styles.col, flex: 1 }}>Joined</span>
           </div>
           {filtered.map((user) => (
-            <div key={user.id} style={styles.tableRow}>
+            <div
+              key={user.id}
+              style={{ ...styles.tableRow, cursor: "pointer" }}
+              onClick={() => navigate(`/admin/users/${user.id}`)}
+            >
               <div style={{ flex: 2, minWidth: 0 }}>
                 <div style={styles.userCell}>
                   <div style={styles.avatar}>

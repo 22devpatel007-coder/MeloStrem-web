@@ -138,7 +138,7 @@ exports.getPublicAdminPlaylists = async (req, res, next) => {
 exports.getUserPlaylists = async (req, res, next) => {
   const { uid } = req.params;
 
-  if (req.user.uid !== uid) {
+  if (req.user.uid !== uid && !req.user.admin) {
     return next(new ForbiddenError("Forbidden", "FORBIDDEN"));
   }
 
