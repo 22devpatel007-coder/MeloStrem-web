@@ -281,7 +281,7 @@ const Home = () => {
 
   // Derived data
   const genres = useMemo(() => {
-    const g = new Set(songs.map((s) => s.genre).filter(Boolean));
+    const g = new Set(songs.flatMap((s) => s.tags ?? []).filter(Boolean));
     return ["All", ...Array.from(g).sort()];
   }, [songs]);
 
@@ -289,7 +289,7 @@ const Home = () => {
     let r =
       activeGenre === "All"
         ? songs
-        : songs.filter((s) => s.genre === activeGenre);
+        : songs.filter((s) => (s.tags ?? []).includes(activeGenre));
     if (searchText.trim().length >= 1) {
       const q = searchText.trim().toLowerCase();
       r = r.filter(
