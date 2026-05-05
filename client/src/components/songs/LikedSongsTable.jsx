@@ -58,7 +58,7 @@ const sortSongs = (songs, sortBy) => {
     case "duration":
       return arr.sort((a, b) => (b.duration || 0) - (a.duration || 0));
     case "genre":
-      return arr.sort((a, b) => (a.genre || "").localeCompare(b.genre || ""));
+      return arr.sort((a, b) => (a.tags?.[0] || "").localeCompare(b.tags?.[0] || ""));
     default:
       return arr;
   }
@@ -67,7 +67,7 @@ const sortSongs = (songs, sortBy) => {
 const buildGenreGroups = (songs) => {
   const groups = {};
   songs.forEach((s) => {
-    const g = s.genre || "Other";
+    const g = s.tags?.[0] || "Other";
     if (!groups[g]) groups[g] = [];
     groups[g].push(s);
   });
@@ -177,8 +177,8 @@ const SongRow = ({
 
       {/* Genre */}
       <td className="ls-td ls-td--hide-md">
-        {song.genre ? (
-          <GenreChip genre={song.genre} />
+       {song.tags?.[0] ? (
+          <GenreChip genre={song.tags[0]} />
         ) : (
           <span className="ls-muted">—</span>
         )}
@@ -379,7 +379,7 @@ const LikedSongsTable = ({
   // directly. This keeps the component self-sufficient when used standalone.
 
   const filtered = useMemo(
-    () => (activeGenre ? songs.filter((s) => s.genre === activeGenre) : songs),
+    () => (activeGenre ? songs.filter((s) => s.tags?.includes(activeGenre)) : songs),
     [songs, activeGenre],
   );
   const sorted = useMemo(() => sortSongs(filtered, sortBy), [filtered, sortBy]);
