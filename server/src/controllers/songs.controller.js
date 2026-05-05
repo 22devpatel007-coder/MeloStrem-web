@@ -115,17 +115,25 @@ exports.getSongsBatch = async (req, res) => {
     const refs  = ids.map((id) => db.collection('songs').doc(String(id).trim()));
     const snaps = await db.getAll(...refs);
 
-    const songs = snaps
-      .filter((snap) => snap.exists)
-      .map((snap) => {
-        const data = snap.data();
-        return {
-          id:        snap.id,
-          ...data,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
-          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
-        };
-      });
+    // NEW — only fields the playlist UI and player actually need
+const songs = snaps
+  .filter((snap) => snap.exists)
+  .map((snap) => {
+    const data = snap.data();
+    return {
+      id:       snap.id,
+      title:    data.title    ?? '',
+      artist:   data.artist   ?? '',
+      album:    data.album    ?? '',
+      artistId: data.artistId ?? null,
+      albumId:  data.albumId  ?? null,
+      coverUrl: data.coverUrl ?? null,
+      duration: data.duration ?? null,
+      tags:     data.tags     ?? [],
+      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
+      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
+    };
+  });
 
     return res.json({ success: true, data: songs });
   } catch (err) {

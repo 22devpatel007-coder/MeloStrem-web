@@ -28,7 +28,7 @@
  *   - PERMANENT FIX comment (Navbar removed) — preserved
  */
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import {
   useUserPlaylists,
@@ -37,7 +37,7 @@ import {
 } from "../hooks/usePlaylists";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
-import { getPlaylistSongs } from "../services/playlists.service";
+import { getPlaylistSongsPaged } from "../services/playlists.service";
 import Loader from "../components/ui/Loader";
 import ErrorState from "../components/errors/ErrorState";
 
@@ -58,8 +58,13 @@ const PlaylistDetail = () => {
   const [editMode, setEditMode] = useState(false);
   const [editName, setEditName] = useState("");
   const [songs, setSongs] = useState([]);
-  const [songsLoading, setSongsLoading] = useState(true);
-  const [songsError, setSongsError] = useState(null);
+const [songsLoading, setSongsLoading] = useState(true);
+const [songsError, setSongsError] = useState(null);
+const [page, setPage] = useState(0);
+const [hasMore, setHasMore] = useState(false);
+const [loadingMore, setLoadingMore] = useState(false);
+const PAGE_LIMIT = 20;;
+const sentinelRef = useRef(null);
 
   const playlist = useMemo(
     () =>
@@ -73,36 +78,34 @@ const PlaylistDetail = () => {
     if (playlist) setEditName(playlist.name);
   }, [playlist]);
 
-  useEffect(() => {
+ useEffect(() => {
     if (!playlist?.songIds?.length) {
       setSongs([]);
       setSongsLoading(false);
+      setHasMore(false);
       return;
     }
     setSongsLoading(true);
     setSongsError(null);
-    getPlaylistSongs(playlist.songIds)
-      .then((fetched) => {
-        const ordered = playlist.songIds
-          .map((sid) => fetched.find((s) => s.id === sid))
-          .filter(Boolean);
-        setSongs(ordered);
+    setPage(0);
+    setSongs([]);
+    getPlaylistSongsPaged(playlist.songIds, 0, PAGE_LIMIT)
+      .then(({ songs: fetched, hasMore: more }) => {
+        setSongs(fetched);
+        setHasMore(more);
+        setPage(1);
       })
       .catch((err) => {
-        console.error("[PlaylistDetail] getPlaylistSongs error:", err.message);
-        setSongsError(
-          "Could not load songs for this playlist. Please try again.",
-        );
+        console.error("[PlaylistDetail] getPlaylistSongsPaged error:", err.message);
+        setSongsError("Could not load songs for this playlist. Please try again.");
       })
       .finally(() => setSongsLoading(false));
   }, [playlist?.songIds?.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const orderedSongs = useMemo(() => {
-    if (!playlist?.songIds) return [];
-    return playlist.songIds
-      .map((sid) => songs.find((s) => s.id === sid))
-      .filter(Boolean);
-  }, [playlist?.songIds, songs]);
+    if (!songs.length) return [];
+    return songs;
+  }, [songs]);
 
   const isReadOnly = playlist?.isAdmin === true;
 
@@ -149,12 +152,13 @@ const PlaylistDetail = () => {
   const handleRetry = useCallback(() => {
     setSongsError(null);
     setSongsLoading(true);
-    getPlaylistSongs(playlist.songIds)
-      .then((fetched) => {
-        const ordered = playlist.songIds
-          .map((sid) => fetched.find((s) => s.id === sid))
-          .filter(Boolean);
-        setSongs(ordered);
+    setPage(0);
+    setSongs([]);
+    getPlaylistSongsPaged(playlist.songIds, 0, PAGE_LIMIT)
+      .then(({ songs: fetched, hasMore: more }) => {
+        setSongs(fetched);
+        setHasMore(more);
+        setPage(1);
       })
       .catch((err) => {
         console.error("[PlaylistDetail] retry error:", err.message);
@@ -163,8 +167,36 @@ const PlaylistDetail = () => {
       .finally(() => setSongsLoading(false));
   }, [playlist?.songIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!playlist || songsLoading) return <Loader />;
+const handleLoadMore = useCallback(() => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    getPlaylistSongsPaged(playlist.songIds, page, PAGE_LIMIT)
+      .then(({ songs: fetched, hasMore: more }) => {
+        setSongs((prev) => [...prev, ...fetched]);
+        setHasMore(more);
+        setPage((p) => p + 1);
+      })
+      .catch((err) => {
+        console.error("[PlaylistDetail] loadMore error:", err.message);
+      })
+      .finally(() => setLoadingMore(false));
+  }, [playlist?.songIds, page, hasMore, loadingMore]);
 
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMore) {
+          handleLoadMore();
+        }
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -100px 0px" }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, loadingMore, handleLoadMore]);
+
+  if (!playlist || songsLoading) return <Loader />;
   // ── TASK 4.4: Songs error — replaced with ErrorState ──────────────────────
   if (songsError) {
     return (
@@ -323,6 +355,13 @@ const PlaylistDetail = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      <div ref={sentinelRef} style={{ height: 32 }} />
+      {loadingMore && (
+        <div style={{ textAlign: "center", padding: "12px 0", color: "#6b7280", fontSize: 13 }}>
+          Loading…
         </div>
       )}
     </div>
