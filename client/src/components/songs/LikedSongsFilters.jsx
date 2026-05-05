@@ -51,7 +51,7 @@ const LikedSongsFilters = ({
 }) => {
   const genres = useMemo(() => {
     const counts = {};
-    songs.forEach((s) => { if (s.genre) counts[s.genre] = (counts[s.genre] || 0) + 1; });
+    songs.forEach((s) => { (s.tags || []).forEach((tag) => { counts[tag] = (counts[tag] || 0) + 1; }); });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([genre, count]) => ({ genre, count }));
   }, [songs]);
 
