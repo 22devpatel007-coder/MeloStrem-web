@@ -45,9 +45,9 @@
  * @module useSongs
  */
 
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { getSongs } from '../services/songs.service';
+import { getSongs, getShuffledSongIds } from '../services/songs.service';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useErrorHandler } from './useErrorHandler';
 import {
@@ -95,6 +95,21 @@ function getViewportLimit() {
  * }}
  */
 export const useSongs = (limit = getViewportLimit()) => {
+  // ── Session shuffle seed ────────────────────────────────────────────────────
+  // Holds the shuffled ID order for this session. Populated once on mount.
+  // null  = not yet loaded (show in fetch order temporarily)
+  // []    = fetch failed or 0 songs (no-op, keep fetch order)
+  // array = reorder fetched pages to match this ID order
+  const [shuffleOrder, setShuffleOrder] = React.useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getShuffledSongIds().then((ids) => {
+      if (!cancelled) setShuffleOrder(ids);
+    });
+    return () => { cancelled = true; };
+  }, []); // run once per mount — sessionStorage provides stability across re-renders
+
   const query = useInfiniteQuery({
     queryKey:         [QUERY_KEYS.SONGS],
     queryFn:          ({ pageParam }) => getSongs(limit, pageParam),
@@ -117,7 +132,20 @@ export const useSongs = (limit = getViewportLimit()) => {
     context: 'loading songs',
   });
 
-  const songs = query.data?.pages.flatMap((p) => Array.isArray(p?.songs) ? p.songs : []) ?? [];
+
+
+  // Apply shuffle order if loaded and non-empty; otherwise show fetch order as-is.
+const songs = React.useMemo(() => {
+    const rawSongs = query.data?.pages.flatMap((p) => Array.isArray(p?.songs) ? p.songs : []) ?? [];
+    if (!shuffleOrder || shuffleOrder.length === 0) return rawSongs;
+    const songMap = new Map(rawSongs.map((s) => [s.id, s]));
+    // Songs in shuffle order that have been fetched so far
+    const ordered = shuffleOrder.map((id) => songMap.get(id)).filter(Boolean);
+    // Append any fetched songs not yet in the seed (newly uploaded after session start)
+    const inSeed = new Set(shuffleOrder);
+    const extras = rawSongs.filter((s) => !inSeed.has(s.id));
+    return [...ordered, ...extras];
+  }, [query.data?.pages, shuffleOrder]);
 
   // ── Pagination bridge registration ────────────────────────────────────────
   //

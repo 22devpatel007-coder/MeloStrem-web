@@ -23,6 +23,10 @@ router.delete(
 );
 // ── Public routes ─────────────────────────────────────────────────────────────
 // No auth required. Rate-limited by the global generalLimiter in index.js.
+// ── Public routes ─────────────────────────────────────────────────────────────
+// No auth required. Rate-limited by the global generalLimiter in index.js.
+// GET /songs/ids must be declared before /:id so Express does not treat 'ids' as an ID param.
+router.get('/ids', songsController.getSongIds);
 router.get('/',    songsController.getAllSongs);
 router.get('/:id', songsController.getSongById);
 

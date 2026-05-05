@@ -39,8 +39,40 @@
  *     — that is updated to call getSongAudioUrl() instead.
  *   - getSongById() still returns audioUrl — admin pages are unaffected.
  */
-
 import api from './api';
+
+// ── Shuffle seed (session-scoped) ─────────────────────────────────────────────
+// Key stored in sessionStorage — cleared automatically on tab close / new login.
+const SHUFFLE_SEED_KEY = 'melostream_library_shuffle';
+
+/** Fisher-Yates in-place shuffle */
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** Returns the session shuffle order (array of IDs). Creates it if missing. */
+function getOrCreateShuffleSeed(allIds) {
+  try {
+    const stored = sessionStorage.getItem(SHUFFLE_SEED_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (_) { /* sessionStorage unavailable — fall through */ }
+
+  const shuffled = shuffleArray([...allIds]);
+  try { sessionStorage.setItem(SHUFFLE_SEED_KEY, JSON.stringify(shuffled)); } catch (_) {}
+  return shuffled;
+}
+
+/** Call on logout to force a fresh shuffle next session. */
+export function clearLibraryShuffleSeed() {
+  try { sessionStorage.removeItem(SHUFFLE_SEED_KEY); } catch (_) {}
+}
 
 // ─── Normalizers ─────────────────────────────────────────────────────────────
 
@@ -148,6 +180,23 @@ export const getSongs = async (limit = 20, cursor = null) => {
     nextCursor: normalized.nextCursor ?? null,
     hasMore:    normalized.nextCursor != null && normalized.hasMore === true,
   };
+};
+
+/**
+ * Fetches all song IDs and returns them in a stable session-scoped shuffle order.
+ * Called once per session by useSongs on mount. Result is reused from sessionStorage.
+ * Returns [] on failure — callers fall back to normal pagination order silently.
+ */
+export const getShuffledSongIds = async () => {
+  try {
+    const res = await api.get('/songs/ids');
+    const ids = unwrap(res)?.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    return getOrCreateShuffleSeed(ids);
+  } catch (err) {
+    console.warn('[songs.service] getShuffledSongIds: failed, falling back to default order', err.message);
+    return [];
+  }
 };
 
 /**
