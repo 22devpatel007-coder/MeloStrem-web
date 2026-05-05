@@ -26,7 +26,7 @@ import { create } from 'zustand';
 import { logout as authServiceLogout, verifyWithBackend } from '../services/auth.service';
 import { sendOffline } from '../services/users.service';
 import { setUserId } from '../services/errorReporter';
-
+import { clearLibraryShuffleSeed } from '../services/songs.service';
 let _queryClient = null;
 
 export const registerQueryClient = (qc) => {
@@ -83,11 +83,11 @@ const useAuthStore = create((set) => ({
     try {
       await authServiceLogout();
     } finally {
+      clearLibraryShuffleSeed();
       clearUserCache();
       set({ user: null, isAdmin: false, likedSongs: [] });
     }
   },
 }));
-
 export { useAuthStore };
 export default useAuthStore;

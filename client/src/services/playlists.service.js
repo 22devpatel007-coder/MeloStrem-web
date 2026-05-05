@@ -145,7 +145,42 @@ export const getPlaylistSongs = async (songIds) => {
     throw err;
   }
 };
+// ─── getPlaylistSongsPaged — paginated batch fetch ────────────────────────────
+// Fetches one page of playlist songs by slicing the songIds array client-side.
+// page is 0-indexed. Returns { songs, hasMore, nextPage }.
+export const getPlaylistSongsPaged = async (songIds, page = 0, limit = 20) => {
+  if (!Array.isArray(songIds) || songIds.length === 0) {
+    return { songs: [], hasMore: false, nextPage: null };
+  }
 
+  const uniqueIds = [...new Set(songIds.filter(Boolean))];
+  const start     = page * limit;
+  const pageIds   = uniqueIds.slice(start, start + limit);
+
+  if (pageIds.length === 0) {
+    return { songs: [], hasMore: false, nextPage: null };
+  }
+
+  try {
+    const res   = await api.post('/songs/batch', { ids: pageIds });
+    const songs = res?.data?.data ?? res?.data ?? [];
+
+    if (!Array.isArray(songs)) return { songs: [], hasMore: false, nextPage: null };
+
+    const songMap = new Map(songs.filter((s) => s?.id).map((s) => [s.id, s]));
+    const ordered = pageIds.reduce((acc, id) => {
+      const song = songMap.get(id);
+      if (song) acc.push(song);
+      return acc;
+    }, []);
+
+    const hasMore = start + limit < uniqueIds.length;
+    return { songs: ordered, hasMore, nextPage: hasMore ? page + 1 : null };
+  } catch (err) {
+    console.error('[playlists.service] getPlaylistSongsPaged error:', err.message);
+    throw err;
+  }
+};
 // ─── fetchAdminPlaylists — GET /api/playlists/admin ──────────────────────────
 //
 // Public endpoint — no uid required.

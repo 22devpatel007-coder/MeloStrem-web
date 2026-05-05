@@ -53,6 +53,7 @@ const INTERNAL_ERROR = 'Something went wrong. Please try again.';
 const cacheKeys = {
   songsList: (limit, cursor) => `songs:list:${limit}:${cursor || 'start'}`,
   songById:  (id)            => `songs:id:${id}`,
+  songIds:   ()              => `songs:ids`,
 };
 
 // ── Shared log meta helper ────────────────────────────────────────────────────
@@ -68,7 +69,29 @@ const logMeta = (req) => ({
   correlationId: req.correlationId,        // always set by correlationId middleware
   userId:        req.user?.uid ?? null,    // null for unauthenticated routes
 });
-
+// ── GET /songs/ids ─────────────────────────────────────────────────────────
+// Returns all song IDs as a lightweight array — no audio/cover fields.
+// Used by the frontend shuffle-seed system (sessionStorage-based).
+// Cache: songs:ids  TTL: 60s (same as songs list).
+// Public read — no auth required. Covered by global generalLimiter.
+exports.getSongIds = async (req, res) => {
+  const key = cacheKeys.songIds();
+  try {
+    const cached = cache.get(key);
+    if (cached !== null) {
+      return res.json(cached);
+    }
+    const  SongRepository  = require('../repositories/SongRepository');
+    const repo = new SongRepository(db);
+    const ids  = await repo.findAllIds();
+    const result = { ids };
+    cache.set(key, result, cache.TTL.SONGS_LIST); // reuse 60s TTL
+    return res.json(result);
+  } catch (err) {
+    logger.error('getSongIds error', { ...logMeta(req), error: err.message });
+    return res.status(500).json({ error: INTERNAL_ERROR, code: 'INTERNAL_ERROR' });
+  }
+};
 // ── POST /songs/batch ──────────────────────────────────────────────────────
 // No cache — batch lookup is used by playlist pages that need current song data.
 // Caching batch results would require invalidating on every song mutation, which
@@ -92,17 +115,25 @@ exports.getSongsBatch = async (req, res) => {
     const refs  = ids.map((id) => db.collection('songs').doc(String(id).trim()));
     const snaps = await db.getAll(...refs);
 
-    const songs = snaps
-      .filter((snap) => snap.exists)
-      .map((snap) => {
-        const data = snap.data();
-        return {
-          id:        snap.id,
-          ...data,
-          createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
-          updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
-        };
-      });
+    // NEW — only fields the playlist UI and player actually need
+const songs = snaps
+  .filter((snap) => snap.exists)
+  .map((snap) => {
+    const data = snap.data();
+    return {
+      id:       snap.id,
+      title:    data.title    ?? '',
+      artist:   data.artist   ?? '',
+      album:    data.album    ?? '',
+      artistId: data.artistId ?? null,
+      albumId:  data.albumId  ?? null,
+      coverUrl: data.coverUrl ?? null,
+      duration: data.duration ?? null,
+      tags:     data.tags     ?? [],
+      createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt ?? null,
+      updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt ?? null,
+    };
+  });
 
     return res.json({ success: true, data: songs });
   } catch (err) {
@@ -306,6 +337,7 @@ exports.uploadSong = async (req, res) => {
     // delPattern clears all keys starting with "songs:list:" atomically.
     // Artist songs cache for this artist is also stale.
     cache.delPattern('songs:list:');
+    cache.del(cacheKeys.songIds());
     if (artistResult?.artistId) {
       cache.delPattern(`artists:songs:${artistResult.artistId}:`);
     }
@@ -439,6 +471,7 @@ exports.updateSong = async (req, res) => {
     // List pages are also stale because they embed song metadata.
     cache.del(cacheKeys.songById(songId));
     cache.delPattern('songs:list:');
+    cache.del(cacheKeys.songIds());
     // If albumId changed, album songs cache is stale too.
     const affectedAlbumId = updates.albumId || existingSong.albumId;
     if (affectedAlbumId) {
@@ -479,6 +512,7 @@ exports.deleteSong = async (req, res) => {
     // ── Cache invalidation ──────────────────────────────────────────────────
     cache.del(cacheKeys.songById(songId));
     cache.delPattern('songs:list:');
+    cache.del(cacheKeys.songIds());
     // Clear album songs cache if this song belonged to an album.
     if (albumId) {
       cache.del(`albums:songs:${albumId}`);

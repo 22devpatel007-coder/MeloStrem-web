@@ -69,7 +69,23 @@ class SongRepository extends BaseRepository {
   const result = await this.findPaginated(baseQuery, limit, cursor);
   return { ...result, items: result.items.map((r) => Song.fromFirestore(r)) };
 }
-
+  /**
+   * findAllIds() → string[]
+   *
+   * Returns all song IDs in the collection — lightweight, no field reads.
+   * Used by GET /api/songs/ids for client-side shuffle seed generation.
+   * Covered by server-side 60s cache (same TTL as songs list).
+   * select('__name__') tells Firestore to return document refs only — no field data transferred.
+   */
+  async findAllIds() {
+    return this._callFirestore(async () => {
+      const snap = await this._db
+        .collection('songs')
+        .select()
+        .get();
+      return snap.docs.map((doc) => doc.id);
+    }, 'findAllIds');
+  }
   /**
    * findById(id) → object | null
    *
