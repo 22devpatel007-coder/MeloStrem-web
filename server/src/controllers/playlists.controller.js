@@ -247,7 +247,12 @@ exports.uploadPlaylistSong = async (req, res, next) => {
     const songData = {
       title,
       artist,
-      tags: Array.isArray(tags) ? tags.slice(0, 10).map((t) => String(t).trim().toLowerCase()).filter(Boolean) : [],
+      tags: Array.isArray(tags)
+        ? tags
+            .slice(0, 10)
+            .map((t) => String(t).trim().toLowerCase())
+            .filter(Boolean)
+        : [],
       titleLower: title.toLowerCase(),
       artistLower: artist.toLowerCase(),
       duration: Number(duration) || 0,
@@ -263,13 +268,11 @@ exports.uploadPlaylistSong = async (req, res, next) => {
     };
 
     const newSong = await createSong(songData);
-    return res
-      .status(201)
-      .json({
-        status: "uploaded",
-        songId: newSong.id,
-        song: serializeDoc(newSong.id, songData),
-      });
+    return res.status(201).json({
+      status: "uploaded",
+      songId: newSong.id,
+      song: serializeDoc(newSong.id, songData),
+    });
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("uploadPlaylistSong error:", { error: err.message });
@@ -452,6 +455,7 @@ exports.getAdminPlaylists = async (req, res, next) => {
           .collection("playlists")
           .where("isAdmin", "==", true)
           .orderBy("createdAt", "desc")
+          .limit(200)
           .get(),
       { label: "getAdminPlaylists" },
     );

@@ -42,7 +42,6 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  getPlaylists,
   createPlaylist         as createPlaylistREST,
   updatePlaylist         as updatePlaylistREST,
   deletePlaylist         as deletePlaylistREST,
@@ -89,7 +88,7 @@ export const usePlaylists = () => {
 
   const playlistsQuery = useQuery({
     queryKey:             [QUERY_KEYS.PLAYLISTS],
-    queryFn:              getPlaylists,
+    queryFn: fetchAdminPlaylists,
     staleTime:            2 * 60_000,
     gcTime:               10 * 60_000,
     retry:                1,

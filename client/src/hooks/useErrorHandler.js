@@ -71,7 +71,7 @@ const logError = (error, context) => {
       console.error(`[useErrorHandler] Error in "${context}":`, error);
     } else {
       // Phase 4: replace with errorReporter.report({ error, context })
-      console.error(`[useErrorHandler] "${context}":`, error?.message ?? String(error));
+      
     }
   } catch {
     // Never crash because of logging
