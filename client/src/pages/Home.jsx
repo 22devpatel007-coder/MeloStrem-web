@@ -929,10 +929,10 @@ const HOME_STYLES = `
   .home-artists-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
   .home-artist-card {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
     padding: 18px 12px 14px; gap: 8px; background: #1c1c1c; border: 1px solid #2a2a2a;
     border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;
-    text-align: center;
+    text-align: center; height: 100%;
   }
   .home-artist-card:hover { background: #222; border-color: #333; }
   .home-artist-card__av {
@@ -942,7 +942,9 @@ const HOME_STYLES = `
   }
   .home-artist-card__name {
     font-size: 13px; font-weight: 600; color: #e5e7eb;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden; word-break: break-word; max-width: 100%;
+    text-align: center; line-height: 1.35; min-height: 2.7em;
   }
   .home-artist-card__count { font-size: 11px; color: #6b7280; }
 
@@ -1002,14 +1004,9 @@ const HOME_STYLES = `
     .home-topbar { padding: 0 28px; }
     .home-artists-grid { grid-template-columns: repeat(3, 1fr); }
     .home-albums-grid  { grid-template-columns: repeat(3, 1fr); }
-    .home-topbar__search { width: 300px; }
-    .home-body { padding: 20px 28px 0; }
-  }
   @media (min-width: 1024px) {
     .home-artists-grid { grid-template-columns: repeat(4, 1fr); }
     .home-albums-grid  { grid-template-columns: repeat(4, 1fr); }
-    .home-topbar__search { width: 340px; }
-  }
 `;
 
 export default Home;

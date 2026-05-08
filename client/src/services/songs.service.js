@@ -60,7 +60,15 @@ function getOrCreateShuffleSeed(allIds) {
     const stored = sessionStorage.getItem(SHUFFLE_SEED_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        // Merge: keep existing order, append any new IDs not in the seed yet
+        const seedSet = new Set(parsed);
+        const newIds = allIds.filter((id) => !seedSet.has(id));
+        if (newIds.length === 0) return parsed; // nothing new — return stable seed
+        const merged = [...parsed, ...newIds];
+        try { sessionStorage.setItem(SHUFFLE_SEED_KEY, JSON.stringify(merged)); } catch (_) {}
+        return merged;
+      }
     }
   } catch (_) { /* sessionStorage unavailable — fall through */ }
 

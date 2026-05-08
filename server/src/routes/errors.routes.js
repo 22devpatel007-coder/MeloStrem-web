@@ -7,7 +7,7 @@
  *   POST /api/errors/report
  *
  * MIDDLEWARE CHAIN (matches the thin-route convention in CLAUDE.md §6):
- *   1. errorReportLimiter  — 10 req / 1 min per IP  (abuse defence)
+ *   1. errorReportLimiter  — 20 req / 1 min per IP  (abuse defence)
  *   2. receiveErrorReports — controller (validate + log)
  *
  * NO AUTH MIDDLEWARE:
@@ -16,7 +16,7 @@
  *     - The login page crashing before any Firebase token exists
  *     - A token refresh failure that left the user in a signed-out state
  *     - The AppErrorBoundary firing during cold app startup
- *   The rate limiter (10/min per IP) is the abuse defence in place of auth.
+ *   The rate limiter (20/min per IP) is the abuse defence in place of auth.
  *
  * NO BODY SIZE CONCERN:
  *   express.json() is already mounted globally in server/src/index.js with a

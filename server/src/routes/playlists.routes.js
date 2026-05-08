@@ -45,7 +45,7 @@ const ctrl                 = require('../controllers/playlists.controller');
 const { validateCreatePlaylist } = require('../validators/playlist.validator');
 const { validateCreateSong }     = require('../validators/song.validator');
 
-const { playlistsLimiter } = require('../middleware/rateLimiter');
+const { playlistsLimiter, zipUploadLimiter } = require('../middleware/rateLimiter');
 
 // ─── Public route ─────────────────────────────────────────────────────────────
 // Must be declared BEFORE any auth middleware to remain publicly accessible.
@@ -69,6 +69,7 @@ router.get('/', verifyTokenStrict, isAdmin, ctrl.getAdminPlaylists);
 // Upload a song directly into a playlist.
 router.post(
   '/upload-song',
+  zipUploadLimiter,
   verifyTokenStrict,
   isAdmin,
   upload.fields([{ name: 'song', maxCount: 1 }, { name: 'cover', maxCount: 1 }]),

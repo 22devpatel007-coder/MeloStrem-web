@@ -211,16 +211,19 @@ exports.uploadPlaylistSong = async (req, res, next) => {
     const songFile = req.files["song"][0];
     const coverFile = req.files["cover"][0];
 
+    const uploadTs = Date.now();
     let songResult, coverResult;
     try {
-      songResult = await uploadAudio(songFile.buffer, {
-        folder: "melostream/songs",
-        public_id: `${Date.now()}-${title}`,
-      });
-      coverResult = await uploadCover(coverFile.buffer, {
-        folder: "melostream/covers",
-        public_id: `${Date.now()}-${title}-cover`,
-      });
+      [songResult, coverResult] = await Promise.all([
+        uploadAudio(songFile.buffer, {
+          folder: "melostream/songs",
+          public_id: `${uploadTs}-${title}`,
+        }),
+        uploadCover(coverFile.buffer, {
+          folder: "melostream/covers",
+          public_id: `${uploadTs}-${title}-cover`,
+        }),
+      ]);
     } catch (uploadErr) {
       if (songResult?.public_id)
         await deleteAsset(songResult.public_id, {

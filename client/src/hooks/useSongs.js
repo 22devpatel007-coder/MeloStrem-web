@@ -124,6 +124,7 @@ export const useSongs = (limit = getViewportLimit()) => {
     // in CLAUDE.md §14.
     staleTime: 2 * 60_000,   // 2 minutes
     gcTime:    10 * 60_000,  // 10 minutes in-memory cache
+    
   });
 
   useErrorHandler({
