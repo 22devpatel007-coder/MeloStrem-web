@@ -106,6 +106,9 @@ const UploadMusic = () => {
       // the old song list from the React Query cache for up to 2 minutes —
       // the newly uploaded song would be invisible until staleTime expired.
       queryClient.invalidateQueries({ queryKey: [QUERY_KEYS.SONGS] });
+      // Clear session shuffle seed so the new song is included in the next
+      // shuffle order fetch, not silently appended at the end.
+      try { sessionStorage.removeItem('melostream_library_shuffle'); } catch (_) {}
 
       setTimeout(() => navigate("/admin/music"), 1500);
     } catch (err) {

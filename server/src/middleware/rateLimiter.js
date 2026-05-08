@@ -108,7 +108,7 @@ const base = {
 const generalLimiter = rateLimit({
   ...base,
   windowMs: 15 * 60 * 1000,
-  max:      100,
+  max:      500,
   message:  {
     success: false,
     error: { message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' },
@@ -128,6 +128,25 @@ const uploadLimiter = rateLimit({
   message:  {
     success: false,
     error: { message: 'Upload limit exceeded', code: 'UPLOAD_LIMIT_EXCEEDED' },
+  },
+});
+
+// ── ZIP bulk upload ───────────────────────────────────────────────────────────
+
+/**
+ * zipUploadLimiter — POST /api/playlists/upload-song (ZIP bulk flow only).
+ * 350 requests per 30 minutes per IP.
+ * Keyed by uid via keyGenerator so one admin's bulk upload never
+ * consumes another admin's budget.
+ */
+const zipUploadLimiter = rateLimit({
+  ...base,
+  windowMs: 30 * 60 * 1000,
+  max:      350,
+  keyGenerator: (req) => req.user?.uid || req.ip,
+  message:  {
+    success: false,
+    error: { message: 'Bulk upload rate limit exceeded', code: 'BULK_UPLOAD_LIMIT_EXCEEDED' },
   },
 });
 
@@ -259,6 +278,7 @@ const errorReportLimiter = rateLimit({
 module.exports = {
   generalLimiter,
   uploadLimiter,
+  zipUploadLimiter,
   searchLimiter,
   adminMutationLimiter,
   duplicateCheckLimiter,

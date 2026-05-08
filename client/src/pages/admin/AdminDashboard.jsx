@@ -78,10 +78,19 @@ const { deletePlaylist } = usePlaylists();
   } = useQuery({
     queryKey: [QUERY_KEYS.SONGS, 'admin-list'],
     queryFn: async () => {
-      const res = await axiosInstance.get("/songs?limit=200");
-      const body = res?.data ?? {};
-      const raw = Array.isArray(body) ? body : (Array.isArray(body.songs) ? body.songs : []);
-      return raw.map(normalizeSong).filter(Boolean);
+      let allSongs = [];
+      let cursor = null;
+      let hasMore = true;
+      while (hasMore) {
+        const url = cursor ? `/songs?limit=50&cursor=${cursor}` : `/songs?limit=50`;
+        const res = await axiosInstance.get(url);
+        const body = res?.data ?? {};
+        const page = Array.isArray(body.songs) ? body.songs : [];
+        allSongs = [...allSongs, ...page.map(normalizeSong).filter(Boolean)];
+        cursor = body.nextCursor ?? null;
+        hasMore = !!body.hasMore && !!cursor;
+      }
+      return allSongs;
     },
     // staleTime is 0 for QUERY_KEYS.SONGS (set via setQueryDefaults in App.jsx),
     // so this will always refetch when the query is invalidated by a mutation.

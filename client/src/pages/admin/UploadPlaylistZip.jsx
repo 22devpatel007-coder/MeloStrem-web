@@ -5,6 +5,7 @@ import { QUERY_KEYS } from "../../constants/queryKeys";
 import api, { axiosUpload } from "../../services/api";
 import { generatePlaylistCover } from "../../utils/generatePlaylistCover";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const JSZIP_CDN =
   "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
 
@@ -171,69 +172,108 @@ const UploadPlaylistZip = () => {
       const entry = manifest[i];
       setCurrent(entry.title);
 
-      try {
-        const songEntry = findZipEntry(fileEntries, entry.file);
-        if (!songEntry) throw new Error(`File not found in ZIP: ${entry.file}`);
+      const MAX_RETRIES = 4;
+      let attempt = 0;
+      let uploaded = false;
 
-        const songBlob = await songEntry.async("blob");
-        const songFile = new File([songBlob], entry.file, {
-          type: "audio/mpeg",
-        });
+      while (attempt <= MAX_RETRIES && !uploaded) {
+        try {
+          // Extract one song at a time — never hold full ZIP in memory
+          const songEntry = findZipEntry(fileEntries, entry.file);
+          if (!songEntry) throw new Error(`File not found in ZIP: ${entry.file}`);
 
-        const baseName = getBaseName(entry.file).replace(/\.[^.]+$/, "");
-        const coverEntry =
-          (entry.cover ? findZipEntry(fileEntries, entry.cover) : null) ||
-          findZipEntry(fileEntries, `${baseName}.jpg`) ||
-          findZipEntry(fileEntries, `${baseName}.jpeg`) ||
-          findZipEntry(fileEntries, `${baseName}.png`) ||
-          findZipEntry(fileEntries, `${baseName}.webp`) ||
-          findZipEntry(fileEntries, `covers/${baseName}.jpg`) ||
-          findZipEntry(fileEntries, `covers/${baseName}.jpeg`) ||
-          findZipEntry(fileEntries, `covers/${baseName}.png`) ||
-          findZipEntry(fileEntries, `covers/${baseName}.webp`) ||
-          null;
-        const fd = new FormData();
-        fd.append("title", entry.title);
-        fd.append("artist", entry.artist);
-        const entryTags = Array.isArray(entry.tags) ? entry.tags : [];
-        entryTags.forEach(t => fd.append('tags[]', String(t).trim().toLowerCase()));
-        fd.append("duration", String(entry.duration || 0));
-        fd.append("song", songFile);
+          const songBlob = await songEntry.async("blob");
+          const songFile = new File([songBlob], entry.file, { type: "audio/mpeg" });
 
-        if (coverEntry) {
-          const ext = coverEntry.name.split(".").pop();
-          const coverBlob = await coverEntry.async("blob");
-          fd.append(
-            "cover",
-            new File([coverBlob], `${baseName}.${ext}`, {
-              type: `image/${ext}`,
-            }),
-          );
-        } else {
-          const placeholderFile = await createPlaceholderCoverFile(baseName);
-          fd.append("cover", placeholderFile);
+          const baseName = getBaseName(entry.file).replace(/\.[^.]+$/, "");
+          const coverEntry =
+            (entry.cover ? findZipEntry(fileEntries, entry.cover) : null) ||
+            findZipEntry(fileEntries, `${baseName}.jpg`) ||
+            findZipEntry(fileEntries, `${baseName}.jpeg`) ||
+            findZipEntry(fileEntries, `${baseName}.png`) ||
+            findZipEntry(fileEntries, `${baseName}.webp`) ||
+            findZipEntry(fileEntries, `covers/${baseName}.jpg`) ||
+            findZipEntry(fileEntries, `covers/${baseName}.jpeg`) ||
+            findZipEntry(fileEntries, `covers/${baseName}.png`) ||
+            findZipEntry(fileEntries, `covers/${baseName}.webp`) ||
+            null;
+
+          const fd = new FormData();
+          fd.append("title", entry.title);
+          fd.append("artist", entry.artist);
+          const entryTags = Array.isArray(entry.tags) ? entry.tags : [];
+          entryTags.forEach(t => fd.append('tags[]', String(t).trim().toLowerCase()));
+          fd.append("duration", String(entry.duration || 0));
+          fd.append("song", songFile);
+
+          if (coverEntry) {
+            const ext = coverEntry.name.split(".").pop();
+            const coverBlob = await coverEntry.async("blob");
+            fd.append("cover", new File([coverBlob], `${baseName}.${ext}`, { type: `image/${ext}` }));
+          } else {
+            const placeholderFile = await createPlaceholderCoverFile(baseName);
+            fd.append("cover", placeholderFile);
+          }
+
+          const res = await axiosUpload.post("/playlists/upload-song", fd);
+          const payload = res.data || {};
+          const songId = payload.songId || payload.song?.id;
+          const coverUrl = payload.song?.coverUrl;
+
+          if (songId && !uploadedSongIds.includes(songId)) uploadedSongIds.push(songId);
+          if (coverUrl) uploadedCoverUrls.push(coverUrl);
+
+          newResults.push({ title: entry.title, status: "success" });
+          uploaded = true;
+
+        } catch (err) {
+          const status = err.response?.status;
+
+          // 4xx except 429 — bad data, no retry
+          if (status && status >= 400 && status < 500 && status !== 429) {
+            newResults.push({
+              title: entry.title,
+              status: "error",
+              error: err.response?.data?.error || err.message,
+            });
+            uploaded = true; // mark done, skip retry loop
+            break;
+          }
+
+          // 429 — rate limited, exponential backoff
+          if (status === 429) {
+            if (attempt < MAX_RETRIES) {
+              const backoff = Math.pow(2, attempt + 1) * 1000;
+              await sleep(backoff);
+              attempt++;
+              continue;
+            }
+            newResults.push({ title: entry.title, status: "error", error: "Rate limited after retries" });
+            uploaded = true;
+            break;
+          }
+
+          // 5xx or network — fixed delay retry
+          if (attempt < MAX_RETRIES) {
+            await sleep(3000);
+            attempt++;
+            continue;
+          }
+
+          newResults.push({
+            title: entry.title,
+            status: "error",
+            error: err.response?.data?.error || err.message,
+          });
+          uploaded = true;
         }
-
-        const res = await axiosUpload.post("/playlists/upload-song", fd);
-        const payload = res.data || {};
-        const songId = payload.songId || payload.song?.id;
-        const coverUrl = payload.song?.coverUrl;
-
-        if (songId && !uploadedSongIds.includes(songId))
-          uploadedSongIds.push(songId);
-        if (coverUrl) uploadedCoverUrls.push(coverUrl);
-
-        newResults.push({ title: entry.title, status: "success" });
-      } catch (err) {
-        newResults.push({
-          title: entry.title,
-          status: "error",
-          error: err.response?.data?.error || err.message,
-        });
       }
 
       setProgress({ done: i + 1, total: manifest.length });
       setResults([...newResults]);
+
+      // Pacing — 400ms between every song to avoid burst triggering rate limits
+      if (i < manifest.length - 1) await sleep(400);
     }
 
     if (!uploadedSongIds.length) {
@@ -408,7 +448,9 @@ const UploadPlaylistZip = () => {
             <div style={styles.progressHeader}>
               <p style={styles.progressTitle}>
                 {stage === "done"
-                  ? `Done — ${successCount} uploaded, ${errorCount} failed`
+                  ? errorCount > 0
+                    ? `Playlist created with ${successCount} of ${progress.total} songs — ${errorCount} failed (see below)`
+                    : `Done — all ${successCount} songs uploaded`
                   : `Uploading ${progress.done} / ${progress.total}`}
               </p>
               <span style={styles.progressPct}>{pct}%</span>
