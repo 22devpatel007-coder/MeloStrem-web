@@ -35,7 +35,7 @@ import {
   useAdminPlaylists,
   usePlaylistMutations,
 } from "../hooks/usePlaylists";
-import { usePlayerStore } from "../store/playerStore";
+import { usePlayerStore, _appendPlaylistSongs } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
 import { getPlaylistSongsPaged } from "../services/playlists.service";
 import Loader from "../components/ui/Loader";
@@ -112,21 +112,24 @@ const sentinelRef = useRef(null);
   const handlePlayAll = useCallback(() => {
     if (!orderedSongs.length) return;
     setPlaybackContext("playlist", id, orderedSongs, 0);
-  }, [orderedSongs, id, setPlaybackContext]);
+    usePlayerStore.getState()._setPlaylistSongIds(playlist.songIds ?? []);
+  }, [orderedSongs, id, setPlaybackContext, playlist?.songIds]);
 
   const handleShufflePlay = useCallback(() => {
     if (!orderedSongs.length) return;
     usePlayerStore.getState().cycleShuffleMode();
     setPlaybackContext("playlist", id, orderedSongs, 0);
-  }, [orderedSongs, id, setPlaybackContext]);
+    usePlayerStore.getState()._setPlaylistSongIds(playlist.songIds ?? []);
+  }, [orderedSongs, id, setPlaybackContext, playlist?.songIds]);
 
   const handlePlaySong = useCallback(
     (song, index) => {
       logPick(song, prevSong, user?.uid);
       setPlaybackContext("playlist", id, orderedSongs, index);
+      usePlayerStore.getState()._setPlaylistSongIds(playlist.songIds ?? []);
     },
-    [orderedSongs, id, setPlaybackContext, logPick, prevSong, user?.uid],
-  );
+    [orderedSongs, id, setPlaybackContext, logPick, prevSong, user?.uid, playlist?.songIds],
+  );  
 
   const handleMoveUp = async (index) => {
     if (index === 0 || isReadOnly) return;
@@ -195,6 +198,14 @@ const handleLoadMore = useCallback(() => {
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
   }, [hasMore, loadingMore, handleLoadMore]);
+
+  // Keep playerStore playlist pool in sync as more songs load
+  useEffect(() => {
+    const state = usePlayerStore.getState();
+    if (state.playbackContext.type === 'playlist' && state.playbackContext.id === id && orderedSongs.length > 0) {
+      _appendPlaylistSongs(orderedSongs);
+    }
+  }, [orderedSongs, id]);
 
   if (!playlist || songsLoading) return <Loader />;
   // ── TASK 4.4: Songs error — replaced with ErrorState ──────────────────────

@@ -97,7 +97,23 @@ export function registerPaginationBridge(bridge) {
     console.warn('[playerStore] registerPaginationBridge: invalid bridge shape', bridge);
   }
 }
+// ── Playlist song pool bridge ─────────────────────────────────────────────────
+// Stores the full songIds list and loaded songs for playlist context shuffle.
+let _playlistSongIds = [];   // full ordered IDs from Firestore
+let _playlistSongsLoaded = []; // all songs fetched so far in this playlist session
 
+export function _setPlaylistSongIds(songIds) {
+  _playlistSongIds = Array.isArray(songIds) ? songIds : [];
+  _playlistSongsLoaded = [];
+}
+
+export function _appendPlaylistSongs(songs) {
+  if (!Array.isArray(songs)) return;
+  const existingIds = new Set(_playlistSongsLoaded.map((s) => s.id));
+  for (const s of songs) {
+    if (!existingIds.has(s.id)) _playlistSongsLoaded.push(s);
+  }
+}
 // Transient flag — set when playNext() requests a fetch and is waiting for
 // appendSongsToQueue() to fire. Never stored in Zustand (no re-render needed).
 let _pendingNextAfterFetch = false;
@@ -617,7 +633,9 @@ const usePlayerStore = create((set, get) => ({
       return;
     }
 
-    const pool = playbackContext.songs.length > 0 ? playbackContext.songs : queue;
+    const pool = playbackContext.type === 'playlist' && _playlistSongsLoaded.length > 0
+      ? _playlistSongsLoaded
+      : (playbackContext.songs.length > 0 ? playbackContext.songs : queue);
     if (!pool.length) return;
 
     // ── Classic shuffle ──────────────────────────────────────────────────────
@@ -627,21 +645,26 @@ const usePlayerStore = create((set, get) => ({
 
       if (!order.length || idx >= order.length - 1) {
         // If pagination bridge has a full shuffle order, use it
-        const bridgeOrder = _paginationBridge?.shuffleOrder;
+        const bridgeOrder = playbackContext.type === 'playlist'
+          ? _playlistSongIds.map((sid) => _playlistSongsLoaded.find((s) => s.id === sid)).filter(Boolean).map((s) => s.id)
+          : _paginationBridge?.shuffleOrder;
         if (bridgeOrder && bridgeOrder.length > 0) {
           // Find next unplayed song ID from full shuffle order
           const playedIds = new Set(order.map((s) => s.id));
           const nextId = bridgeOrder.find((id) => !playedIds.has(id));
           if (nextId) {
-            // Check if song is already in queue
-            const nextSong = queue.find((s) => s.id === nextId);
+            // For playlist context use loaded songs; for library use queue
+            const songPool = playbackContext.type === 'playlist'
+              ? _playlistSongsLoaded
+              : queue;
+            const nextSong = songPool.find((s) => s.id === nextId);
             if (nextSong) {
               set({ shuffledOrder: [...order, nextSong], shuffledIndex: idx + 1 });
               playSong(nextSong);
               return;
             }
-            // Song not loaded yet — fetch next page and wait
-            if (_paginationBridge.hasNextPage()) {
+            // Song not loaded yet — only paginate in library context
+            if (playbackContext.type !== 'playlist' && _paginationBridge?.hasNextPage()) {
               _pendingNextAfterFetch = true;
               _paginationBridge.fetchNextPage();
               return;
