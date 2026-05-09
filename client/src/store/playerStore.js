@@ -621,11 +621,34 @@ const usePlayerStore = create((set, get) => ({
     if (!pool.length) return;
 
     // ── Classic shuffle ──────────────────────────────────────────────────────
-    if (shuffleMode === 'classic') {
+   if (shuffleMode === 'classic') {
       let order = shuffledOrder;
       let idx   = shuffledIndex;
 
       if (!order.length || idx >= order.length - 1) {
+        // If pagination bridge has a full shuffle order, use it
+        const bridgeOrder = _paginationBridge?.shuffleOrder;
+        if (bridgeOrder && bridgeOrder.length > 0) {
+          // Find next unplayed song ID from full shuffle order
+          const playedIds = new Set(order.map((s) => s.id));
+          const nextId = bridgeOrder.find((id) => !playedIds.has(id));
+          if (nextId) {
+            // Check if song is already in queue
+            const nextSong = queue.find((s) => s.id === nextId);
+            if (nextSong) {
+              set({ shuffledOrder: [...order, nextSong], shuffledIndex: idx + 1 });
+              playSong(nextSong);
+              return;
+            }
+            // Song not loaded yet — fetch next page and wait
+            if (_paginationBridge.hasNextPage()) {
+              _pendingNextAfterFetch = true;
+              _paginationBridge.fetchNextPage();
+              return;
+            }
+          }
+        }
+        // Fallback — re-roll from current pool
         order = vinylRoll(pool);
         idx   = -1;
         set({ shuffledOrder: order });
@@ -639,8 +662,11 @@ const usePlayerStore = create((set, get) => ({
     }
 
     // ── Smart shuffle ────────────────────────────────────────────────────────
+    // ── Smart shuffle ────────────────────────────────────────────────────────
     if (shuffleMode === 'smart') {
-      const nextSong = smartPick(pool, currentSong, playCountMap, recentlyPlayed);
+      // Use queue (grows with pagination) instead of pool (fixed at context set time)
+      const smartPool = queue.length > 0 ? queue : pool;
+      const nextSong = smartPick(smartPool, currentSong, playCountMap, recentlyPlayed);
       if (nextSong) playSong(nextSong);
       return;
     }

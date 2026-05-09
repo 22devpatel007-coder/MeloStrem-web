@@ -144,11 +144,12 @@ const songs = React.useMemo(() => {
   //
   useEffect(() => {
     registerPaginationBridge({
-      fetchNextPage: query.fetchNextPage,
-      hasNextPage:   () => query.hasNextPage ?? false,
-      appendSongs:   (newSongs) => useQueueStore.getState().appendSongs(newSongs),
+      fetchNextPage:  query.fetchNextPage,
+      hasNextPage:    () => query.hasNextPage ?? false,
+      appendSongs:    (newSongs) => useQueueStore.getState().appendSongs(newSongs),
+      shuffleOrder:   shuffleOrder ?? [],
     });
-  }, [query.fetchNextPage]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query.fetchNextPage, shuffleOrder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Append new page to queue when a fresh page arrives ───────────────────
   //
