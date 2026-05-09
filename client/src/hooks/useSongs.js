@@ -56,26 +56,7 @@ import {
 } from '../store/playerStore';
 import useQueueStore from '../store/queueStore';
 
-// ── Viewport-aware initial page size ──────────────────────────────────────────
-//
-// Calculates how many song rows fit in the current viewport height and adds a
-// small buffer so the user never sees a blank gap below the last row.
-//
-// SONG_ROW_HEIGHT must match SONG_ROW_HEIGHT in SongList.jsx (61px).
-// VIEWPORT_BUFFER is extra rows fetched beyond what's visible — gives the
-// virtualizer enough rows to fill overscan without a second fetch.
-//
-const SONG_ROW_HEIGHT  = 61;
-const VIEWPORT_BUFFER  = 5;
-const MIN_LIMIT        = 10;
-const MAX_LIMIT        = 50; // server hard cap
-
-function getViewportLimit() {
-  if (typeof window === 'undefined') return 20; // SSR / test environment fallback
-  const viewportRows = Math.ceil(window.innerHeight / SONG_ROW_HEIGHT);
-  const withBuffer   = viewportRows + VIEWPORT_BUFFER;
-  return Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, withBuffer));
-}
+const PAGE_LIMIT = 50;
 
 // ── useSongs ──────────────────────────────────────────────────────────────────
 
@@ -94,7 +75,7 @@ function getViewportLimit() {
  *   isFetchingNextPage: boolean,
  * }}
  */
-export const useSongs = (limit = getViewportLimit()) => {
+export const useSongs = (limit = PAGE_LIMIT) => {
   // ── Session shuffle seed ────────────────────────────────────────────────────
   // Holds the shuffled ID order for this session. Populated once on mount.
   // null  = not yet loaded (show in fetch order temporarily)
