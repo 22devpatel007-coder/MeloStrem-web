@@ -25,7 +25,6 @@
  */
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
 import SongList from "../components/songs/SongList";
 import { usePlayerStore } from "../store/playerStore";
 import { useAuthStore } from "../store/authStore";
@@ -132,72 +131,6 @@ function removeFromHistory(id) {
   saveHistory(updated);
   return updated;
 }
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-const AVATAR_COLORS = [
-  { bg: "#E1F5EE", color: "#085041" },
-  { bg: "#EEEDFE", color: "#3C3489" },
-  { bg: "#FAECE7", color: "#712B13" },
-  { bg: "#FBEAF0", color: "#72243E" },
-  { bg: "#E6F1FB", color: "#0C447C" },
-  { bg: "#EAF3DE", color: "#27500A" },
-  { bg: "#FAEEDA", color: "#633806" },
-];
-
-const COVER_COLORS = [
-  "#9FE1CB",
-  "#CECBF6",
-  "#F5C4B3",
-  "#B5D4F4",
-  "#FAC775",
-  "#C0DD97",
-  "#F4C0D1",
-];
-
-function initials(name = "") {
-  return name
-    .split(/[\s\-,]+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("");
-}
-
-function deriveArtists(songs) {
-  const map = new Map();
-  for (const s of songs) {
-    const key = s.artistId || `__plain__${s.artist}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        artistId: s.artistId || null,
-        artist: s.artist || "Unknown",
-        songCount: 0,
-      });
-    }
-    map.get(key).songCount += 1;
-  }
-  return Array.from(map.values())
-    .filter((a) => a.artist && a.artist !== "Unknown")
-    .sort((a, b) => b.songCount - a.songCount);
-}
-
-function deriveAlbums(songs) {
-  const map = new Map();
-  for (const s of songs) {
-    if (!s.album) continue;
-    const key = s.albumId || `__plain__${s.album}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        albumId: s.albumId || null,
-        album: s.album,
-        artist: s.artist || "",
-        artistId: s.artistId || null,
-      });
-    }
-  }
-  return Array.from(map.values());
-}
-
 // ─── Component ────────────────────────────────────────────────────────────────
 const Home = () => {
   const {
@@ -214,8 +147,7 @@ const Home = () => {
   const [searchText, setSearchText] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [history, setHistory] = useState(readHistory);
-  const [showAllArtists, setShowAllArtists] = useState(false);
-  const [showAllAlbums, setShowAllAlbums] = useState(false);
+  const [recentlyPlayed, setRecentlyPlayed] = useState(() => readHistory());
   const [isSearching, setIsSearching] = useState(false);
 
   const searchDebounceRef = useRef(null);
@@ -241,7 +173,9 @@ const Home = () => {
     const previousSong = prevSongRef.current;
     prevSongRef.current = currentSong;
     logPick?.(currentSong, previousSong, user?.uid);
-    setHistory(addToHistory(currentSong));
+    const updated = addToHistory(currentSong);
+    setHistory(updated);
+    setRecentlyPlayed(updated);
   }, [currentSong, logPick, user?.uid]);
 
   const showHistory =
@@ -301,11 +235,6 @@ const Home = () => {
     return r;
   }, [songs, activeGenre, searchText]);
 
-  const artists = useMemo(() => deriveArtists(songs), [songs]);
-  const albums = useMemo(() => deriveAlbums(songs), [songs]);
-
-  const visibleArtists = showAllArtists ? artists : artists.slice(0, 8);
-  const visibleAlbums = showAllAlbums ? albums : albums.slice(0, 8);
 
   // Handlers
   const handleFocus = () => {
@@ -542,113 +471,43 @@ const Home = () => {
 
       {/* ── Page body ─────────────────────────────────────────────────────── */}
       <div className="home-body">
-        {/* ── Artists ── */}
-        {artists.length > 0 && !searchText && (
+        {/* ── Recently Played ── */}
+        {recentlyPlayed.length > 0 && !searchText && (
           <section className="home-section">
             <div className="home-section__header">
-              <h2 className="home-section__title">Artists</h2>
-              {artists.length > 8 && (
-                <button
-                  onClick={() => setShowAllArtists((v) => !v)}
-                  className="home-section__see-all"
-                >
-                  {showAllArtists ? "Show less" : "See all"}
-                </button>
-              )}
+              <h2 className="home-section__title">Recently Played</h2>
             </div>
-            <div className="home-artists-grid">
-              {visibleArtists.map((a, i) => {
-                const col = AVATAR_COLORS[i % AVATAR_COLORS.length];
-                const av = initials(a.artist);
-                const card = (
-                  <div className="home-artist-card">
-                    <div
-                      className="home-artist-card__av"
-                      style={{ background: col.bg, color: col.color }}
-                    >
-                      {av}
-                    </div>
-                    <span className="home-artist-card__name">{a.artist}</span>
-                    <span className="home-artist-card__count">
-                      {a.songCount} songs
-                    </span>
-                  </div>
-                );
-                return a.artistId ? (
-                  <Link
-                    key={a.artistId}
-                    to={`/artist/${a.artistId}`}
-                    style={{ textDecoration: "none" }}
+            <div className="home-recent-grid">
+              {recentlyPlayed.slice(0, 8).map((item) => {
+                const song = songs.find((s) => s.id === item.id);
+                return (
+                  <button
+                    key={item.id}
+                    className="home-recent-card"
+                    onClick={() => {
+                      if (song) handlePlaySong(song, songs);
+                    }}
+                    aria-label={`Play ${item.title}`}
                   >
-                    {card}
-                  </Link>
-                ) : (
-                  <div key={a.artist}>{card}</div>
+                    <img
+                      src={item.coverUrl}
+                      alt={item.title}
+                      className="home-recent-card__cover"
+                      onError={(e) => {
+                        e.target.src = "https://placehold.co/56x56/111/555?text=♪";
+                      }}
+                    />
+                    <div className="home-recent-card__meta">
+                      <span className="home-recent-card__title">{item.title}</span>
+                      <span className="home-recent-card__artist">{item.artist}</span>
+                    </div>
+                    <div className="home-recent-card__play">▶</div>
+                  </button>
                 );
               })}
             </div>
           </section>
         )}
-
-        {/* ── Albums ── */}
-        {albums.length > 0 && !searchText && (
-          <section className="home-section">
-            <div className="home-section__header">
-              <h2 className="home-section__title">Albums</h2>
-              {albums.length > 8 && (
-                <button
-                  onClick={() => setShowAllAlbums((v) => !v)}
-                  className="home-section__see-all"
-                >
-                  {showAllAlbums ? "Show less" : "See all"}
-                </button>
-              )}
-            </div>
-            <div className="home-albums-grid">
-              {visibleAlbums.map((al, i) => {
-                const bg = COVER_COLORS[i % COVER_COLORS.length];
-                const card = (
-                  <div className="home-album-card">
-                    <div
-                      className="home-album-card__cover"
-                      style={{ background: bg }}
-                    >
-                      <span className="home-album-card__cover-icon">♪</span>
-                    </div>
-                    <div className="home-album-card__info">
-                      <span className="home-album-card__name">{al.album}</span>
-                      {al.artistId ? (
-                        <Link
-                          to={`/artist/${al.artistId}`}
-                          className="home-album-card__artist home-album-card__artist--link"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {al.artist}
-                        </Link>
-                      ) : (
-                        <span className="home-album-card__artist">
-                          {al.artist}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-                return al.albumId ? (
-                  <Link
-                    key={al.albumId}
-                    to={`/album/${al.albumId}`}
-                    style={{ textDecoration: "none" }}
-                  >
-                    {card}
-                  </Link>
-                ) : (
-                  <div key={al.album || i}>{card}</div>
-                );
-              })}
-            </div>
-          </section>
-        )}
-
         {/* ── Genre pills ── */}
         {genres.length > 1 && !searchText && (
           <div className="home-genres">
@@ -924,53 +783,40 @@ const HOME_STYLES = `
   }
   .home-section__see-all:hover { color: #4ade80; }
   .home-section__meta { font-size: 12px; color: #6b7280; }
-
-  /* ── Artists grid ─────────────────────────────────────────────────────────── */
-  .home-artists-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-
-  .home-artist-card {
-    display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
-    padding: 18px 12px 14px; gap: 8px; background: #1c1c1c; border: 1px solid #2a2a2a;
-    border-radius: 12px; cursor: pointer; transition: background 0.15s, border-color 0.15s;
-    text-align: center; height: 100%;
+  /* ── Recently Played ─────────────────────────────────────────────────────── */
+  .home-recent-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
   }
-  .home-artist-card:hover { background: #222; border-color: #333; }
-  .home-artist-card__av {
-    width: 56px; height: 56px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; font-weight: 700; flex-shrink: 0;
+  .home-recent-card {
+    display: flex; align-items: center; gap: 10px;
+    background: #1c1c1c; border: 1px solid #2a2a2a; border-radius: 10px;
+    padding: 8px 10px; cursor: pointer; text-align: left; width: 100%;
+    transition: background 0.15s, border-color 0.15s; font-family: inherit;
+    position: relative; overflow: hidden;
   }
-  .home-artist-card__name {
+  .home-recent-card:hover { background: #222; border-color: #333; }
+  .home-recent-card:hover .home-recent-card__play { opacity: 1; }
+  .home-recent-card__cover {
+    width: 42px; height: 42px; border-radius: 6px;
+    object-fit: cover; flex-shrink: 0; background: #111;
+  }
+  .home-recent-card__meta {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  }
+  .home-recent-card__title {
     font-size: 13px; font-weight: 600; color: #e5e7eb;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-    overflow: hidden; word-break: break-word; max-width: 100%;
-    text-align: center; line-height: 1.35; min-height: 2.7em;
-  }
-  .home-artist-card__count { font-size: 11px; color: #6b7280; }
-
-  /* ── Albums grid ──────────────────────────────────────────────────────────── */
-  .home-albums-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-
-  .home-album-card {
-    display: flex; flex-direction: column; background: #1c1c1c; border: 1px solid #2a2a2a;
-    border-radius: 12px; overflow: hidden; cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .home-album-card:hover { background: #222; border-color: #333; }
-  .home-album-card__cover { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; }
-  .home-album-card__cover-icon { font-size: 28px; opacity: 0.7; }
-  .home-album-card__info { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 3px; }
-  .home-album-card__name {
-    font-size: 13px; font-weight: 500; color: #e5e7eb;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .home-album-card__artist {
+  .home-recent-card__artist {
     font-size: 11px; color: #6b7280;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .home-album-card__artist--link { color: #4ade80; transition: color 0.15s; }
-  .home-album-card__artist--link:hover { color: #22c55e; text-decoration: underline; text-underline-offset: 2px; }
-
+  .home-recent-card__play {
+    font-size: 11px; color: #22c55e; flex-shrink: 0;
+    opacity: 0; transition: opacity 0.15s;
+  }
   /* ── Genre pills ──────────────────────────────────────────────────────────── */
   .home-genres { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
   .home-genre-pill {
@@ -997,16 +843,17 @@ const HOME_STYLES = `
   .home-sentinel__done { font-size: 12px; color: #374151; text-align: center; }
 
   /* ── Responsive ───────────────────────────────────────────────────────────── */
-  @media (min-width: 480px) {
+ @media (min-width: 480px) {
     .home-body { padding: 20px 28px 0; }
+    .home-recent-grid { grid-template-columns: repeat(2, 1fr); }
   }
   @media (min-width: 768px) {
     .home-topbar { padding: 0 28px; }
-    .home-artists-grid { grid-template-columns: repeat(3, 1fr); }
-    .home-albums-grid  { grid-template-columns: repeat(3, 1fr); }
+    .home-recent-grid { grid-template-columns: repeat(3, 1fr); }
+  }
   @media (min-width: 1024px) {
-    .home-artists-grid { grid-template-columns: repeat(4, 1fr); }
-    .home-albums-grid  { grid-template-columns: repeat(4, 1fr); }
+    .home-recent-grid { grid-template-columns: repeat(4, 1fr); }
+  }
 `;
 
 export default Home;
