@@ -33,16 +33,15 @@
  *   - isFetchingNextPage skeleton: identical
  */
 
-import { useRef, useEffect } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
-import SongCard from './SongCard';
-import SongListSkeleton from './SongListSkeleton';
-import { useLikedSongs } from '../../hooks/useLikedSongs';
-import { useAuthStore } from '../../store/authStore';
+import {  useEffect } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import SongCard from "./SongCard";
+import { useLikedSongs } from "../../hooks/useLikedSongs";
+import { useAuthStore } from "../../store/authStore";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SONG_ROW_HEIGHT = 61;
-const OVERSCAN        = 5;
+const OVERSCAN = 5;
 const SENTINEL_OFFSET = 10;
 
 // ── Column header ─────────────────────────────────────────────────────────────
@@ -84,30 +83,31 @@ const SongList = ({
   const { user } = useAuthStore();
   const { likedSongIds } = useLikedSongs(user?.uid);
 
-  // ── Ref anchors the virtualizer ─────────────────────────────────────────────
-  const containerRef = useRef(null);
-
   // ── Virtualizer ─────────────────────────────────────────────────────────────
   const virtualizer = useVirtualizer({
-    count:            songs?.length ?? 0,
-    getScrollElement: () => containerRef.current,
-    estimateSize:     () => SONG_ROW_HEIGHT,
-    overscan:         OVERSCAN,
+    count: songs?.length ?? 0,
+    getScrollElement: () => document.querySelector("main#main-content") ?? null,
+    estimateSize: () => SONG_ROW_HEIGHT,
+    overscan: OVERSCAN,
   });
 
   const virtualItems = virtualizer.getVirtualItems();
-  const totalHeight  = virtualizer.getTotalSize();
+  const totalHeight = virtualizer.getTotalSize();
 
   // ── Infinite scroll trigger ──────────────────────────────────────────────────
   useEffect(() => {
     if (!fetchNextPage || !hasNextPage || isFetchingNextPage) return;
     if (virtualItems.length === 0) return;
 
-    const lastItem = virtualItems[virtualItems.length - 1];
-    if (lastItem.index >= (songs.length - SENTINEL_OFFSET)) {
+    // Use the last *visible* item, not the last overscan item.
+    // rangeStartIndex/rangeEndIndex are the actual visible window — no overscan.
+    const range = virtualizer.calculateRange();
+    if (!range) return;
+
+    if (range.endIndex >= songs.length - SENTINEL_OFFSET) {
       fetchNextPage();
     }
-  }, [virtualItems, songs?.length, fetchNextPage, hasNextPage, isFetchingNextPage]);
+  }, [virtualItems, songs?.length, fetchNextPage, hasNextPage, isFetchingNextPage, virtualizer]);
 
   // ── Empty state ──────────────────────────────────────────────────────────────
   if (!songs || songs.length === 0) {
@@ -115,7 +115,9 @@ const SongList = ({
       <div style={styles.empty}>
         <div style={styles.emptyIcon}>♪</div>
         <p style={styles.emptyTitle}>No songs found</p>
-        <p style={styles.emptySubtitle}>Try a different search or check back later.</p>
+        <p style={styles.emptySubtitle}>
+          Try a different search or check back later.
+        </p>
       </div>
     );
   }
@@ -123,28 +125,22 @@ const SongList = ({
   return (
     <>
       {/*
-        * FIX 3: CSS variable injection for player-aware maxHeight.
-        * --song-list-offset is consumed by the scrollable container below.
-        * body.has-player is set by MusicPlayer when a song is playing.
-        * 320px = 260px base + ~60px player bar height.
-        * Falls back to 260px when no player is mounted.
-        */}
+       * FIX 3: CSS variable injection for player-aware maxHeight.
+       * --song-list-offset is consumed by the scrollable container below.
+       * body.has-player is set by MusicPlayer when a song is playing.
+       * 320px = 260px base + ~60px player bar height.
+       * Falls back to 260px when no player is mounted.
+       */}
       <style>{LIST_STYLES}</style>
       <div className="song-list">
         <ListHeader />
 
         <div
-          ref={containerRef}
           className="song-list__rows"
           role="list"
-          style={{
-            overflowY: 'auto',
-            // FIX 3: CSS variable replaces hardcoded 260px.
-            // --song-list-offset is set globally in LIST_STYLES below.
-            maxHeight: 'calc(100vh - var(--song-list-offset, 260px))',
-          }}
+          style={{ overflowY: "visible" }}
         >
-          <div style={{ height: totalHeight, position: 'relative' }}>
+          <div style={{ height: totalHeight, position: "relative" }}>
             {virtualItems.map((virtualItem) => {
               const song = songs[virtualItem.index];
               if (!song) return null;
@@ -156,10 +152,10 @@ const SongList = ({
                   data-index={virtualItem.index}
                   ref={virtualizer.measureElement}
                   style={{
-                    position:  'absolute',
-                    top:       0,
-                    left:      0,
-                    width:     '100%',
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
                     transform: `translateY(${virtualItem.start}px)`,
                   }}
                 >
@@ -176,12 +172,6 @@ const SongList = ({
             })}
           </div>
         </div>
-
-        {isFetchingNextPage && (
-          <div style={{ marginTop: 4 }}>
-            <SongListSkeleton count={4} />
-          </div>
-        )}
       </div>
     </>
   );
@@ -273,31 +263,31 @@ const HEADER_STYLES = `
 
 const styles = {
   empty: {
-    textAlign: 'center',
-    padding: '80px 20px',
+    textAlign: "center",
+    padding: "80px 20px",
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
   },
   emptyIcon: {
-    width: '56px',
-    height: '56px',
-    background: '#1a1a1a',
-    border: '1px solid #2d2d2d',
-    borderRadius: '14px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '22px',
-    margin: '0 auto 16px',
+    width: "56px",
+    height: "56px",
+    background: "#1a1a1a",
+    border: "1px solid #2d2d2d",
+    borderRadius: "14px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "22px",
+    margin: "0 auto 16px",
   },
   emptyTitle: {
-    color: '#fff',
-    fontSize: '16px',
-    fontWeight: '600',
-    marginBottom: '6px',
+    color: "#fff",
+    fontSize: "16px",
+    fontWeight: "600",
+    marginBottom: "6px",
   },
   emptySubtitle: {
-    color: '#6b7280',
-    fontSize: '14px',
+    color: "#6b7280",
+    fontSize: "14px",
   },
 };
 
