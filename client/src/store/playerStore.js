@@ -4,6 +4,12 @@ import { create } from 'zustand';
 export const audio = new Audio();
 audio.preload = 'metadata';
 
+// ── Prefetch Audio instance (next song buffer) ────────────────────────────────
+// Separate element — never plays, only buffers. Always muted.
+// Discarded and recreated per prefetch cycle.
+let _prefetchAudio = null;
+let _prefetchSongId = null;
+let _prefetchTimer = null;
 // NOTE: AudioContext intentionally removed.
 //
 // WHAT WAS WRONG:
@@ -544,20 +550,48 @@ const usePlayerStore = create((set, get) => ({
       // Prefetch next song's audio URL into client cache while current song plays.
       // Fire-and-forget — never blocks playback, never throws to caller.
       // Eliminates network call on auto-advance, critical for PWA locked screen.
-      setTimeout(() => {
+      // Clear any previous prefetch timer and element
+      if (_prefetchTimer) { clearTimeout(_prefetchTimer); _prefetchTimer = null; }
+      if (_prefetchAudio) { _prefetchAudio.src = ''; _prefetchAudio = null; _prefetchSongId = null; }
+
+      // Wait 30s — user is committed, unlikely to skip. Then buffer next song's
+      // first chunk only. On slow/mobile networks this is ~200–500KB max.
+      _prefetchTimer = setTimeout(async () => {
+        _prefetchTimer = null;
         try {
           const { queue } = getQueueState();
           const nextIndex = queue.findIndex((s) => s.id === song.id) + 1;
           const nextSong  = queue[nextIndex];
-          if (nextSong?.id) {
-            import('../services/songs.service')
-              .then(({ getSongAudioUrl }) => getSongAudioUrl(nextSong.id))
-              .catch(() => {});
-          }
+          if (!nextSong?.id) return;
+          if (_prefetchSongId === nextSong.id) return; // already buffered
+
+          const { getSongAudioUrl } = await import('../services/songs.service');
+          const nextUrl = await getSongAudioUrl(nextSong.id);
+          if (!nextUrl) return;
+
+          // Discard stale prefetch element if song changed
+          if (_prefetchAudio) { _prefetchAudio.src = ''; _prefetchAudio = null; }
+
+          _prefetchAudio          = new Audio();
+          _prefetchAudio.muted    = true;
+          _prefetchAudio.preload  = 'auto';
+          _prefetchAudio.src      = nextUrl;
+          _prefetchSongId         = nextSong.id;
+
+          // Stop buffering after canplay — we only need the first chunk
+          _prefetchAudio.addEventListener('canplay', () => {
+            if (_prefetchAudio) _prefetchAudio.pause();
+          }, { once: true });
+
+          // Silent failure — never affects current playback
+          _prefetchAudio.addEventListener('error', () => {
+            _prefetchAudio = null; _prefetchSongId = null;
+          }, { once: true });
+
         } catch {
-          // prefetch failure is always silent — never affects current playback
+          // prefetch failure is always silent
         }
-      }, 3000);
+      }, 30_000);
     } catch {
       set({ isPlaying: false });
     }
@@ -740,6 +774,8 @@ const usePlayerStore = create((set, get) => ({
     if (currentAbortController) currentAbortController.abort();
     audio.pause();
     audio.src     = '';
+    if (_prefetchTimer) { clearTimeout(_prefetchTimer); _prefetchTimer = null; }
+    if (_prefetchAudio) { _prefetchAudio.src = ''; _prefetchAudio = null; _prefetchSongId = null; }
     _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
     set({
       currentSong:     null,
@@ -761,7 +797,8 @@ const usePlayerStore = create((set, get) => ({
 
     audio.pause();
     audio.src     = '';
-
+    if (_prefetchTimer) { clearTimeout(_prefetchTimer); _prefetchTimer = null; }
+      if (_prefetchAudio) { _prefetchAudio.src = ''; _prefetchAudio = null; _prefetchSongId = null; }
     _pendingNextAfterFetch = false; // cancel any pending fetch-and-play
 
     set({
