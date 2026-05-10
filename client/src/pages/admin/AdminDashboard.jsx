@@ -33,8 +33,9 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query"; // ← BUG-012 FIX
 import axiosInstance from "../../services/api";
 import { extractSong as normalizeSong } from "../../services/songs.service";
-import { QUERY_KEYS } from "../../constants/queryKeys"; 
+import { QUERY_KEYS } from "../../constants/queryKeys";
 import { useAdminPlaylists } from "../../hooks/usePlaylists";
+import { LinkIcon as HeroLinkIcon } from "@heroicons/react/24/outline";
 import { usePlaylists } from "../../hooks/usePlaylists";
 import {
   BarChart,
@@ -64,25 +65,24 @@ const COLORS = [
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
   const [usersLoading, setUsersLoading] = useState(true);
-    const [deletingId, setDeletingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
-    const { adminPlaylists, isLoading: playlistsLoading } = useAdminPlaylists();
-const { deletePlaylist } = usePlaylists();
+  const { adminPlaylists, isLoading: playlistsLoading } = useAdminPlaylists();
+  const { deletePlaylist } = usePlaylists();
   // BUG-012 FIX: Use React Query for songs so this component participates in
   // the shared cache. When UploadMusic/BulkUpload/MusicList invalidate
   // QUERY_KEYS.SONGS, this query refetches automatically — the dashboard stats
   // (total songs count, genre breakdown, recent uploads list) stay accurate.
-  const {
-    data: songsData,
-    isLoading: songsLoading,
-  } = useQuery({
-    queryKey: [QUERY_KEYS.SONGS, 'admin-list'],
+  const { data: songsData, isLoading: songsLoading } = useQuery({
+    queryKey: [QUERY_KEYS.SONGS, "admin-list"],
     queryFn: async () => {
       let allSongs = [];
       let cursor = null;
       let hasMore = true;
       while (hasMore) {
-        const url = cursor ? `/songs?limit=50&cursor=${cursor}` : `/songs?limit=50`;
+        const url = cursor
+          ? `/songs?limit=50&cursor=${cursor}`
+          : `/songs?limit=50`;
         const res = await axiosInstance.get(url);
         const body = res?.data ?? {};
         const page = Array.isArray(body.songs) ? body.songs : [];
@@ -100,18 +100,26 @@ const { deletePlaylist } = usePlaylists();
 
   // Users fetch stays as a direct call — not mutated by any current admin flow.
   const handleDeletePlaylist = (id) => {
-  deletePlaylist(id, {
-    onSuccess: () => setConfirmId(null),
-    onError: () => setConfirmId(null),
-  });
-  setDeletingId(id);
-};
+    deletePlaylist(id, {
+      onSuccess: () => setConfirmId(null),
+      onError: () => setConfirmId(null),
+    });
+    setDeletingId(id);
+  };
   useEffect(() => {
     const fetchUsers = async () => {
       try {
         const usersRes = await axiosInstance.get("/users");
         const body = usersRes?.data ?? {};
-        setUsers(Array.isArray(body) ? body : (Array.isArray(body.users) ? body.users : (Array.isArray(body.data) ? body.data : [])));
+        setUsers(
+          Array.isArray(body)
+            ? body
+            : Array.isArray(body.users)
+              ? body.users
+              : Array.isArray(body.data)
+                ? body.data
+                : [],
+        );
       } catch (err) {
         console.error("Failed to fetch users:", err);
       }
@@ -141,7 +149,6 @@ const { deletePlaylist } = usePlaylists();
 
   const uploadsByMonth = buildMonthlyData(songs, "createdAt", "uploads");
   const usersByMonth = buildMonthlyData(users, "createdAt", "users");
-
 
   return (
     <div style={styles.container}>
@@ -178,55 +185,63 @@ const { deletePlaylist } = usePlaylists();
           color="#8b5cf6"
         />
       </div>
-          <div style={styles.section}>
-  <h2 style={styles.sectionTitle}>Admin Playlists</h2>
-  {playlistsLoading ? (
-    <p style={{ color: "#6b7280", fontSize: 13 }}>Loading playlists…</p>
-  ) : adminPlaylists.length === 0 ? (
-    <p style={{ color: "#6b7280", fontSize: 13 }}>No admin playlists yet.</p>
-  ) : (
-    <div style={styles.recentList}>
-      {adminPlaylists.map((pl) => (
-        <div key={pl.id} style={styles.recentItem}>
-          <img
-            src={pl.coverUrl || "https://placehold.co/40x40/111/555?text=♪"}
-            alt={pl.name}
-            style={styles.recentCover}
-            onError={(e) => { e.target.src = "https://placehold.co/40x40/111/555?text=♪"; }}
-          />
-          <div style={styles.recentInfo}>
-            <p style={styles.recentTitle}>{pl.name}</p>
-            <p style={styles.recentArtist}>{pl.songIds?.length ?? 0} songs</p>
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>Admin Playlists</h2>
+        {playlistsLoading ? (
+          <p style={{ color: "#6b7280", fontSize: 13 }}>Loading playlists…</p>
+        ) : adminPlaylists.length === 0 ? (
+          <p style={{ color: "#6b7280", fontSize: 13 }}>
+            No admin playlists yet.
+          </p>
+        ) : (
+          <div style={styles.recentList}>
+            {adminPlaylists.map((pl) => (
+              <div key={pl.id} style={styles.recentItem}>
+                <img
+                  src={
+                    pl.coverUrl || "https://placehold.co/40x40/111/555?text=♪"
+                  }
+                  alt={pl.name}
+                  style={styles.recentCover}
+                  onError={(e) => {
+                    e.target.src = "https://placehold.co/40x40/111/555?text=♪";
+                  }}
+                />
+                <div style={styles.recentInfo}>
+                  <p style={styles.recentTitle}>{pl.name}</p>
+                  <p style={styles.recentArtist}>
+                    {pl.songIds?.length ?? 0} songs
+                  </p>
+                </div>
+                {confirmId === pl.id ? (
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => handleDeletePlaylist(pl.id)}
+                      disabled={deletingId === pl.id}
+                      style={styles.btnDanger}
+                    >
+                      {deletingId === pl.id ? "Deleting…" : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmId(null)}
+                      style={styles.btnGhost}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(pl.id)}
+                    style={styles.btnDanger}
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
-          {confirmId === pl.id ? (
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => handleDeletePlaylist(pl.id)}
-                disabled={deletingId === pl.id}
-                style={styles.btnDanger}
-              >
-                {deletingId === pl.id ? "Deleting…" : "Confirm"}
-              </button>
-              <button
-                onClick={() => setConfirmId(null)}
-                style={styles.btnGhost}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmId(pl.id)}
-              style={styles.btnDanger}
-            >
-              Delete
-            </button>
-          )}
-        </div>
-      ))}
-    </div>
-  )}
-</div>
+        )}
+      </div>
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Quick Actions</h2>
         <div style={styles.actionsRow}>
@@ -260,6 +275,12 @@ const { deletePlaylist } = usePlaylists();
             label="View Users"
             desc="All registered accounts"
             icon={<UsersIcon />}
+          />
+          <ActionLink
+            to="/admin/suggestions"
+            label="Suggestions"
+            desc="User playlist links"
+            icon={<LinkIcon />}
           />
         </div>
       </div>
@@ -564,14 +585,28 @@ const ActionLink = ({ to, label, desc, icon, primary }) => (
 );
 
 const MusicIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M9 18V5l12-2v13" />
     <circle cx="6" cy="18" r="3" />
     <circle cx="18" cy="16" r="3" />
   </svg>
 );
 const UsersIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
     <circle cx="9" cy="7" r="4" />
     <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
@@ -579,25 +614,54 @@ const UsersIcon = () => (
   </svg>
 );
 const PlayIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <polygon points="5 3 19 12 5 21 5 3" />
   </svg>
 );
 const TagIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
     <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
 );
 const UploadIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <polyline points="16 16 12 12 8 16" />
     <line x1="12" y1="12" x2="12" y2="21" />
     <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
   </svg>
 );
+const LinkIcon = () => <HeroLinkIcon style={{ width: 18, height: 18 }} />;
 const PlaylistIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+  >
     <line x1="8" y1="6" x2="21" y2="6" />
     <line x1="8" y1="12" x2="21" y2="12" />
     <line x1="8" y1="18" x2="21" y2="18" />
@@ -766,27 +830,27 @@ const styles = {
     flexShrink: 0,
   },
   btnDanger: {
-  background: "rgba(239,68,68,0.12)",
-  color: "#ef4444",
-  border: "1px solid rgba(239,68,68,0.3)",
-  borderRadius: "7px",
-  padding: "6px 14px",
-  fontSize: "12px",
-  fontWeight: "600",
-  cursor: "pointer",
-  flexShrink: 0,
-},
-btnGhost: {
-  background: "transparent",
-  color: "#6b7280",
-  border: "1px solid #2d2d2d",
-  borderRadius: "7px",
-  padding: "6px 14px",
-  fontSize: "12px",
-  fontWeight: "600",
-  cursor: "pointer",
-  flexShrink: 0,
-},
+    background: "rgba(239,68,68,0.12)",
+    color: "#ef4444",
+    border: "1px solid rgba(239,68,68,0.3)",
+    borderRadius: "7px",
+    padding: "6px 14px",
+    fontSize: "12px",
+    fontWeight: "600",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
+  btnGhost: {
+    background: "transparent",
+    color: "#6b7280",
+    border: "1px solid #2d2d2d",
+    borderRadius: "7px",
+    padding: "6px 14px",
+    fontSize: "12px",
+    fontWeight: "600",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
 };
 
 export default AdminDashboard;

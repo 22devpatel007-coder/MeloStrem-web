@@ -144,6 +144,7 @@ const zipUploadLimiter = rateLimit({
   windowMs: 30 * 60 * 1000,
   max:      350,
   keyGenerator: (req) => req.user?.uid || req.ip,
+  validate: { xForwardedForHeader: false },
   message:  {
     success: false,
     error: { message: 'Bulk upload rate limit exceeded', code: 'BULK_UPLOAD_LIMIT_EXCEEDED' },
@@ -275,6 +276,22 @@ const errorReportLimiter = rateLimit({
 
 // ── Exports ───────────────────────────────────────────────────────────────────
 
+/**
+ * suggestionsLimiter — POST /api/suggestions.
+ * 5 requests per 15 minutes per IP.
+ * The Firestore 24-hour per-user check is the primary guard;
+ * this IP-level limiter blocks burst abuse before Firestore is hit.
+ */
+const suggestionsLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  max:      5,
+  message:  {
+    success: false,
+    error: { message: 'Too many suggestion requests', code: 'RATE_LIMIT_EXCEEDED' },
+  },
+});
+
 module.exports = {
   generalLimiter,
   uploadLimiter,
@@ -286,4 +303,5 @@ module.exports = {
   albumsLimiter,
   playlistsLimiter,
   errorReportLimiter,
+  suggestionsLimiter,
 };

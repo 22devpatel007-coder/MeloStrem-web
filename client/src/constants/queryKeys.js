@@ -24,6 +24,7 @@ export const QUERY_KEYS = {
   ARTIST_SONGS:    'artist_songs',
   ALBUM:           'album',
   ALBUM_SONGS:     'album_songs',
-  USER_PLAYLISTS:  'userPlaylists',   // ✅ NEW
-  ADMIN_PLAYLISTS: 'adminPlaylists',  // ✅ NEW
+  USER_PLAYLISTS:  'userPlaylists',   
+  ADMIN_PLAYLISTS: 'adminPlaylists',  
+  SUGGESTIONS:     'suggestions', 
 };

@@ -42,16 +42,19 @@ import Login          from '../pages/Login';
 import Register       from '../pages/Register';
 import ForgotPassword from '../pages/ForgotPassword';
 
+
 // ── Lazily loaded (code-split) ────────────────────────────────────────────────
 const AdminDashboard    = lazy(() => import('../pages/admin/AdminDashboard'));
 const MusicList         = lazy(() => import('../pages/admin/MusicList'));
 const UploadMusic       = lazy(() => import('../pages/admin/UploadMusic'));
 const BulkUpload        = lazy(() => import('../pages/admin/BulkUpload'));
 const UploadPlaylistZip = lazy(() => import('../pages/admin/UploadPlaylistZip'));
+const AdminSuggestionsPage = lazy(() => import('../pages/admin/AdminSuggestionsPage'));
 const UsersList         = lazy(() => import('../pages/admin/UsersList'));
-const UserDetail = lazy(() => import('../pages/admin/UserDetail'));
+const UserDetail        = lazy(() => import('../pages/admin/UserDetail'));
 const ArtistDetail      = lazy(() => import('../pages/ArtistDetail'));
 const AlbumDetail       = lazy(() => import('../pages/AlbumDetail'));
+const SuggestionsPage   = lazy(() => import('../pages/SuggestionsPage'));
 
 // ─── AppRoutes ────────────────────────────────────────────────────────────────
 
@@ -229,6 +232,31 @@ const AppRoutes = () => (
     </AdminRoute>
   }
 />
+      {/* ── Fallback ── */}
+      {/* ── Playlist suggestions ── */}
+      <Route
+        path='/suggestions'
+        element={
+          <ProtectedRoute>
+            <PageWrapper>
+              <SuggestionsPage />
+            </PageWrapper>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ── Admin suggestions view ── */}
+      <Route
+        path='/admin/suggestions'
+        element={
+          <AdminRoute>
+            <PageWrapper>
+              <AdminSuggestionsPage />
+            </PageWrapper>
+          </AdminRoute>
+        }
+      />
+
       {/* ── Fallback ── */}
       <Route path='*' element={<Navigate to='/' replace />} />
 
