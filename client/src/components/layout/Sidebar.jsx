@@ -21,6 +21,7 @@ import {
   Cog6ToothIcon,
   MusicalNoteIcon,
   XMarkIcon,
+  LinkIcon,
 } from '@heroicons/react/24/outline';
 import useAuthStore from '../../store/authStore';
 import { useUserPlaylists } from '../../hooks/usePlaylists';
@@ -28,10 +29,11 @@ import { useUserPlaylists } from '../../hooks/usePlaylists';
 // ─── Nav item config ──────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { to: '/',          label: 'Library',     Icon: HomeIcon },
-  { to: '/search',    label: 'Search',      Icon: MagnifyingGlassIcon },
-  { to: '/liked',     label: 'Liked Songs', Icon: HeartIcon },
-  { to: '/playlists', label: 'Playlists',   Icon: QueueListIcon },
+  { to: '/',             label: 'Library',     Icon: HomeIcon },
+  { to: '/search',       label: 'Search',      Icon: MagnifyingGlassIcon },
+  { to: '/liked',        label: 'Liked Songs', Icon: HeartIcon },
+  { to: '/playlists',    label: 'Playlists',   Icon: QueueListIcon },
+  { to: '/suggestions',  label: 'Share a Playlist', Icon: LinkIcon, badge: 'New' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -129,16 +131,32 @@ const Sidebar = ({ isOpen = false, onClose }) => {
         {/* ── Primary navigation ── */}
         <nav className="px-3 mb-6 shrink-0" aria-label="Primary">
           <ul className="flex flex-col gap-1">
-            {NAV_ITEMS.map(({ to, label, Icon }) => (
+            {NAV_ITEMS.map(({ to, label, Icon, badge }) => (
               <li key={to}>
                 <NavLink
                   to={to}
                   end={to === '/'}
-                  className={navLinkClass}
+                  className={({ isActive }) =>
+                    [
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150',
+                      to === '/suggestions'
+                        ? isActive
+                          ? 'bg-purple-900/40 text-purple-300'
+                          : 'text-purple-400 hover:text-purple-300 hover:bg-purple-900/20'
+                        : isActive
+                          ? 'bg-[#2a2a2a] text-white'
+                          : 'text-gray-400 hover:text-white hover:bg-[#222222]',
+                    ].join(' ')
+                  }
                   onClick={onClose}
                 >
                   <Icon className="w-[18px] h-[18px] shrink-0" aria-hidden="true" />
-                  {label}
+                  <span className="flex-1">{label}</span>
+                  {badge && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 leading-none">
+                      {badge}
+                    </span>
+                  )}
                 </NavLink>
               </li>
             ))}

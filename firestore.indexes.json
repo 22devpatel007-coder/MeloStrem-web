@@ -104,13 +104,13 @@
     },
 
     {
-  "collectionGroup": "sessionPicks",
-  "queryScope": "COLLECTION",
-  "fields": [
-    { "fieldPath": "sessionId", "order": "ASCENDING" },
-    { "fieldPath": "pickedAt",  "order": "DESCENDING" }
-  ]
-},
+      "collectionGroup": "sessionPicks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sessionId", "order": "ASCENDING" },
+        { "fieldPath": "pickedAt",  "order": "DESCENDING" }
+      ]
+    },
 
     {
       "collectionGroup": "userSessions",
@@ -127,6 +127,34 @@
       "fields": [
         { "fieldPath": "isActive", "order": "ASCENDING" },
         { "fieldPath": "lastSeen", "order": "DESCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "playlistSuggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId",    "order": "ASCENDING" },
+        { "fieldPath": "status",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    },  
+
+    {
+      "collectionGroup": "playlistSuggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+
+    {
+      "collectionGroup": "playlistSuggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     }
 
