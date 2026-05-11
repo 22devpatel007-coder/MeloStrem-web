@@ -69,6 +69,20 @@ const listMine = async (req, res, next) => {
     const data = await SuggestionService.listByUser(uid);
     return res.json({ success: true, data });
   } catch (err) {
+    // Firestore FAILED_PRECONDITION (code 9) = missing composite index.
+    // Return 503 instead of crashing with a raw 500 so the client can retry.
+    if (
+      err.code === 9 ||
+      (err.message && err.message.includes('requires an index'))
+    ) {
+      return res.status(503).json({
+        success: false,
+        error: {
+          code:    'INDEX_NOT_READY',
+          message: 'Service temporarily unavailable. Please retry in a few minutes.',
+        },
+      });
+    }
     next(err);
   }
 };
