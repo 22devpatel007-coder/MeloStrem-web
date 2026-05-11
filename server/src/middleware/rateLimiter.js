@@ -144,7 +144,7 @@ const zipUploadLimiter = rateLimit({
   windowMs: 30 * 60 * 1000,
   max:      350,
   keyGenerator: (req) => req.user?.uid || req.ip,
-  validate: { xForwardedForHeader: false },
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
   message:  {
     success: false,
     error: { message: 'Bulk upload rate limit exceeded', code: 'BULK_UPLOAD_LIMIT_EXCEEDED' },

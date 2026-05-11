@@ -78,5 +78,5 @@ router.delete(
   isAdmin,
   songsController.deleteSong,
 );
-console.log('bulkDeleteSongs:', typeof songsController.bulkDeleteSongs);
+
 module.exports = router;
