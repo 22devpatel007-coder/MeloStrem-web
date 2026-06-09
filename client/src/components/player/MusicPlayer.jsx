@@ -28,7 +28,8 @@ import { usePlayerStore } from '../../store/playerStore';
 import MiniPlayerBar from './MiniPlayerBar';
 import FullScreenPlayer from './FullScreenPlayer';
 import { useEffect } from "react";
-  
+import { usePlayTracker } from '../../hooks/usePlayTracker';
+
 const MusicPlayer = memo(() => {
   const currentSong = usePlayerStore((s) => s.currentSong);
   
@@ -37,6 +38,7 @@ const MusicPlayer = memo(() => {
   useMediaSession();
   useListenTracker();
   useKeyboardControls();
+  usePlayTracker();
   const handleExpand      = useCallback(() => setIsExpanded(true),  []);
   const handleCollapse    = useCallback(() => setIsExpanded(false), []);
   const handleToggleQueue = useCallback(() => setShowQueue((v) => !v), []);
