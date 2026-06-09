@@ -50,6 +50,7 @@ const artistsRoutes   = require('./artists.routes');
 const albumsRoutes    = require('./albums.routes');
 const errorsRoutes    = require('./errors.routes');   // Phase 4 Task 4.2
 const suggestionsRouter = require('./suggestions.routes');
+const playsRouter = require('./plays.routes');
 // ── Health check ──────────────────────────────────────────────────────────────
 // Used for keep-alive self-ping and uptime monitors that prefix all paths
 // with /api. Synchronous only — no dependency probes (those live at /ready).
@@ -80,6 +81,7 @@ router.use('/songs',     songsRoutes);
 router.use('/search',    searchRoutes);
 router.use('/playlists', playlistsRoutes);
 router.use('/suggestions', suggestionsRouter);
+router.use('/plays', playsRouter);
 router.use('/users',     usersRoutes);
 router.use('/artists',   artistsRoutes);
 router.use('/albums',    albumsRoutes);

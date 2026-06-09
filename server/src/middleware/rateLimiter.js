@@ -292,6 +292,18 @@ const suggestionsLimiter = rateLimit({
   },
 });
 
+const playsLimiter = rateLimit({
+  ...base,
+  windowMs: 1 * 60 * 1000,
+  max:      60,
+  keyGenerator: (req) => req.user?.uid || req.ip,
+  validate: { xForwardedForHeader: false, keyGeneratorIpFallback: false },
+  message: {
+    success: false,
+    error: { message: 'Too many play events', code: 'RATE_LIMIT_EXCEEDED' },
+  },
+});
+
 module.exports = {
   generalLimiter,
   uploadLimiter,
@@ -304,4 +316,5 @@ module.exports = {
   playlistsLimiter,
   errorReportLimiter,
   suggestionsLimiter,
+  playsLimiter,
 };
