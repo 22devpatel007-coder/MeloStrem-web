@@ -278,6 +278,7 @@ const Login = () => {
           <Link to="/register" style={styles.link}>
             Create one
           </Link>
+          <p style={styles.devCredit}>Developed by Dev · Personal use only</p>
         </p>
       </div>
     </div>
@@ -546,6 +547,13 @@ const styles = {
     textDecoration: "none",
     fontWeight: "var(--font-weight-medium)",
   },
+  devCredit: {
+  color: '#6b7280',
+  fontSize: '13px',
+  textAlign: "center",
+  marginTop: "var(--space-3)",
+  opacity: 0.6,
+},
 };
 
 // ─── Inject global styles once ────────────────────────────────────────────────

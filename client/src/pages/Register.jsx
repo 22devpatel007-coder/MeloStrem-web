@@ -268,6 +268,7 @@ const Register = () => {
             Sign in
           </Link>
         </p>
+          <p style={styles.devCredit}>Developed by Dev · Personal use only</p>
       </div>
     </div>
   );
@@ -465,6 +466,14 @@ const styles = {
     textDecoration: 'none',
     fontWeight: '600',
   },
+  devCredit: {
+  color: '#6b7280',
+  fontSize: '11px',
+  textAlign: 'center',
+  marginTop: '12px',
+  marginBottom: 0,
+  opacity: 0.6,
+},
 };
 
 export default Register;
