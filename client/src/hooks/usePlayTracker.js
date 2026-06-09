@@ -41,7 +41,6 @@ const POLL_INTERVAL   = 1000; // 1 second tick — lightweight, no AudioElement 
 export const usePlayTracker = () => {
   const currentSong = usePlayerStore((s) => s.currentSong);
   const isPlaying   = usePlayerStore((s) => s.isPlaying);
-  const { user }    = useAuthStore();
 
   // listenedSeconds accumulated for the current song this mount cycle
   const listenedRef = useRef(0);
@@ -110,5 +109,5 @@ export const usePlayTracker = () => {
         timerRef.current = null;
       }
     };
-  }, [currentSong?.id, isPlaying]); // re-run when song changes; isPlaying dep keeps closure fresh
+  }, [currentSong, isPlaying]); // re-run when song changes; isPlaying dep keeps closure fresh
 };
