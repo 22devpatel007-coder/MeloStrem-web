@@ -7,7 +7,7 @@
 
 const SuggestionService = require('../services/SuggestionService');
 const { sendError }     = require('../utils/apiResponse');
-
+const activity = require('../services/activityLogger');
 /**
  * POST /api/suggestions
  * Authenticated user submits a playlist link.
@@ -23,7 +23,7 @@ const submit = async (req, res, next) => {
       link,
       playlistName: playlistName || null,
     });
-
+    activity.suggestion_submitted(req, { uid: req.user.uid, link });
     return res.status(201).json(result);
   } catch (err) {
     if (err.status === 429) {
@@ -56,6 +56,7 @@ const updateStatus = async (req, res, next) => {
     if (!id) return res.status(400).json({ success: false, error: { code: 'MISSING_ID', message: 'Suggestion id is required.' } });
 
     const result = await SuggestionService.update({ id, status, adminMessage: adminMessage || null });
+    activity.suggestion_status_changed(req, { suggestionId: id, newStatus: status });
     return res.json(result);
   } catch (err) {
     if (err.status === 404) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: err.message } });

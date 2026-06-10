@@ -54,7 +54,7 @@
   const { sessionPicksQueue } = require('../jobs/SessionPicksQueue'); // ← Task 3.4
   const logger              = require('../utils/logger');
   const { ForbiddenError, ValidationError, InternalError } = require('../errors');
-
+  const activity = require('../services/activityLogger');
   // ── Liked songs caps ──────────────────────────────────────────────────────────
   //
   // MAX_LIKED_SONGS_FETCH: maximum number of liked song IDs resolved via
@@ -192,9 +192,12 @@
           }),
         { label: 'toggleLikedSong' },
       );
-
+      updatedList.includes(songId)
+  ? activity.song_like(req, { uid, songId })
+  : activity.song_unlike(req, { uid, songId });
       return res.json({ success: true, data: updatedList });
     } catch (err) {
+      
       logger.error('toggleLikedSong error:', { uid, songId, error: err.message });
       return next(
         new InternalError(
@@ -393,8 +396,10 @@ exports.getRecentPlays = async (req, res, next) => {
       );
 
       return res.json({ success: true });
+      activity.session_picks_flushed(req, { uid, pickCount: picks.length });
     } catch (err) {
       logger.error('updateActiveStatus error:', { uid, error: err.message });
+      
       return next(new InternalError('Failed to update active status.', 'INTERNAL_ERROR', { originalError: err.message }));
     }
   };

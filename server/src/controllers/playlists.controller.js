@@ -61,7 +61,7 @@ const {
   NotFoundError,
   InternalError,
 } = require("../errors");
-
+const activity = require('../services/activityLogger');
 // ── Cache key ─────────────────────────────────────────────────────────────────
 // Single key — no variants needed, result is the same for every caller.
 const ADMIN_PUBLIC_KEY = "playlists:admin:public";
@@ -190,6 +190,7 @@ exports.uploadPlaylistSong = async (req, res, next) => {
     }
 
     const existing = await checkDuplicateSong(title, artist);
+    activity.duplicate_check_triggered(req, { title, artist, isDuplicate: !!existing });
     if (existing) {
       return res.json({
         status: "duplicate",
@@ -344,6 +345,7 @@ exports.createAdminPlaylist = async (req, res, next) => {
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("createAdminPlaylist error:", { error: err.message });
+    activity.playlist_create(req, { playlistId: newPlaylist.id, name: name.trim() });
     return next(
       new InternalError(
         "Something went wrong. Please try again.",
@@ -437,6 +439,7 @@ exports.createAdminPlaylistWithCover = async (req, res, next) => {
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("createAdminPlaylistWithCover error:", { error: err.message });
+    activity.playlist_create(req, { playlistId: newPlaylist.id, name: name.trim(), hasCover: true });
     return next(
       new InternalError(
         "Something went wrong. Please try again.",
@@ -491,6 +494,7 @@ exports.deleteAdminPlaylist = async (req, res, next) => {
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("deleteAdminPlaylist error:", { error: err.message });
+    activity.playlist_delete(req, { playlistId: req.params.id });
     return next(
       new InternalError(
         "Something went wrong. Please try again.",

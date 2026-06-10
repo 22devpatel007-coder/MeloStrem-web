@@ -14,18 +14,16 @@
  *
  *   Middleware assignment after this change:
  *     GET  /admin           → playlistsLimiter only          (public, read-only — intentional)
- *     GET  /                → verifyToken + isAdmin           (read, non-destructive — non-strict acceptable)
+ *     GET  /                → verifyTokenStrict + isAdmin     (read, non-destructive — strict required)
  *     POST /upload-song     → verifyTokenStrict + isAdmin     (mutation — strict required)
  *     POST /with-cover      → verifyTokenStrict + isAdmin     (mutation — strict required)
  *     POST /                → verifyTokenStrict + isAdmin     (mutation — strict required)
  *     DELETE /:id           → verifyTokenStrict + isAdmin     (destructive — strict required)
  *
- *   Why GET / stays on verifyToken (non-strict):
- *     GET /api/playlists (admin list) is a read-only operation. No data is
- *     mutated. The risk of a stale-but-not-yet-revoked token reading the
- *     admin playlist list is low and does not justify the extra ~50-100ms
- *     latency of a revocation check on every admin panel page load.
- *     This mirrors the same reasoning used for public song reads.
+ *   Note: GET /api/playlists now executes `verifyTokenStrict + isAdmin`.
+ *   The read remains low-risk but a strict revocation check is applied
+ *   to align with songs admin read/mutation patterns and reduce exposure
+ *   from recently-revoked admin tokens.
  *
  *   Everything else is IDENTICAL to the previous version:
  *     - playlistsLimiter definition and GET /admin public route: untouched.
@@ -53,9 +51,8 @@ const { playlistsLimiter, zipUploadLimiter } = require('../middleware/rateLimite
 router.get('/admin', playlistsLimiter, ctrl.getPublicAdminPlaylists);
 
 // ─── Admin read route ─────────────────────────────────────────────────────────
-// Read-only — verifyToken (non-strict) is acceptable here.
-// A stale-but-unrevoked token reading the playlist list poses minimal risk.
-// Middleware order: verifyToken → isAdmin → controller
+// Read-only — verifyTokenStrict is applied to align with admin mutation routes.
+// Middleware order: verifyTokenStrict → isAdmin → controller
 router.get('/', verifyTokenStrict, isAdmin, ctrl.getAdminPlaylists);
 
 // ─── Admin mutation routes ────────────────────────────────────────────────────

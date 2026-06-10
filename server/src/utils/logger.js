@@ -36,15 +36,15 @@
  *   combined.log: all levels.
  */
 
-'use strict';
-
-const winston = require('winston');
-const fs      = require('fs');
+"use strict";
+require('winston-daily-rotate-file');
+const winston = require("winston");
+const fs = require("fs");
 
 // Ensure logs/ directory exists before any transport tries to write.
 // recursive:true is a no-op if the directory already exists — safe to call
 // every time without try/catch.
-fs.mkdirSync('logs', { recursive: true });
+fs.mkdirSync("logs", { recursive: true });
 
 // ── Production JSON format ────────────────────────────────────────────────────
 //
@@ -68,7 +68,7 @@ fs.mkdirSync('logs', { recursive: true });
 // ─────────────────────────────────────────────────────────────────────────────
 const productionFormat = winston.format.combine(
   winston.format.timestamp(),
-  winston.format.errors({ stack: true }),   // ensures err.stack is serialised
+  winston.format.errors({ stack: true }), // ensures err.stack is serialised
   winston.format.printf(({ level, message, timestamp, stack, ...meta }) => {
     // `meta` is everything passed as the second arg to logger.info/warn/error.
     // Spread it flat into the JSON object so correlationId, userId, etc. are
@@ -91,24 +91,25 @@ const productionFormat = winston.format.combine(
 // a local terminal. metadata keys are printed inline by simple().
 // ─────────────────────────────────────────────────────────────────────────────
 const developmentFormat = winston.format.combine(
-  winston.format.colorize(),
   winston.format.errors({ stack: true }),
   winston.format.timestamp({ format: 'HH:mm:ss' }),
   winston.format.printf(({ level, message, timestamp, stack, ...meta }) => {
-    // Inline metadata for local dev readability.
-    const metaStr = Object.keys(meta).length
-      ? ' ' + JSON.stringify(meta)
-      : '';
-    const stackStr = stack ? `\n${stack}` : '';
-    return `${timestamp} ${level}: ${message}${metaStr}${stackStr}`;
+    const entry = {
+      level,
+      timestamp,
+      message,
+      ...meta,
+      ...(stack ? { stack } : {}),
+    };
+    return JSON.stringify(entry, null, 2);
   }),
 );
 
 // ── Logger instance ───────────────────────────────────────────────────────────
-const isProduction = process.env.NODE_ENV === 'production';
+const isProduction = process.env.NODE_ENV === "production";
 
 const logger = winston.createLogger({
-  level: 'info',
+  level: "info",
 
   // Format is chosen at module load time — one format per environment.
   // This avoids the overhead of a conditional on every log call.
@@ -116,14 +117,19 @@ const logger = winston.createLogger({
 
   transports: [
     // error.log: only error-level entries — easy to tail in production ops.
-    new winston.transports.File({
-      filename: 'logs/error.log',
-      level:    'error',
-    }),
-    // combined.log: every log level — full audit trail.
-    new winston.transports.File({
-      filename: 'logs/combined.log',
-    }),
+    new winston.transports.DailyRotateFile({
+  filename:    'logs/error-%DATE%.log',
+  datePattern: 'YYYY-MM-DD',
+  level:       'error',
+  maxSize:     '20m',
+  maxFiles:    '14d',
+}),
+new winston.transports.DailyRotateFile({
+  filename:    'logs/combined-%DATE%.log',
+  datePattern: 'YYYY-MM-DD',
+  maxSize:     '20m',
+  maxFiles:    '14d',
+}),
   ],
 });
 
