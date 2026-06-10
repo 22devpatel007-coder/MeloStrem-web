@@ -44,6 +44,8 @@ const cache            = require('../services/cache.service');
 const logger           = require('../utils/logger');
 const { InternalError } = require('../errors');
 const { Song } = require('../models/Song');
+const activity = require('../services/activityLogger');
+
 exports.searchSongs = async (req, res, next) => {
   try {
     const raw   = (req.query.q || '').trim();
@@ -62,6 +64,7 @@ exports.searchSongs = async (req, res, next) => {
     // Return cached result directly — it was already sorted before storage.
     const cached = cache.get(key);
     if (cached !== null) {
+      activity.search_performed(req, { query: raw, cacheHit: true });
       return res.json(cached);
     }
 
@@ -84,6 +87,7 @@ exports.searchSongs = async (req, res, next) => {
     // ── Cache write ───────────────────────────────────────────────────────
     // NEVER cache empty results — Firestore indexing lag can return zero
     // results for a newly uploaded song. Caching that would hide it for 30s.
+    activity.search_performed(req, { query: raw, resultCount: sorted.length, cacheHit: false });
     if (sorted.length > 0) {
       cache.set(key, result, cache.TTL.SEARCH);
     }

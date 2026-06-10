@@ -10,7 +10,7 @@ const { adminMutationLimiter, duplicateCheckLimiter } = require('../middleware/r
 
 // ── POST /songs/batch ─────────────────────────────────────────────────────────
 // Public read — no auth, no mutation limiter.
-// Covered by global generalLimiter (100 req/15min) in server/src/index.js.
+// Covered by global generalLimiter (500 req/15min) in server/src/index.js.
 // Must be declared before /:id so Express does not treat 'batch' as an ID param.
 router.post('/batch', songsController.getSongsBatch);
   

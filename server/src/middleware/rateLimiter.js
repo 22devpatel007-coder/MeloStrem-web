@@ -1,3 +1,4 @@
+'use strict';
 /**
  * server/src/middleware/rateLimiter.js
  *
@@ -9,7 +10,7 @@
  *
  * Changes from previous version:
  *   PRESERVED (zero config changes):
- *     - generalLimiter    — 100 req / 15 min   (global, mounted in index.js)
+ *     - generalLimiter    — 500 req / 15 min   (global, mounted in index.js)
  *     - uploadLimiter     — 20 req  / 60 min   (song upload endpoints)
  *     - searchLimiter     — 30 req  / 1 min    (GET /api/search)
  *
@@ -31,7 +32,7 @@
  *
  * Policy notes (why each limit was chosen):
  *
- *   generalLimiter (100/15m):
+ *   generalLimiter (500/15m):
  *     Baseline protection for all public endpoints. High enough to never
  *     impact normal users; low enough to slow down scrapers.
  *
@@ -90,7 +91,7 @@
  */
 
 const rateLimit = require('express-rate-limit');
-
+const activity = require('../services/activityLogger');
 // ── Helpers ───────────────────────────────────────────────────────────────────
 // Shared config defaults so all limiters use identical header/response shape.
 // Individual limiters only override what differs (windowMs, max, message.error).
@@ -103,16 +104,16 @@ const base = {
 
 /**
  * generalLimiter — applied globally in server/src/index.js.
- * 100 requests per 15 minutes per IP.
+ * 500 requests per 15 minutes per IP.
  */
 const generalLimiter = rateLimit({
   ...base,
   windowMs: 15 * 60 * 1000,
   max:      500,
-  message:  {
-    success: false,
-    error: { message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' },
-  },
+  handler: (req, res) => {
+  activity.rate_limit_triggered(req, { limiter: 'suggestionsLimiter', path: req.path });
+  res.status(429).json({ success: false, error: { message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' } });
+},
 });
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -286,10 +287,10 @@ const suggestionsLimiter = rateLimit({
   ...base,
   windowMs: 15 * 60 * 1000,
   max:      5,
-  message:  {
-    success: false,
-    error: { message: 'Too many suggestion requests', code: 'RATE_LIMIT_EXCEEDED' },
-  },
+  handler: (req, res) => {
+  activity.rate_limit_triggered(req, { limiter: 'generalLimiter', path: req.path });
+  res.status(429).json({ success: false, error: { message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' } });
+},
 });
 
 const playsLimiter = rateLimit({

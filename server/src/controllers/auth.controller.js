@@ -13,6 +13,7 @@
 const { getUser } = require('../services/firebase.service');
 const logger       = require('../utils/logger');
 const { NotFoundError, InternalError } = require('../errors');
+const activity = require('../services/activityLogger');
 
 exports.verifyUser = async (req, res, next) => {
   try {
@@ -33,7 +34,7 @@ if (!user) {
     }, 'create')
   );
 }
-
+    activity.user_login(req, { uid: req.user.uid });
     return res.json({ uid: req.user.uid, ...user });
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
