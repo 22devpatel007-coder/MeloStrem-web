@@ -3,7 +3,7 @@
 const express         = require('express');
 const router          = express.Router();
 const { verifyToken } = require('../middleware/verifyToken');
-const { playsLimiter} = require('../middleware/rateLimiter');
+const { playsLimiter } = require('../middleware/rateLimiter');
 const playsController = require('../controllers/plays.controller');
 
 // POST /api/plays/:songId
