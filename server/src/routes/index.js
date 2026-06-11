@@ -50,7 +50,9 @@ const artistsRoutes   = require('./artists.routes');
 const albumsRoutes    = require('./albums.routes');
 const errorsRoutes    = require('./errors.routes');   // Phase 4 Task 4.2
 const suggestionsRouter = require('./suggestions.routes');
-const playsRouter = require('./plays.routes');
+const playsRouter = require('./Plays.routes');
+
+
 // ── Health check ──────────────────────────────────────────────────────────────
 // Used for keep-alive self-ping and uptime monitors that prefix all paths
 // with /api. Synchronous only — no dependency probes (those live at /ready).
