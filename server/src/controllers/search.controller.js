@@ -37,18 +37,18 @@
  *   - Every cache call is isolated — failure is a miss, never a crash.
  */
 
-'use strict';
+"use strict";
 
-const { searchSongs } = require('../services/firebase.service');
-const cache            = require('../services/cache.service');
-const logger           = require('../utils/logger');
-const { InternalError } = require('../errors');
-const { Song } = require('../models/Song');
-const activity = require('../services/activityLogger');
+const { searchSongs } = require("../services/firebase.service");
+const cache = require("../services/cache.service");
+const logger = require("../utils/logger");
+const { InternalError } = require("../errors");
+const { Song } = require("../models/Song");
+const activity = require("../services/activityLogger");
 
 exports.searchSongs = async (req, res, next) => {
   try {
-    const raw   = (req.query.q || '').trim();
+    const raw = (req.query.q || "").trim();
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
 
     if (!raw || raw.length < 1) {
@@ -58,13 +58,14 @@ exports.searchSongs = async (req, res, next) => {
     // Normalise query for cache key — case-insensitive deduplication.
     // "Coldplay", "coldplay", "COLDPLAY" all resolve to the same cache entry.
     const normalizedQuery = raw.toLowerCase();
-    const key             = `search:${normalizedQuery}:${limit}`;
+    const key = `search:${normalizedQuery}:${limit}`;
 
     // ── Cache read ────────────────────────────────────────────────────────
     // Return cached result directly — it was already sorted before storage.
     const cached = cache.get(key);
     if (cached !== null) {
       activity.search_performed(req, { query: raw, cacheHit: true });
+      res.locals.query = raw;
       return res.json(cached);
     }
 
@@ -73,28 +74,41 @@ exports.searchSongs = async (req, res, next) => {
 
     // Re-apply sorting for exact-match precedence (same logic as before).
     const sorted = [...songs].sort((a, b) => {
-      const q      = query.toLowerCase();
-      const aTitle = (a.titleLower || '').startsWith(q);
-      const bTitle = (b.titleLower || '').startsWith(q);
+      const q = query.toLowerCase();
+      const aTitle = (a.titleLower || "").startsWith(q);
+      const bTitle = (b.titleLower || "").startsWith(q);
       if (aTitle && !bTitle) return -1;
-      if (!aTitle && bTitle) return  1;
-      return (a.titleLower || '').localeCompare(b.titleLower || '');
+      if (!aTitle && bTitle) return 1;
+      return (a.titleLower || "").localeCompare(b.titleLower || "");
     });
 
-
-    const result = { songs: sorted.map((s) => Song.fromFirestore(s)), total, query: raw };
+    res.locals.query = raw;
+    res.locals.resultCount = sorted.length;
+    const result = {
+      songs: sorted.map((s) => Song.fromFirestore(s)),
+      total,
+      query: raw,
+    };
 
     // ── Cache write ───────────────────────────────────────────────────────
     // NEVER cache empty results — Firestore indexing lag can return zero
     // results for a newly uploaded song. Caching that would hide it for 30s.
-    activity.search_performed(req, { query: raw, resultCount: sorted.length, cacheHit: false });
+    activity.search_performed(req, {
+      query: raw,
+      resultCount: sorted.length,
+      cacheHit: false,
+    });
     if (sorted.length > 0) {
       cache.set(key, result, cache.TTL.SEARCH);
     }
 
     return res.json(result);
   } catch (err) {
-    logger.error('[search] unexpected error:', { error: err.message });
-    return next(new InternalError('Search failed. Please try again.', 'SEARCH_ERROR', { originalError: err.message }));
+    logger.error("[search] unexpected error:", { error: err.message });
+    return next(
+      new InternalError("Search failed. Please try again.", "SEARCH_ERROR", {
+        originalError: err.message,
+      }),
+    );
   }
 };

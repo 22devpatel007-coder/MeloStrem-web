@@ -40,6 +40,7 @@ const cors    = require('cors');
 const os      = require('os');
 const https   = require('https');
 const http    = require('http');
+const httpLogger = require('./middleware/httpLogger');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. STARTUP VALIDATION
@@ -187,6 +188,7 @@ app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 //   non-OPTIONS requests — it just sets headers and calls next().
 app.use(correlationId);
 
+app.use(httpLogger);
 // ── 4e. Global rate limiter ──────────────────────────────────────────────────
 app.use(generalLimiter);
 

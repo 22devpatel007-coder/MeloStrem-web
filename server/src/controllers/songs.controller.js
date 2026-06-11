@@ -376,7 +376,12 @@ exports.uploadSong = async (req, res) => {
     });
 
     const newSong = { id: songData.id, ...songData };
-    activity.song_upload(req, { songId: newSong.id, title: trimmedTitle, artist: trimmedArtist });
+    res.locals.songId = newSong.id;
+    activity.song_upload(req, {
+      songId: newSong.id,
+      title: trimmedTitle,
+      artist: trimmedArtist,
+    });
     newSong.createdAt =
       songData.createdAt?.toDate?.()?.toISOString() ?? new Date().toISOString();
     newSong.updatedAt =
