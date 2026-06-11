@@ -44,23 +44,20 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   LineChart,
   Line,
   CartesianGrid,
 } from "recharts";
 
-const COLORS = [
-  "#22c55e",
-  "#3b82f6",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#ec4899",
-  "#14b8a6",
-];
+// const COLORS = [
+//   "#22c55e",
+//   "#3b82f6",
+//   "#f59e0b",
+//   "#ef4444",
+//   "#8b5cf6",
+//   "#ec4899",
+//   "#14b8a6",
+// ];
 
 const AdminDashboard = () => {
   const [users, setUsers] = useState([]);
@@ -142,10 +139,10 @@ const AdminDashboard = () => {
   songs.forEach((s) => {
     if (s.genre) genreMap[s.genre] = (genreMap[s.genre] || 0) + 1;
   });
-  const genreData = Object.entries(genreMap).map(([name, value]) => ({
-    name,
-    value,
-  }));
+  // const genreData = Object.entries(genreMap).map(([name, value]) => ({
+  //   name,
+  //   value,
+  // }));
 
   const uploadsByMonth = buildMonthlyData(songs, "createdAt", "uploads");
   const usersByMonth = buildMonthlyData(users, "createdAt", "users");
@@ -178,12 +175,12 @@ const AdminDashboard = () => {
           icon={<PlayIcon />}
           color="#f59e0b"
         />
-        <StatCard
+        {/* <StatCard
           label="Genres"
           value={loading ? "…" : Object.keys(genreMap).length}
           icon={<TagIcon />}
           color="#8b5cf6"
-        />
+        /> */}
       </div>
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>Admin Playlists</h2>
@@ -319,7 +316,7 @@ const AdminDashboard = () => {
               )}
             </div>
 
-            <div style={styles.chartCard}>
+            {/* <div style={styles.chartCard}>
               <h3 style={styles.chartTitle}>Genre Breakdown</h3>
               {genreData.length === 0 ? (
                 <EmptyChart />
@@ -389,7 +386,7 @@ const AdminDashboard = () => {
                   </div>
                 </div>
               )}
-            </div>
+            </div> */}
           </div>
 
           <div style={styles.chartsGrid}>
@@ -625,19 +622,19 @@ const PlayIcon = () => (
     <polygon points="5 3 19 12 5 21 5 3" />
   </svg>
 );
-const TagIcon = () => (
-  <svg
-    width="18"
-    height="18"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-  >
-    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-    <line x1="7" y1="7" x2="7.01" y2="7" />
-  </svg>
-);
+// const TagIcon = () => (
+//   <svg
+//     width="18"
+//     height="18"
+//     viewBox="0 0 24 24"
+//     fill="none"
+//     stroke="currentColor"
+//     strokeWidth="2"
+//   >
+//     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+//     <line x1="7" y1="7" x2="7.01" y2="7" />
+//   </svg>
+// );
 const UploadIcon = () => (
   <svg
     width="18"

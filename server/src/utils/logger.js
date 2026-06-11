@@ -37,8 +37,9 @@
  */
 
 "use strict";
-require('winston-daily-rotate-file');
+
 const winston = require("winston");
+require('winston-daily-rotate-file');
 const fs = require("fs");
 
 // Ensure logs/ directory exists before any transport tries to write.
