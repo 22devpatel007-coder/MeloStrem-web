@@ -102,7 +102,11 @@ const developmentFormat = winston.format.combine(
       ...meta,
       ...(stack ? { stack } : {}),
     };
-    return JSON.stringify(entry, null, 2);
+    // Single line for INFO, pretty JSON block for WARN/ERROR
+const metaStr = Object.keys(meta).length > 0
+  ? '\n' + JSON.stringify(meta, null, 2)
+  : '';
+return `${timestamp} ${level.toUpperCase().padEnd(5)} ${message}${metaStr}`;
   }),
 );
 

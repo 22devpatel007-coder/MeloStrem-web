@@ -41,12 +41,12 @@
  *   - stack only logged for non-operational errors.
  */
 
-'use strict';
+"use strict";
 
-const logger   = require('../utils/logger');
-const AppError = require('../errors/AppError');
+const logger = require("../utils/logger");
+const AppError = require("../errors/AppError");
 
-const GENERIC_MESSAGE = 'Something went wrong. Please try again.';
+const GENERIC_MESSAGE = "Something went wrong. Please try again.";
 
 /**
  * Global Express error handler.
@@ -58,13 +58,14 @@ const GENERIC_MESSAGE = 'Something went wrong. Please try again.';
  * @param {import('express').Response}  res
  * @param {import('express').NextFunction} next
  */
-const errorHandler = (err, req, res, next) => { // eslint-disable-line no-unused-vars
+const errorHandler = (err, req, res, next) => {
+  // eslint-disable-line no-unused-vars
   // ── Classify error ─────────────────────────────────────────────────────────
-  const isAppError    = err instanceof AppError;
+  const isAppError = err instanceof AppError;
   const isOperational = isAppError ? err.isOperational : false;
 
   const statusCode = err.statusCode || err.status || 500;
-  const code       = err.code       || 'INTERNAL_ERROR';
+  const code = err.code || "INTERNAL_ERROR";
 
   // ── Build structured log payload ───────────────────────────────────────────
   //
@@ -84,10 +85,10 @@ const errorHandler = (err, req, res, next) => { // eslint-disable-line no-unused
   //   stack         — only for non-operational (programmer) errors.
   // ─────────────────────────────────────────────────────────────────────────
   const logPayload = {
-    correlationId: req.correlationId ?? null,   // set by correlationId middleware
-    userId:        req.user?.uid    ?? null,     // set by verifyToken middleware
-    endpoint:      `${req.method} ${req.path}`,
-    errorType:     err.constructor?.name ?? 'Error',
+    correlationId: req.correlationId ?? null, // set by correlationId middleware
+    userId: req.user?.uid ?? null, // set by verifyToken middleware
+    endpoint: `${req.method} ${req.path}`,
+    errorType: err.constructor?.name ?? "Error",
     code,
     statusCode,
     ...(isAppError && err.context ? { context: err.context } : {}),
@@ -112,10 +113,11 @@ const errorHandler = (err, req, res, next) => { // eslint-disable-line no-unused
   // Operational errors send their own safe message; everything else gets the
   // generic fallback so internal implementation details never leak.
   const clientMessage = isOperational ? err.message : GENERIC_MESSAGE;
-
+  res.locals.error = clientMessage;
+  res.locals.stack = !isOperational ? err.stack : undefined;
   return res.status(statusCode).json({
     success: false,
-    error:   { code, message: clientMessage },
+    error: { code, message: clientMessage },
   });
 };
 

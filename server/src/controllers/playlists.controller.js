@@ -340,12 +340,12 @@ exports.createAdminPlaylist = async (req, res, next) => {
 
     // ── Cache invalidation ────────────────────────────────────────────────
     cache.del(ADMIN_PUBLIC_KEY);
-
+    activity.playlist_create(req, { playlistId: newPlaylist.id, name: name.trim() });
     return res.status(201).json(newPlaylist);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("createAdminPlaylist error:", { error: err.message });
-    activity.playlist_create(req, { playlistId: newPlaylist.id, name: name.trim() });
+    
     return next(
       new InternalError(
         "Something went wrong. Please try again.",
@@ -434,12 +434,12 @@ exports.createAdminPlaylistWithCover = async (req, res, next) => {
     newPlaylist.coverStoragePath = playlistData.coverStoragePath;
     // ── Cache invalidation ────────────────────────────────────────────────
     cache.del(ADMIN_PUBLIC_KEY);
-
+    activity.playlist_create(req, { playlistId: newPlaylist.id, name: name.trim(), hasCover: true });
     return res.status(201).json(newPlaylist);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("createAdminPlaylistWithCover error:", { error: err.message });
-    activity.playlist_create(req, { playlistId: newPlaylist.id, name: name.trim(), hasCover: true });
+    
     return next(
       new InternalError(
         "Something went wrong. Please try again.",
@@ -489,12 +489,12 @@ exports.deleteAdminPlaylist = async (req, res, next) => {
     );
 
     cache.del(ADMIN_PUBLIC_KEY);
-
+    activity.playlist_delete(req, { playlistId: req.params.id });
     return res.json(result);
   } catch (err) {
     if (err.isOperational !== undefined) return next(err);
     logger.error("deleteAdminPlaylist error:", { error: err.message });
-    activity.playlist_delete(req, { playlistId: req.params.id });
+    
     return next(
       new InternalError(
         "Something went wrong. Please try again.",
