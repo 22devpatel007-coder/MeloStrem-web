@@ -20,19 +20,24 @@ exports.verifyUser = async (req, res, next) => {
     let user = await getUser(req.user.uid);
 
 if (!user) {
-  // First-time login (Google OAuth or any provider) — create Firestore record
+  // First-time login (Google OAuth, or email/password right after register)
   const { uid, email, name, picture } = req.user;
   const { User } = require('../models/User');
-  await require('../services/firebase.service').createUser(
+  const { createUser } = require('../services/firebase.service');
+  await createUser(
     User.toFirestore({
       uid,
       email:       email   ?? '',
       displayName: name    ?? '',
       photoURL:    picture ?? null,
+      role:        'user',
       likedSongs:  [],
       createdAt:   new Date(),
     }, 'create')
   );
+  // Re-fetch so the response always reflects what's actually in Firestore,
+  // instead of returning a partial/empty object on first login.
+  user = await getUser(uid);
 }
     activity.user_login(req, { uid: req.user.uid });
     return res.json({ uid: req.user.uid, ...user });
