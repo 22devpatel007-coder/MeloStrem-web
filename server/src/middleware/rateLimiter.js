@@ -304,6 +304,21 @@ const playsLimiter = rateLimit({
     error: { message: 'Too many play events', code: 'RATE_LIMIT_EXCEEDED' },
   },
 });
+/**
+ * authVerifyLimiter — POST /api/auth/verify.
+ * 20 requests per 15 minutes per IP.
+ * This endpoint can trigger a Firestore write on first-time login,
+ * so it needs its own budget separate from generalLimiter.
+ */
+const authVerifyLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  max:      20,
+  message:  {
+    success: false,
+    error: { message: 'Too many auth requests', code: 'RATE_LIMIT_EXCEEDED' },
+  },
+});
 
 module.exports = {
   generalLimiter,
@@ -318,4 +333,5 @@ module.exports = {
   errorReportLimiter,
   suggestionsLimiter,
   playsLimiter,
+  authVerifyLimiter,
 };

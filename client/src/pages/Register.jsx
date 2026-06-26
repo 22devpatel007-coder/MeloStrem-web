@@ -1,12 +1,13 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
+  updateProfile,
 } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../firebase';
+import { auth } from '../firebase';
+import { isValidEmail } from '../utils/validators';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,6 +98,7 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const navigate = useNavigate();
+  const submitting = useRef(false);
 
   const handleChange = (e) => {
     setFields((prev) => ({ ...prev, [e.target.name]: e.target.value }));
@@ -108,6 +110,7 @@ const Register = () => {
   const validate = () => {
     if (!fields.name.trim()) return 'Full name is required.';
     if (!fields.email.trim()) return 'Email is required.';
+    if (!isValidEmail(fields.email)) return 'Please enter a valid email address.';
     if (fields.password.length < 6) return 'Password must be at least 6 characters.';
     if (fields.password !== fields.confirm) return 'Passwords do not match.';
     return null;
@@ -115,35 +118,43 @@ const Register = () => {
 
   const handleRegister = async (e) => {
     e.preventDefault();
+
+    if (submitting.current) return;
+    submitting.current = true;
+
     setError('');
 
     const validationError = validate();
-    if (validationError) return setError(validationError);
+    if (validationError) {
+      submitting.current = false;
+      return setError(validationError);
+    }
 
-    setLoading(true);
+   setLoading(true);
     try {
       const result = await createUserWithEmailAndPassword(
         auth,
         fields.email.trim(),
         fields.password,
       );
-      await setDoc(doc(db, 'users', result.user.uid), {
-        uid: result.user.uid,
-        email: fields.email.trim().toLowerCase(),
-        displayName: fields.name.trim(),
-        role: 'user',
-        likedSongs: [],
-        createdAt: serverTimestamp(),
-      });
+      // Set displayName on the Firebase Auth user so it appears in the
+      // ID token claims (req.user.name) — auth.controller.js reads this
+      // when creating the Firestore user doc on first /api/auth/verify call.
+      await updateProfile(result.user, { displayName: fields.name.trim() });
+      await result.user.getIdToken(true);
       navigate('/home');
     } catch (err) {
       setError(getFriendlyError(err));
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
+    if (submitting.current) return;
+    submitting.current = true;
+
     setError('');
     setGoogleLoading(true);
     try {
@@ -157,6 +168,7 @@ const Register = () => {
         setError(getFriendlyError(err));
       }
     } finally {
+      submitting.current = false;
       setGoogleLoading(false);
     }
   };

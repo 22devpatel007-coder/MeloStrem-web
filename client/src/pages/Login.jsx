@@ -53,6 +53,7 @@ import { signInWithPopup, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "../firebase";
 import { loginWithEmail } from "../services/auth.service";
 import useAuthStore from "../store/authStore";
+import { isValidEmail } from "../utils/validators";
 
 // ─── Firebase error code → safe user-facing message ──────────────────────────
 const FIREBASE_ERROR_MESSAGES = {
@@ -87,6 +88,9 @@ const Login = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState(null);
+  const [lockCountdown, setLockCountdown] = useState(0);
 
   // Synchronous guard — blocks double submit before first re-render
   const submitting = useRef(false);
@@ -101,13 +105,40 @@ const Login = () => {
     if (!authLoading && user) navigate("/", { replace: true });
   }, [user, authLoading, navigate]);
 
+  useEffect(() => {
+  if (!lockedUntil) return;
+  const tick = () => {
+    const remaining = Math.ceil((lockedUntil - Date.now()) / 1000);
+    if (remaining <= 0) {
+      setLockedUntil(null);
+      setLockCountdown(0);
+      setFailedAttempts(0);
+    } else {
+      setLockCountdown(remaining);
+    }
+  };
+  tick();
+  const interval = setInterval(tick, 1000);
+  return () => clearInterval(interval);
+}, [lockedUntil]);
+
   const isBusy = loading || googleLoading;
 
   // ── Email / password login ─────────────────────────────────────────────────
+  const MAX_ATTEMPTS = 5;
+  const LOCK_DURATION_MS = 30000; // 30s, tune as you like
+
   const handleLogin = async (e) => {
     e.preventDefault();
 
     if (submitting.current) return;
+    if (lockedUntil && Date.now() < lockedUntil) return;
+
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
     submitting.current = true;
 
     setError("");
@@ -115,10 +146,18 @@ const Login = () => {
 
     try {
       await loginWithEmail(email.trim(), password);
+      setFailedAttempts(0);
       // No navigate() here — useEffect above handles it once store is ready
     } catch (err) {
       const msg = getErrorMessage(err?.code);
       if (msg) setError(msg);
+
+      const next = failedAttempts + 1;
+      setFailedAttempts(next);
+      if (next >= MAX_ATTEMPTS) {
+        setLockedUntil(Date.now() + LOCK_DURATION_MS);
+        setError(`Too many attempts. Please wait ${LOCK_DURATION_MS / 1000}s and try again.`);
+      }
     } finally {
       submitting.current = false;
       setLoading(false);
@@ -226,7 +265,7 @@ const Login = () => {
               </Link>
           <button
             type="submit"
-            disabled={isBusy}
+            disabled={isBusy || (lockedUntil && Date.now() < lockedUntil)}
             style={{
               ...styles.primaryBtn,
               opacity: isBusy ? 0.6 : 1,
@@ -234,12 +273,14 @@ const Login = () => {
             }}
           >
             {loading ? (
-              <InlineLoader>
-                <SpinnerIcon color="#000" /> Signing in…
-              </InlineLoader>
-            ) : (
-              "Sign In"
-            )}
+  <InlineLoader>
+    <SpinnerIcon color="#000" /> Signing in…
+  </InlineLoader>
+) : lockedUntil && lockCountdown > 0 ? (
+  `Try again in ${lockCountdown}s`
+) : (
+  "Sign In"
+)}
           </button>
         </form>
 

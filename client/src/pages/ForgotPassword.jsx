@@ -21,6 +21,7 @@ import { useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase";
+import { isValidEmail } from "../utils/validators";
 
 // ─── Firebase error → safe user-facing message ───────────────────────────────
 const FIREBASE_ERROR_MESSAGES = {
@@ -50,6 +51,12 @@ const ForgotPassword = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting.current) return;
+
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
     submitting.current = true;
 
     setError("");
