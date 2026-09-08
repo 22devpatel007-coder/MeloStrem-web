@@ -30,6 +30,10 @@
  *       (immediate open on 429) is the primary abuse defence; this limiter
  *       remains as the server-side safety net.
  *
+ *   JAMENDO INTEGRATION (new):
+ *     - jamendoLimiter — 60 req / 15 min (all /api/jamendo routes).
+ *       See its own docblock below for rationale.
+ *
  * Policy notes (why each limit was chosen):
  *
  *   generalLimiter (500/15m):
@@ -73,9 +77,18 @@
  *   errorReportLimiter (20/1m):
  *     POST /api/errors/report receives batched frontend error payloads.
  *     Client flushes at most ~8.5 times/min (7 000 ms interval). 20/min
- *     gives a 2x safety margin above the normal client flush rate. The
- *     client-side 429 circuit breaker (opens immediately on first 429) is
- *     the primary throttle; this limiter is the server-side safety net.
+ *     gives a 2x safety margin above the normal flush rate, absorbing
+ *     visibilitychange flushes and multiple tabs sharing an IP without
+ *     ever hitting the wall under normal error conditions.
+ *
+ *   jamendoLimiter (60/15m):
+ *     All /api/jamendo routes proxy to the third-party Jamendo API, which
+ *     has its own request quota shared across all of MeloStream's traffic.
+ *     Independent counter from every other domain (see SECURITY NOTE below)
+ *     so a burst against Jamendo can never consume budget from, or be
+ *     masked by, unrelated endpoints. 60/15m comfortably covers real
+ *     discovery/search-as-you-type usage while blocking scraping that
+ *     would burn through Jamendo's quota for every other user.
  *
  * SECURITY NOTE — why separate artistsLimiter and albumsLimiter:
  *   Previously both route files defined `const searchLimiter = rateLimit(...)`
@@ -275,7 +288,7 @@ const errorReportLimiter = rateLimit({
   },
 });
 
-// ── Exports ───────────────────────────────────────────────────────────────────
+// ── Suggestions ───────────────────────────────────────────────────────────────
 
 /**
  * suggestionsLimiter — POST /api/suggestions.
@@ -320,6 +333,31 @@ const authVerifyLimiter = rateLimit({
   },
 });
 
+// ── Jamendo (Creative Commons music source) ──────────────────────────────────
+
+/**
+ * jamendoLimiter — all /api/jamendo routes.
+ * 60 requests per 15 minutes per IP.
+ *
+ * Rationale: every request here proxies to the third-party Jamendo API,
+ * which has its own free-tier request quota shared across all of
+ * MeloStream's traffic. This limiter protects that shared quota from a
+ * single IP exhausting it — independent counter from artistsLimiter/
+ * albumsLimiter/generalLimiter (see SECURITY NOTE above for why domains
+ * get independent counters). 60/15m is generous for real browsing
+ * (discovery page, search-as-you-type debounce) while blocking scraping
+ * that would burn through Jamendo's quota for every other user.
+ */
+const jamendoLimiter = rateLimit({
+  ...base,
+  windowMs: 15 * 60 * 1000,
+  max:      60,
+  message:  {
+    success: false,
+    error: { message: 'Too many requests', code: 'RATE_LIMIT_EXCEEDED' },
+  },
+});
+
 module.exports = {
   generalLimiter,
   uploadLimiter,
@@ -334,4 +372,5 @@ module.exports = {
   suggestionsLimiter,
   playsLimiter,
   authVerifyLimiter,
+  jamendoLimiter,
 };

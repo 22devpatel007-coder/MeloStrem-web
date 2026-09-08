@@ -1,14 +1,15 @@
 /**
  * client/src/routes/index.jsx
  *
- * TASK 5.3 — Dead Code Audit: ONE CHANGE ONLY
- * ─────────────────────────────────────────────
- * BEFORE:  path='/player'
- * AFTER:   path='/player/:id'
- *
- * Root cause: Player.jsx calls useParams() to read `id`, but the route had
- * no :id segment, so id was always undefined and the page always showed
- * "Song not found". This one-character fix restores the intended behavior.
+ * CHANGE IN THIS VERSION:
+ *   - Added Discover route ('/discover') — was missing entirely, which
+ *     caused the catch-all (`path='*'` → Navigate to '/') to silently
+ *     redirect users back home whenever they tried to open Discover.
+ *   - Added `import Discover from '../pages/Discover';` (eager import,
+ *     grouped with Home/Search/Playlists since Discover is a primary
+ *     nav item, not a secondary/admin page).
+ *   - Wrapped in ProtectedRoute + PageWrapper, matching every other
+ *     primary nav page (Home, Search, Playlists, LikedSongs).
  *
  * NO other lines changed. All other routes, imports, and layout wrappers
  * are identical to the previous version.
@@ -41,6 +42,7 @@ import LikedSongs     from '../pages/LikedSongs';
 import Login          from '../pages/Login';
 import Register       from '../pages/Register';
 import ForgotPassword from '../pages/ForgotPassword';
+import Discover       from '../pages/Discover';
 
 
 // ── Lazily loaded (code-split) ────────────────────────────────────────────────
@@ -129,6 +131,18 @@ const AppRoutes = () => (
           <ProtectedRoute>
             <PageWrapper>
               <LikedSongs />
+            </PageWrapper>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ── Discover — Jamendo (Creative Commons) search & browse ── */}
+      <Route
+        path='/discover'
+        element={
+          <ProtectedRoute>
+            <PageWrapper>
+              <Discover />
             </PageWrapper>
           </ProtectedRoute>
         }
