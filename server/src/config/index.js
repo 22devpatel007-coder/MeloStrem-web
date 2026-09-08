@@ -13,6 +13,14 @@ const config = {
     apiKey: process.env.CLOUDINARY_API_KEY,
     apiSecret: process.env.CLOUDINARY_API_SECRET,
   },
+  // Jamendo integration — free Creative Commons music source.
+  // Not in the `required` list below on purpose: the feature must degrade
+  // gracefully (jamendo.controller.js returns 503 JAMENDO_NOT_CONFIGURED)
+  // rather than crash the whole server boot if this is unset. This lets you
+  // deploy/redeploy without immediately having a Jamendo client ID ready.
+  jamendo: {
+    clientId: process.env.JAMENDO_CLIENT_ID || null,
+  },
   // ✅ Fixed: use array for multiple origins (local dev + network + prod)
   clientOrigin: (
     process.env.CLIENT_ORIGIN

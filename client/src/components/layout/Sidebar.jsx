@@ -1,15 +1,11 @@
 /**
  * client/src/components/layout/Sidebar.jsx
  *
- * PRODUCTION FIX — Added loading + error states for playlist section.
- *
- * CHANGES FROM PREVIOUS VERSION:
- *   - Destructure `loading` and `isError` from useUserPlaylists()
- *   - Replace bare "No playlists yet." with 3-state render:
- *       loading  → skeleton shimmer (3 placeholder rows)
- *       isError  → red error message
- *       empty    → "No playlists yet."
- *   - All other logic, classes, layout — completely unchanged.
+ * CHANGES IN THIS VERSION:
+ *   - Added "Discover" nav item (Jamendo/Creative Commons music) between
+ *     "Playlists" and "Share a Playlist", using CompassIcon.
+ *   - All other logic, classes, layout — completely unchanged from the
+ *     previous production fix (loading/error states for playlist section).
  */
 
 import { NavLink } from 'react-router-dom';
@@ -22,6 +18,7 @@ import {
   MusicalNoteIcon,
   XMarkIcon,
   LinkIcon,
+  GlobeAltIcon,
 } from '@heroicons/react/24/outline';
 import useAuthStore from '../../store/authStore';
 import { useUserPlaylists } from '../../hooks/usePlaylists';
@@ -33,6 +30,7 @@ const NAV_ITEMS = [
   { to: '/search',       label: 'Search',      Icon: MagnifyingGlassIcon },
   { to: '/liked',        label: 'Liked Songs', Icon: HeartIcon },
   { to: '/playlists',    label: 'Playlists',   Icon: QueueListIcon },
+  { to: '/discover',     label: 'Discover',    Icon: GlobeAltIcon },
   { to: '/suggestions',  label: 'Share a Playlist', Icon: LinkIcon, badge: 'New' },
 ];
 

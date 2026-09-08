@@ -37,7 +37,7 @@ import {  useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import SongCard from "./SongCard";
 import { useLikedSongs } from "../../hooks/useLikedSongs";
-import { useAuthStore } from "../../store/authStore";
+import useAuthStore from '../../store/authStore'; 
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const SONG_ROW_HEIGHT = 61;

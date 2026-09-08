@@ -27,6 +27,10 @@
  *     - Keeping the probe logic in one place (healthChecker.js + /ready handler)
  *       prevents divergence between two implementations of the same check.
  *
+ * JAMENDO INTEGRATION — one addition (nothing else touched):
+ *   - Mounted /api/jamendo -> jamendo.routes.js (public, read-only, its own
+ *     rate limiter — jamendoLimiter — applied inside that route file).
+ *
  * Everything else is identical to the previous version.
  */
 
@@ -51,6 +55,7 @@ const albumsRoutes    = require('./albums.routes');
 const errorsRoutes    = require('./errors.routes');   // Phase 4 Task 4.2
 const suggestionsRouter = require('./suggestions.routes');
 const playsRouter = require('./Plays.routes');
+const jamendoRoutes   = require('./jamendo.routes');   // Jamendo integration
 
 
 // ── Health check ──────────────────────────────────────────────────────────────
@@ -88,5 +93,6 @@ router.use('/users',     usersRoutes);
 router.use('/artists',   artistsRoutes);
 router.use('/albums',    albumsRoutes);
 router.use('/errors',    errorsRoutes);   // Phase 4 Task 4.2
+router.use('/jamendo',   jamendoRoutes);  // Jamendo integration
 
 module.exports = router;
